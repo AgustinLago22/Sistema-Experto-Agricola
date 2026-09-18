@@ -1,0 +1,672 @@
+{
+  "name": "WF 3 - Validacion Fenologica",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 8
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -528,
+        -224
+      ],
+      "id": "b7bc1c2f-5d3b-43f1-a1dd-c223a5110d8f",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "vista_cultivos_activos",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        -224
+      ],
+      "id": "c404364c-899f-497f-a34b-2e62bacd311f",
+      "name": "Obtener Cultivos Activos",
+      "credentials": {
+        "supabaseApi": {
+          "id": "sJVcT4pS6ARNkz8e",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cultivos = $('Obtener Cultivos Activos').all();\nconst todasEtapas = $('Obtener Orden Etapas').all().map(i => i.json);\n// 16.24 — Detección de truncado silencioso. `Obtener Orden Etapas` pide limit=1000;\n// si vuelve exactamente esa cantidad estamos en el borde y el catálogo puede estar\n// incompleto. Un catálogo truncado no da error: hace que findIndex no encuentre la\n// etapa actual (skip silencioso, B.2), o que la última etapa presente parezca la\n// terminal y el cultivo deje de evaluarse para siempre.\nconst LIMITE_CATALOGO = 1000;\nif (todasEtapas.length >= LIMITE_CATALOGO) {\n  throw new Error(\n    `Obtener Orden Etapas devolvió ${todasEtapas.length} filas, que es el tope de la query. ` +\n    `El catálogo de etapas puede estar truncado y cualquier decisión de avance sería inválida. ` +\n    `Subir el limit o paginar.`\n  );\n}\nconst resultados = [];\n\nfor (const item of cultivos) {\n  const cultivo = item.json;\n\n  const etapasEspecie = todasEtapas\n    .filter(e => e.especie_id === cultivo.especie_id)\n    .sort((a, b) => a.orden - b.orden);\n\n  const idxActual = etapasEspecie.findIndex(e => e.tipo_etapa?.nombre_etapa === cultivo.etapa_actual);\n  if (idxActual === -1) continue; // etapa actual no encontrada en el catálogo de la especie - caso raro, se omite\n\n  const fechaInicioEtapa = new Date(cultivo.fecha_inicio_etapa);\n  const hoy = new Date();\n  const diasEnEtapa = Math.floor(Math.abs(hoy - fechaInicioEtapa) / (1000 * 60 * 60 * 24));\n  const ventanaEvaluacion = cultivo.duracion_estimada_dias * 0.8;\n  const hayEtapaSiguiente = idxActual < etapasEspecie.length - 1;\n\n  if (hayEtapaSiguiente && diasEnEtapa >= ventanaEvaluacion) {\n    const siguiente = etapasEspecie[idxActual + 1];\n    // La etapa siguiente no puede ser la actual. Si lo es, el catálogo vino mal\n    // (duplicado, mal ordenado) y cualquier decisión sobre él sería inválida.\n    if (siguiente.id === cultivo.etapas_especie_id) {\n      throw new Error(\n        `Catálogo inválido para ${cultivo.planta}: la etapa siguiente a \"${cultivo.etapa_actual}\" ` +\n        `resolvió a sí misma (etapas_especie_id ${siguiente.id}). Revisar duplicados en Obtener Orden Etapas.`\n      );\n    }\n    resultados.push({\n      json: {\n        ...cultivo,\n        etapa_siguiente: siguiente.tipo_etapa.nombre_etapa,\n        etapa_siguiente_id: siguiente.etapa_id,\n        etapa_siguiente_etapas_especie_id: siguiente.id,\n        indice_etapa_actual: idxActual,\n        dias_en_etapa: diasEnEtapa\n      }\n    });\n  }\n}\n\nif (resultados.length === 0) {\n  resultados.push({ json: { skip: true } });\n}\n\nreturn resultados;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -224
+      ],
+      "id": "cd46e4bf-fe3f-4687-88cb-3c5e20a7f7ca",
+      "name": "Calcular Dias en Etapa"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3f60df31-cd29-4630-8e2d-5a1e246e5a80",
+              "leftValue": "={{ !!$json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        352,
+        -224
+      ],
+      "id": "bb5f36a8-0a61-4cf3-95a5-019e77baef29",
+      "name": "Hay cultivos a evaluar?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n\n  JSON.stringify({\n\n    \"contents\": [\n\n      {\n\n        \"parts\": [\n\n          {\n\n            \"text\": `Analizá la imagen del cultivo de ${$json.planta}.\n\n\n\nCONTEXTO TEMPORAL:\n\n- Etapa actual registrada: ${$json.etapa_actual}\n\n- Siguiente etapa esperada: ${$json.etapa_siguiente}\n\n\n\nTAREA:\n\nIdentificá patrones visuales que indiquen si la planta ya pasó a la siguiente etapa fenológica:\n\n- Germinación → Plántula: aparición de hojas cotiledonares\n\n- Plántula → Vegetativo: desarrollo de hojas verdaderas (≥4 hojas)\n\n- Vegetativo → Floración: presencia de pimpollos o flores\n\n\n\nRESPONDÉ EXCLUSIVAMENTE en JSON:\n\n{\"cambio_confirmado\": true, \"etapa_detectada\": \"nombre de la etapa observada\", \"evidencia_visual\": \"descripción de patrones morfológicos\", \"confianza\": 0.90, \"justificacion\": \"explicación técnica\"}`\n\n          },\n\n          {\n\n            \"inline_data\": {\n\n              \"mime_type\": \"image/jpeg\",\n\n              \"data\": $json.foto_base64\n\n            }\n\n          }\n\n        ]\n\n      }\n\n    ],\n\n    \"generationConfig\": {\n\n      \"temperature\": 0,\n\n      \"responseMimeType\": \"application/json\"\n\n    }\n\n  })\n\n}}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1952,
+        -224
+      ],
+      "id": "067d39b7-9df8-45be-88d0-0958f118052a",
+      "name": "IA Vision Fenologica",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "CvqQva9wKhAA1ltK",
+          "name": "Gemini"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// WF3 · Nodo \"Parsear y decidir\"\n// 16.14 (validación de forma) + 16.20 (validación de contenido)\n// + 16.22 (guarda reapuntada) + 16.25 (arma el contrato de la RPC)\n// ============================================================\n\n// Un ítem por cultivo. El nodo HTTP preserva orden y cardinalidad incluso al\n// fallar, porque `onError: continueRegularOutput` emite un ítem de error en la\n// misma posición.\n//\n// 16.22 — La guarda empareja contra `Foto Descargada` y NO contra\n// `Convertir a Base64`: al agregar un filtro a la cadena, el conjunto correcto\n// es el que efectivamente entró a Gemini.\nconst respuestas = $input.all();\nconst cultivos = $('Foto Descargada').all();\n\nif (respuestas.length !== cultivos.length) {\n  throw new Error(\n    `Desalineación en Parsear y decidir: ${respuestas.length} respuestas para ${cultivos.length} cultivos ` +\n    `que pasaron el filtro de foto.`\n  );\n}\n\n// 16.20 — Normalización de nombres de etapa: fuera acentos, mayúsculas y\n// espacios, de los DOS lados. \"Floración\", \"floracion\" y \"Floracion \" son la\n// misma etapa del dominio.\n// El rango se escribe escapado (\\u0300-\\u036f) y no con los caracteres\n// literales: son diacríticos combinantes, invisibles en un editor, y una\n// copia/pega los puede alterar sin que se vea.\nconst normalizar = (t) => String(t ?? '')\n  .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n  .toLowerCase().trim();\n\nreturn respuestas.map((item, i) => {\n  const geminiResponse = item.json;\n  const cultivoData = cultivos[i].json;\n\n  // Validación POSITIVA de FORMA (16.14): confirmar que la respuesta contiene\n  // lo que se espera, en vez de asumir que \"no falló\" equivale a \"es un diagnóstico\".\n  let diagnosis;\n  const rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;\n\n  if (!rawText) {\n    diagnosis = {\n      cambio_confirmado: false,\n      confianza: 0,\n      evidencia_visual: null,\n      justificacion: 'La IA no pudo analizar la foto en este intento.',\n      diagnostico_fallido: true\n    };\n  } else {\n    try {\n      const cleaned = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n      diagnosis = JSON.parse(cleaned);\n      diagnosis.diagnostico_fallido = false;\n    } catch (e) {\n      diagnosis = {\n        cambio_confirmado: false,\n        confianza: 0,\n        evidencia_visual: null,\n        justificacion: 'La IA respondió en un formato inesperado.',\n        diagnostico_fallido: true\n      };\n    }\n  }\n\n  // Validación POSITIVA de CONTENIDO (16.20), un nivel más adentro:\n  // que la respuesta esté bien formada no significa que responda la pregunta\n  // que se hizo. El prompt pregunta por `etapa_siguiente`; si la IA nombra\n  // otra etapa, su `cambio_confirmado` no se refiere a esta transición.\n  const etapaDetectada = normalizar(diagnosis.etapa_detectada);\n  const etapaEsperada = normalizar(cultivoData.etapa_siguiente);\n  const etapaCoincide = etapaDetectada !== '' && etapaDetectada === etapaEsperada;\n\n  const debeActualizar =\n    diagnosis.diagnostico_fallido === false &&\n    diagnosis.cambio_confirmado === true &&\n    diagnosis.confianza > 0.7 &&\n    etapaCoincide;\n\n  // Se prende SOLO cuando la IA respondió bien, afirmó que hubo cambio, y aun\n  // así nombró una etapa distinta de la esperada. Es el caso del 17/08\n  // (\"Fructificación\" → el sistema avanzó a Cosecha). No es un fallo de la IA:\n  // es evidencia de que el catálogo de etapas se quedó corto (B.1).\n  const etapaNoCoincide =\n    !etapaCoincide &&\n    diagnosis.diagnostico_fallido === false &&\n    diagnosis.cambio_confirmado === true;\n\n  // 16.25 — Un único veredicto, calculado acá. La definición vive en el\n  // productor (13.4.2): la base no vuelve a decidir, solo ejecuta.\n  const resultado =\n    diagnosis.diagnostico_fallido === true ? 'diagnostico_fallido' :\n    debeActualizar                         ? 'avanza'              :\n    etapaNoCoincide                        ? 'etapa_no_coincide'   :\n                                             'no_avanza';\n\n  return {\n    json: {\n      ...cultivoData,\n      diagnostico_fenologico: diagnosis,\n      etapa_detectada_cruda: diagnosis.etapa_detectada ?? null,\n      etapa_no_coincide: etapaNoCoincide,\n      debe_actualizar: debeActualizar,\n      resultado_evaluacion: resultado,\n      nueva_etapa: debeActualizar ? cultivoData.etapa_siguiente : cultivoData.etapa_actual,\n\n      // Cuerpo exacto de la RPC, armado como objeto y no como string, para que\n      // el nodo HTTP no tenga que escapar comillas ni interpolar JSON a mano.\n      rpc: {\n        p_cultivo_id: cultivoData.cultivo_id,\n        p_path_foto: cultivoData.ultima_foto_path,\n        p_resultado: resultado,\n        p_etapas_especie_id_origen: cultivoData.etapas_especie_id ?? null,\n        p_etapas_especie_id_destino: cultivoData.etapa_siguiente_etapas_especie_id ?? null,\n        p_etapa_destino_id: cultivoData.etapa_siguiente_id ?? null,\n        p_etapa_detectada: diagnosis.etapa_detectada ?? null,\n        p_confianza: typeof diagnosis.confianza === 'number' ? diagnosis.confianza : null,\n        p_diagnostico: diagnosis\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        -224
+      ],
+      "id": "81610dec-7c71-429e-96b7-dae24d3bedbb",
+      "name": "Parsear y decidir"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "408390d4-a5f3-4d25-96d8-e62f69d48360",
+              "leftValue": "={{ $json.avanzo }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2688,
+        -224
+      ],
+      "id": "10e65280-8286-4be9-a2f2-1a113be0cabc",
+      "name": "Cambio de etapa?"
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "5593622386",
+        "file": "={{ 'https://xypqsthwquegftcnoqyi.supabase.co/storage/v1' + $json.signedURL }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4080,
+        -224
+      ],
+      "id": "e84bacdf-bf20-4d6c-b4c7-24f55b3c3b4f",
+      "name": "Mandar foto",
+      "webhookId": "96681ace-03ea-4e69-bc67-2119564271b8",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d8868425-d0c6-4a2a-a813-0e39159032b7",
+              "leftValue": "={{ $json.ultima_foto_path }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "3b530272-b55c-4db7-bde9-ce775424cc86",
+              "leftValue": "={{ $json.ultima_foto_path }}",
+              "rightValue": "={{ $json.ultima_foto_evaluada_path || '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        576,
+        -240
+      ],
+      "id": "0e3a4cf1-22d6-4adc-af22-e47157680672",
+      "name": "Validacion de foto"
+    },
+    {
+      "parameters": {
+        "url": "=https://xypqsthwquegftcnoqyi.supabase.co/storage/v1/object/fotos-cultivos/{{ $json.ultima_foto_path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        992,
+        -224
+      ],
+      "id": "465953f0-ac60-4785-9888-d1e4c3ffa2d1",
+      "name": "Descargar Foto",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 1000,
+      "maxTries": 2,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Un ítem por cultivo.\n// preservan orden y cardinalidad 1:1 INCLUSO AL FALLAR, porque los dos tienen\n// `onError: continueRegularOutput` y emiten un ítem de error en la misma posición (16.22).\nconst fotos = $input.all();\nconst cultivos = $('Validacion de foto').all();\n \nif (fotos.length !== cultivos.length) {\n  throw new Error(\n    `Desalineación en Convertir a Base64: ${fotos.length} fotos para ${cultivos.length} cultivos. ` +\n    `Emparejar mal una foto con un cultivo produce un diagnóstico atribuido a la planta equivocada.`\n  );\n}\n \n// 16.22 — Mínimo plausible para un JPEG real, en caracteres de base64.\n// No juzga la calidad de la imagen: solo distingue \"hay foto usable\" de\n// \"el nodo anterior emitió un ítem de error o un binario vacío\".\n// 1000 caracteres ≈ 750 bytes: ninguna foto de una planta pesa menos que eso.\nconst MINIMO_BASE64 = 1000;\n \nreturn fotos.map((item, i) => {\n  let base64 = item.json.foto_base64;\n  if (base64 && typeof base64 === 'object' && 'value' in base64) base64 = base64.value;\n  if (base64) base64 = base64.trim();\n \n  // Validación POSITIVA por ítem (16.22, mismo criterio que 16.14 y 16.20):\n  // confirmar que hay una foto usable, en vez de asumir que \"el nodo no explotó\"\n  // equivale a \"la imagen se descargó\".\n  const fotoOk = typeof base64 === 'string' && base64.length >= MINIMO_BASE64;\n \n  return {\n    json: {\n      ...cultivos[i].json,\n      foto_base64: base64,\n      foto_ok: fotoOk,\n      motivo_sin_foto: fotoOk\n        ? null\n        : (item.json?.error?.message ?? item.json?.error ?? 'La foto no se pudo descargar o quedó vacía.')\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        -224
+      ],
+      "id": "513664ea-2afc-48a6-b1eb-95e449c058d5",
+      "name": "Convertir a Base64"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://xypqsthwquegftcnoqyi.supabase.co/storage/v1/object/sign/fotos-cultivos/{{ $('Parsear y decidir').item.json.ultima_foto_path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "expiresIn",
+              "value": "60"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3856,
+        -224
+      ],
+      "id": "79fa011b-13d5-473b-97fc-83847c2dccb0",
+      "name": "Generar URL Firmada",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "destinationKey": "foto_base64",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1216,
+        -224
+      ],
+      "id": "368360ac-e104-4621-933b-c8478fe40283",
+      "name": "Extract from File",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "5593622386",
+        "text": "=🌱 ACTUALIZACIÓN FENOLÓGICA\n\n📍 Cultivo: {{ $('Parsear y decidir').item.json.planta }}\n\n🔄 Cambio: {{ $('Parsear y decidir').item.json.etapa_actual }} → {{ $('Parsear y decidir').item.json.etapa_siguiente }}\n\n📝 Justificación:\n{{ $('Parsear y decidir').item.json.diagnostico_fenologico.justificacion }}\n\n🎯 Confianza: {{ ($('Parsear y decidir').item.json.diagnostico_fenologico.confianza * 100).toFixed(0) }}%\n✅ Etapa actualizada automáticamente en el sistema.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3136,
+        -240
+      ],
+      "id": "833b4798-b3e2-4d76-9f88-01ac24acf6ad",
+      "name": "Notificar Cambio de Etapa",
+      "webhookId": "2a807e03-55b4-4abb-a6cd-9c58ccff4e38",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/etapas_especie",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,especie_id,etapa_id,orden,tipo_etapa(nombre_etapa)"
+            },
+            {
+              "name": "limit",
+              "value": "1000"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -96,
+        -224
+      ],
+      "id": "3aae952d-1748-4a5c-8b17-4ea2eabf48f7",
+      "name": "Obtener Orden Etapas",
+      "executeOnce": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "15ce0781-1265-47ac-ab6c-f2b1bf8baffd",
+              "leftValue": "={{ $json.foto_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1712,
+        -208
+      ],
+      "id": "febe869a-5c0b-411c-9219-0ce76fa0c723",
+      "name": "Foto Descargada"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_registrar_evaluacion_fenologica",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.rpc) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2384,
+        -224
+      ],
+      "id": "560f45d0-35c9-4648-8241-bf3ae48748fe",
+      "name": "Registrar Evaluacion",
+      "retryOnFail": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Obtener Cultivos Activos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Cultivos Activos": {
+      "main": [
+        [
+          {
+            "node": "Obtener Orden Etapas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Dias en Etapa": {
+      "main": [
+        [
+          {
+            "node": "Hay cultivos a evaluar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay cultivos a evaluar?": {
+      "main": [
+        [
+          {
+            "node": "Validacion de foto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA Vision Fenologica": {
+      "main": [
+        [
+          {
+            "node": "Parsear y decidir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear y decidir": {
+      "main": [
+        [
+          {
+            "node": "Registrar Evaluacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cambio de etapa?": {
+      "main": [
+        [
+          {
+            "node": "Notificar Cambio de Etapa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Validacion de foto": {
+      "main": [
+        [
+          {
+            "node": "Descargar Foto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar Foto": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convertir a Base64": {
+      "main": [
+        [
+          {
+            "node": "Foto Descargada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generar URL Firmada": {
+      "main": [
+        [
+          {
+            "node": "Mandar foto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Convertir a Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar Cambio de Etapa": {
+      "main": [
+        [
+          {
+            "node": "Generar URL Firmada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Orden Etapas": {
+      "main": [
+        [
+          {
+            "node": "Calcular Dias en Etapa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Foto Descargada": {
+      "main": [
+        [
+          {
+            "node": "IA Vision Fenologica",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Evaluacion": {
+      "main": [
+        [
+          {
+            "node": "Cambio de etapa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "86e58f69-ef0a-42af-aa8b-379498c6a076",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "8aqHI3wc5luL5B5N",
+  "tags": []
+}

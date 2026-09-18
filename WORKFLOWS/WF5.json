@@ -1,0 +1,259 @@
+{
+  "name": "WF5 - Control de Riego",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "control-riego",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b97015d9-d95f-4c50-95f0-1f03e78219f8",
+      "name": "Webhook",
+      "webhookId": "a4a5a5e7-1fdd-439a-8390-5bdf2c4997b5",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "K3hCG51oxIc6x1W1",
+          "name": "n8n interno"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "vista_ultimo_riego",
+        "limit": 1,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "cultivo_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.body.cultivo_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "85aca1f0-ce82-4d85-89d1-8ef145ca6344",
+      "name": "Get many rows",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "sJVcT4pS6ARNkz8e",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const TIEMPO_ABSORCION_MIN = 15; // minutos de espera tras un riego antes de reintentar\n\nconst ultimoRiego = $input.first().json;\nconst ahora = new Date();\n\nif (ultimoRiego && ultimoRiego.fecha_inicio) {\n  const minutosDesdeUltimo = (ahora - new Date(ultimoRiego.fecha_inicio)) / 60000;\n  if (minutosDesdeUltimo < TIEMPO_ABSORCION_MIN) {\n    return [{ json: { cooldown_activo: true, minutos_restantes: Math.ceil(TIEMPO_ABSORCION_MIN - minutosDesdeUltimo) } }];\n  }\n}\nreturn [{ json: { cooldown_activo: false, minutos_restantes: 0 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "61c6c028-a741-4c52-8261-bd222406b1da",
+      "name": "Verificar Cooldown"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c9e930f1-686e-4ead-a804-9fd6754019f3",
+              "leftValue": "={{ $json.cooldown_activo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "5714facb-3ec5-45fa-836b-cf6141b0d36a",
+      "name": "Cooldown Activo"
+    },
+    {
+      "parameters": {
+        "jsCode": "const FACTOR_RETENCION_HIDRICA = 0.25; // fracción del volumen de maceta que retiene agua disponible\nconst MAX_DURACION_RIEGO_SEG = 30;     // tope de seguridad — nunca más de 30s por pulso\nconst MIN_DURACION_RIEGO_SEG = 3;      // pulso mínimo con sentido físico\n\nconst w = $('Webhook').first().json;\nconst cultivo = w.body || w;\n\n// Fail-safe: sin umbrales no hay dosis segura posible. Preferimos no regar a regar a ciegas.\nconst rangoHumedad = (cultivo.umbrales || {}).humedad || {};\nif (rangoHumedad.min == null || rangoHumedad.max == null) {\n  throw new Error('No llegaron los umbrales de humedad — se aborta el riego en vez de usar un default.');\n}\n\nconst volumenLitros  = cultivo.volumen_maceta_litros || 10; // default conservador\nconst caudal         = cultivo.caudal_bomba_ml_s || 50;\nconst humedadActual  = cultivo.humedad;\nconst humedadObjetivo = (rangoHumedad.min + rangoHumedad.max) / 2; // centro del rango ideal\n\nconst deficitPct = humedadObjetivo - humedadActual;\nif (deficitPct <= 0) {\n  throw new Error(`Llegó a WF5 sin déficit real (humedad ${humedadActual}% vs objetivo ${humedadObjetivo}%). Revisar el ruteo de WF1.`);\n}\n\nconst dosisMl = volumenLitros * 1000 * FACTOR_RETENCION_HIDRICA * (deficitPct / 100);\n\nlet duracionSeg = Math.round(dosisMl / caudal);\nduracionSeg = Math.min(Math.max(duracionSeg, MIN_DURACION_RIEGO_SEG), MAX_DURACION_RIEGO_SEG);\n\nreturn [{\n  json: {\n    cultivo_id:        cultivo.cultivo_id,\n    dispositivo_id:    cultivo.dispositivo_id,\n    planta:            cultivo.planta,\n    humedad:           humedadActual,\n    humedad_objetivo:  humedadObjetivo,\n    dosis_ml:          Math.round(dosisMl),\n    duracion_segundos: duracionSeg,\n    dosis_recortada:   (dosisMl / caudal) > MAX_DURACION_RIEGO_SEG\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        96
+      ],
+      "id": "2cbb06f5-4d3e-42ee-b6ac-a41c3df752e8",
+      "name": "Calcular Dosis"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_registrar_riego",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_cultivo_id\": \"{{ $json.cultivo_id }}\",\n  \"p_dispositivo_id\": \"{{ $json.dispositivo_id }}\",\n  \"p_duracion_segundos\": {{ $json.duracion_segundos }},\n  \"p_humedad_inicial\": {{ $json.humedad }},\n  \"p_humedad_objetivo\": {{ $json.humedad_objetivo }},\n  \"p_dosis_ml\": {{ $json.dosis_ml }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1040,
+        96
+      ],
+      "id": "a510f96c-e0f7-42fd-9f38-9a312ae3110e",
+      "name": "Registrar Riego",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "5593622386",
+        "text": "=💧 RIEGO AUTOMÁTICO INICIADO\n\n📍 Cultivo: {{ $('Calcular Dosis').item.json.planta }}\n💧 Humedad: {{ $('Calcular Dosis').item.json.humedad }}% → objetivo {{ $('Calcular Dosis').item.json.humedad_objetivo }}%\n⏱️ Pulso: {{ $('Calcular Dosis').item.json.duracion_segundos }}s (~{{ $('Calcular Dosis').item.json.dosis_ml }}ml)\n\nSe re-chequeará la humedad en ~15 min.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1248,
+        96
+      ],
+      "id": "1b587b53-4b46-4952-bd89-04e82bec5855",
+      "name": "Enviar Mensaje de riego",
+      "webhookId": "d68c62a6-97c0-41e3-8482-020f686697be",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Verificar Cooldown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Cooldown": {
+      "main": [
+        [
+          {
+            "node": "Cooldown Activo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cooldown Activo": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Calcular Dosis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Dosis": {
+      "main": [
+        [
+          {
+            "node": "Registrar Riego",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Riego": {
+      "main": [
+        [
+          {
+            "node": "Enviar Mensaje de riego",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "14b5e6d8-11bd-4c58-9e5f-6a5799c26e08",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "YWpZKqsf78grMhz0",
+  "tags": []
+}

@@ -1,0 +1,269 @@
+{
+  "name": "WF 2 - Diagnostico IA Emergencia",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "diagnostico-ia",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "656667c9-edb9-438a-82cb-c8bcb6cba5ca",
+      "name": "Webhook",
+      "webhookId": "120558ac-a9e1-436a-8405-395db1806633",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "K3hCG51oxIc6x1W1",
+          "name": "n8n interno"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "5593622386",
+        "text": "=🚨 {{ $json.diagnostico_ia.severidad }} — {{ $('Parsear Respuesta IA').item.json.planta }} ({{ $('Parsear Respuesta IA').item.json.etapa }})\n\n{{ $json.diagnostico_ia.explicacion_agricultor }}\n\n👉 Hacer ahora:\n{{ [].concat($json.diagnostico_ia.acciones_inmediatas || []).map(a => '• ' + a).join('\\n') }}\n\n🎯 Confianza {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1008,
+        -160
+      ],
+      "id": "a45616da-dc42-4f3d-a396-b8f59dfd0d6f",
+      "name": "Telegram Diagnostico IA",
+      "webhookId": "d30a7590-7137-4cfd-89f5-f186ac2d81be",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    \"contents\": [\n      {\n        \"parts\": [\n          {\n            \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\nCONTEXTO DEL CULTIVO:\n- Planta: ${$json.body?.planta || $json.planta}\n- Etapa fenológica: ${$json.body?.etapa || $json.etapa}\n- Dispositivo: ${$json.body?.mac_address || $json.mac_address}\n\nDATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n- Humedad del suelo: ${$json.body?.humedad || $json.humedad}%\n- pH: ${$json.body?.ph || $json.ph}\n- Nitrógeno (N): ${$json.body?.n || $json.n} mg/kg\n- Fósforo (P): ${$json.body?.p || $json.p} mg/kg\n- Potasio (K): ${$json.body?.k || $json.k} mg/kg\n\nDIAGNÓSTICO DEL SISTEMA DE REGLAS:\n- Estado: ${$json.body?.estado || $json.estado}\n- Observaciones: ${(Array.isArray($json.body?.observaciones) ? $json.body.observaciones : ($json.observaciones || [])).join('. ')}\n\nTAREA:\n1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n2. Correlacioná los signos visuales con los datos de sensores.\n3. Generá un plan de acción inmediato.\n\nRESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n{\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [], \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n          },\n          {\n            \"inline_data\": {\n              \"mime_type\": \"image/jpeg\",\n              \"data\": $json.body.foto_base64\n            }\n          }\n        ]\n      }\n    ],\n    \"generationConfig\": {\n      \"temperature\": 0,\n      \"responseMimeType\": \"application/json\"\n    }\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "cf92bc53-35b8-4e19-8720-c4424bae0d83",
+      "name": "IA Vision Gemini",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 2,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "CvqQva9wKhAA1ltK",
+          "name": "Gemini"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Respuesta del nodo anterior (Gemini)\nconst geminiResponse = $input.first().json;\n\n// 2. Datos del cultivo (del Webhook que mandó WF1)\nconst cultivoData = $('Webhook').first().json.body || $('Webhook').first().json;\n\n// 3. Validación POSITIVA: verificamos que la respuesta contenga lo que esperamos,\n//    en vez de asumir que \"no falló\" equivale a \"es un diagnóstico\" (ver 16.14).\nlet diagnosis;\nconst rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;\n\nif (!rawText) {\n  // Gemini no devolvió diagnóstico (503, cuota agotada, error de red).\n  // NO guardamos el error como si fuera un diagnóstico.\n  diagnosis = {\n    diagnostico_visual: null,\n    diagnostico_tecnico: 'La IA no pudo analizar la foto en este intento.',\n    severidad: 'desconocida',\n    plagas_detectadas: [],\n    acciones_inmediatas: ['Reintentar el diagnóstico más tarde.'],\n    recomendaciones_mediano_plazo: [],\n    explicacion_agricultor: 'No se pudo generar el diagnóstico visual. La alerta del sistema experto sigue siendo válida.',\n    confianza: 0,\n    diagnostico_fallido: true\n  };\n} else {\n  try {\n    const cleaned = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n    diagnosis = JSON.parse(cleaned);\n    diagnosis.diagnostico_fallido = false;\n  } catch (e) {\n    // La IA respondió, pero no con el JSON pedido.\n    diagnosis = {\n      diagnostico_visual: null,\n      diagnostico_tecnico: 'La IA respondió en un formato inesperado.',\n      severidad: 'desconocida',\n      plagas_detectadas: [],\n      acciones_inmediatas: ['Revisar manualmente el cultivo.'],\n      recomendaciones_mediano_plazo: [],\n      explicacion_agricultor: 'No se pudo interpretar la respuesta de la IA.',\n      confianza: 0,\n      diagnostico_fallido: true\n    };\n  }\n}\n\n// 4. Unimos los datos del cultivo con el diagnóstico\nreturn [{ json: { ...cultivoData, diagnostico_ia: diagnosis } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "ec2a7f9a-af88-4759-bd54-ee41a8253350",
+      "name": "Parsear Respuesta IA"
+    },
+    {
+      "parameters": {
+        "tableId": "seguimiento_fenologico",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "cultivo_id",
+              "fieldValue": "={{ $json.cultivo_id }}"
+            },
+            {
+              "fieldId": "diagnostico_ia",
+              "fieldValue": "={{ $json.diagnostico_ia }}"
+            },
+            {
+              "fieldId": "confianza_ia",
+              "fieldValue": "={{ $json.diagnostico_ia.confianza }}"
+            },
+            {
+              "fieldId": "path_foto",
+              "fieldValue": "={{ $json.path_foto_evento }}"
+            },
+            {
+              "fieldId": "etapas_especie_id",
+              "fieldValue": "={{ $json.etapas_especie_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        832,
+        -112
+      ],
+      "id": "c77d0c4e-26d4-4006-95a8-58529eb6d215",
+      "name": "Persistir Diagnotico",
+      "credentials": {
+        "supabaseApi": {
+          "id": "sJVcT4pS6ARNkz8e",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "42acf1a6-c055-4a30-ad61-bdaf13183154",
+              "leftValue": "={{ $json.diagnostico_ia.diagnostico_fallido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        0
+      ],
+      "id": "88da6b4d-192f-4a93-93d7-515d826a58d3",
+      "name": "Diagnostico Valido"
+    },
+    {
+      "parameters": {
+        "errorMessage": "== Gemini no devolvió un diagnóstico válido para el cultivo {{ $json.cultivo_id }}. Motivo: {{ $json.diagnostico_ia.diagnostico_tecnico }}. La alerta del sistema experto y el riego NO se vieron afectados — solo falta el diagnóstico visual de esta lectura. (16.15)"
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        832,
+        96
+      ],
+      "id": "716d9947-d83a-4c50-8ac8-036857f1a804",
+      "name": "Diagnostico Fallido"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "IA Vision Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA Vision Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parsear Respuesta IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Respuesta IA": {
+      "main": [
+        [
+          {
+            "node": "Diagnostico Valido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persistir Diagnotico": {
+      "main": [
+        [
+          {
+            "node": "Telegram Diagnostico IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diagnostico Valido": {
+      "main": [
+        [
+          {
+            "node": "Persistir Diagnotico",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Diagnostico Fallido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "85908d15-3cb2-4867-9ff6-5e48defa4a35",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "pLszRdfDWqcMXTnD",
+  "tags": []
+}

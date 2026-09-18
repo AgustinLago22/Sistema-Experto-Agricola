@@ -1,0 +1,35 @@
+# ── Secretos ──────────────────────────────────────────────────────────────
+# Al 18/09/2026 no hay ningún secreto en el repositorio: los workflows
+# exportados referencian sus credenciales por id y nombre, nunca por valor.
+# Estos patrones existen para que eso siga siendo cierto cuando aparezca el
+# firmware del nodo sensor.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*secret*
+*credential*
+
+# ── Estado local del orquestador ──────────────────────────────────────────
+# El volumen n8n_storage no va acá: concentra workflows, credenciales y la
+# clave que las descifra, y se respalda aparte (ver backlog B.13).
+.n8n/
+n8n_data/
+*.sqlite
+*.sqlite3
+
+# ── Respaldos manuales: los reemplaza el historial ────────────────────────
+*.bak
+*.bak.md
+*~
+
+# ── Herramientas y entorno ────────────────────────────────────────────────
+.claude/
+node_modules/
+__pycache__/
+
+# ── Sistema operativo ─────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store

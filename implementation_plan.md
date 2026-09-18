@@ -1,0 +1,5574 @@
+# Sistema Experto Agrícola — Plan de Implementación (v49)
+
+> [!NOTE]
+> Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
+
+---
+
+## Guía del documento
+
+Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco bloques, en este orden:
+
+| Bloque | Qué contiene | Cuándo se lee |
+|---|---|---|
+| **Estado Actual** | Tablero de workflows, hallazgos abiertos, cierre de la última sesión y próximos pasos | **Al abrir cada sesión** |
+| **Índice** · Índice** y **Changelog** · Changelog** | Navegación y la historia versionada del proyecto (v3 → v41) | Para ubicar algo o reconstruir por qué se decidió algo |
+| **Fases 1 → 15** | El diseño y la construcción del sistema, nodo por nodo, con el SQL y el código exactos | Cuando se va a construir o modificar algo |
+| **Fase 16 · Registro de Hallazgos** | Los 38 hallazgos de auditoría (16.1 → 16.38), en orden numérico, cada uno con su estado | Cuando algo falla, o para elegir en qué trabajar |
+| **Fase 17**, **Backlog** y **Anexos** | Trazabilidad de la base de conocimiento, lo diferido a propósito (B.1 → B.12) y material de referencia | Para la tesis, y antes de proponer algo "nuevo" |
+
+### Convenciones
+
+- **Severidad:** 🔴 crítica (daña el cultivo o corrompe datos) · 🟠 alta (pierde un dato o un aviso) · 🟡 media · 🟢 baja o cosmética · ❌ descartado tras verificarlo.
+- **`CONTEXTO_AGENTE.md`** es el paquete comprimido de este documento, pensado para que un agente arranque sin leerlo entero. **Se regenera desde acá, nunca se edita a mano.** Si los dos discrepan, manda este documento.
+- **Numeración estable.** Los identificadores `16.x` y `B.x` **no se reasignan nunca**: están referenciados desde los workflows y desde el changelog. Un hallazgo resuelto conserva su número y cambia de estado.
+- **Lo diferido tiene número propio.** El backlog (`B.x`) no es deuda olvidada: son decisiones conscientes de priorización. Antes de proponer algo como hallazgo nuevo, revisar si ya está ahí.
+- **Estado ≠ afirmación.** Cuando una sección dice que algo está aplicado, eso se verifica contra el artefacto (el JSON exportado, la base), no contra el documento. Las contradicciones encontradas viven en **Contradicciones**.
+
+### Protocolo de arranque de sesión
+
+1. Comparar el `mtime` de `WORKFLOWS/*.json` contra el de este archivo. Es la señal más barata de que se desincronizaron — así se destapó una sesión entera sin documentar (v36).
+2. Leer **Tablero**, **Hallazgos abiertos** y **Cierre de sesión**.
+3. Mirar **Contradicciones** antes de dar por buena cualquier afirmación de estado.
+4. Revisar el **Backlog** antes de reportar un hallazgo como nuevo.
+5. Correr `git log --oneline -5` y `git status`: si el árbol no está limpio, la sesión anterior dejó algo sin commitear — y eso es, por definición, algo sin documentar (ver **Versionado**).
+
+---
+
+## Estado Actual
+
+> [!NOTE]
+> **Tablero verificado el 27/08/2026 contra `WORKFLOWS/*.json` (export del 24/08), no contra lo que afirmaba el documento.** La verificación refutó cuatro afirmaciones de la tabla anterior sobre WF3 — ver **Contradicciones**. La tabla "Estado Actual" original se conserva íntegra y sin editar en **Historial de sesiones**.
+
+### Tablero
+
+| WF | `active` | Última auditoría | Hallazgos abiertos | Lo que falta |
+|---|---|---|---|---|
+| **WF1** — Pipeline Telemetría | ✅ `true` | 31/08 | **16.39** 🟠 · 16.33 🟠 · 16.37 🟡 (sin ejercitar) | Batch de la sesión 9 **aplicado y re-exportado el 31/08**. 16.34 y 16.36 cerrados y verificados contra la base; 16.35 y 16.37 aplicados sin ejercitar |
+| **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 21/08 | 16.15 🟠 (aplicado acá, falta en WF3) | Nada bloqueante |
+| **WF3** — Validación Fenológica | ✅ `true` | 24/08 | 16.31 🟠 · 16.21 🟡 (a medias) | 🔴 **Anomalía abierta:** última ejecución el 28/08 y `evaluacion_fenologica` sigue en 0 con la ventana abierta desde entonces — ver **Cierre de sesión** |
+| **WF4** — Análisis Preventivo | ⬜ `false` **a propósito** | parcial (16.3/16.4, 05/08) | 16.30 🟢 | Sin ESP32 no hay telemetría fresca. Es una decisión, no un pendiente |
+| **WF5** — Control de Riego | ✅ `true` | ❌ nunca auditado | — | Auditarlo. Riego + cooldown validados en vivo (12/08) |
+
+**Verificado en los exports (WF1 del 31/08, el resto del 24/08):** WF1 18 nodos · WF2 7 · WF3 17 (0 huérfanos) · WF4 10 · WF5 7. Gemini en `gemini-3.5-flash` en WF2 y WF3; **WF4 quedó en `2.5`** (16.30).
+
+| Fase | Estado |
+|---|---|
+| **Fase 11** — Testing integral | ✅ Cerrada (05/08). Los 3 escenarios de WF4 validados de punta a punta |
+| **Fase 12** — Migración a producción | 🟡 12.1 ✅ · 12.2 ✅ · 12.3 ✅ · 12.5 ✅ · **12.4 pendiente**, bloqueado por el ESP32 físico · 12.6 diferido |
+| **Fase 13** — Riego Automático | 🟢 Funcionando de punta a punta (12/08). **Pendiente 13.7.1** — el recheck: es la última precondición antes de conectar una bomba real. WF6 (13.13) sin construir |
+| **Fase 14** — Anticipación de Etapa (NPK/pH) | 🆕 Diseñada, sin implementar |
+| **Fase 15** — Recomendación de Fertirriego | 🆕 Rediseñada (06/08, ver 15.1.1), sin implementar |
+| **Fase 16** — Registro de Hallazgos | 🟡 38 hallazgos · 18 resueltos · 1 descartado · **19 abiertos** (ver **Hallazgos abiertos**) |
+| **Fase 17** — Base de conocimiento | 🆕 Volcada del handoff del 24/08, sin ejecutar ninguno de sus 6 pasos |
+
+**El ESP32 físico sigue sin armarse, y nada de lo anterior depende de él.** La orquestación digital se construye primero, a propósito desacoplada del hardware: el sistema solo habla vía HTTP contra Supabase, nunca al revés (contrato en 13.6).
+
+---
+
+### Hallazgos abiertos
+
+Índice de lo que queda por hacer. El detalle completo de cada uno, con su fundamentación y su fix, está en **Fase 16** (hallazgos `16.x`) y en el **Backlog** (`B.x`).
+
+| # | Sev. | Dónde | Qué | Estado |
+|---|---|---|---|---|
+| **16.33** | 🟠 | WF1 · BD | Un dispositivo con dos cultivos activos pierde uno en silencio | SQL, sin aplicar (regla 2) |
+| **16.38** | 🟠 | BD | Nada impide que el hueco de umbrales vuelva a aparecer | SQL, sin aplicar (regla 2) |
+| **16.40** | 🔴 | Seguridad | Un JWT `service_role` estaba en texto plano en el plan | Redactado. **Verificar en el panel si las claves heredadas siguen activas y rotarlas** |
+| **16.39** | 🟠 | WF1 | Sensor desconectado + foto: la lectura se pierde entera y sin aviso | Confirmado en vivo 31/08. Fix de 2 capas escrito, sin aplicar |
+| **16.31** | 🟠 | WF3 | `etapa_no_coincide` es un estado absorbente y nadie se entera | Sin aplicar. Depende de decidir el canal del aviso operativo |
+| **16.15** | 🟠 | WF3 | La degradación no deja señal operativa — aplicado solo en WF2 | Falta el equivalente en WF3 |
+| **B.14** | 🟠 | Infra | n8n corre con `:latest`: una actualización de 16 versiones puede pasar sola | Fijar la versión es una línea. No actualizar antes de B.13 |
+| **B.7** | 🟠 | Producto | Fatiga de alertas: notifica por nivel, no por transición | Diferido a propósito |
+| **16.1** | 🟡 | Todos | Secretos en texto plano | Supabase ✅ · Gemini: la sección dice ⏳, el tablero decía ✅ → ver **Contradicciones** |
+| **16.6** | 🟡 | n8n | Mínimo privilegio | Parcial por limitación del nodo nativo de Supabase |
+| **16.13** | 🟡 | BD | `anon`/`authenticated` con `ALL` sobre las 18 tablas y vistas | SQL propuesto, sin aplicar (regla 2) |
+| **16.21** | 🟡 | WF3 | Re-análisis de la misma foto | Aplicado a medias (opción 2). Camino de fallo cubierto por 16.27.1 |
+| **B.1** | 🟡 | BD | Falta "Fructificación" en el catálogo de etapas | Script propuesto, sin aplicar. **Ligado a 16.37** |
+| **B.9** | 🟡 | BD | `fn_registrar_telemetria` es `SECURITY DEFINER` ejecutable por `anon` | Diferido |
+| **B.10** | 🟡 | WF3 | La foto que no se descarga sigue sin deduplicar | Diferido hasta tener el camino de fallo de 16.27 probado |
+| **16.8** | 🟢 | WF1 | Sin registro ante dispositivo desconocido | Diferido (27/07) |
+| **16.9** | 🟢 | WF1 · WF4 | Limpieza cosmética | Resto en B.4 |
+| **16.29** | 🟢 | WF3 | `"condition": "=eq"` sin reintento | Sin aplicar |
+| **16.30** | 🟢 | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | Aplicar al reactivar WF4 |
+| **B.2 · B.3 · B.4 · B.5 · B.6 · B.8 · B.11 · B.12** | 🟢 | varios | Ver Backlog | Diferidos a propósito |
+
+**Bloqueantes reales, en orden:** `13.7.1` (el recheck de riego — última precondición antes de una bomba real) → `16.37` + `B.1` (el hueco de umbrales y su dato) → `16.33` + `16.38` (que la base impida que ambos vuelvan).
+
+---
+
+### Cierre de sesión y próximos pasos
+
+> [!IMPORTANT]
+> **Cierre de la sesión 11 (17/09) — sesión corta, de verificación y empaquetado.** *Reemplaza al bloque de la sesión 10, que queda en **Historial de sesiones** como historia.*
+>
+> **Lo que se hizo:**
+> 1. ✅ **Estado verificado contra Supabase tras 14 días de inactividad.** Nada se movió: 220 / 8 (todas `pendiente`) / 24 / 0, última lectura del **20/08**, `ultima_foto_evaluada_path` en `null`, 3 etapas sin umbrales.
+> 2. ✅ **Creado `CONTEXTO_AGENTE.md`** (28 KB, 355 líneas) — un paquete de contexto autosuficiente para que un agente trabaje **sin leer este plan**. Comprime arquitectura, mapa real de los 5 workflows, modelo de datos, las 11 reglas de semántica de n8n que el proyecto aprendió pagando, los principios de diseño, el estado verificado, los hallazgos abiertos, cómo probar y las reglas de trabajo. Es **96 % más chico** que este documento (6.600 tokens contra ~160.000) y lleva al final el mapa para abrir solo la sección que haga falta.
+> 3. ✅ **Corregido el Tablero**, que seguía diciendo que el batch de WF1 estaba sin aplicar cuando se había aplicado el 31/08. Tercera aparición del mismo sesgo que describe **Contradicciones**.
+>
+> **⚠️ La anomalía de WF3 sigue abierta y se agravó.** El cultivo lleva **35 días** en una Floración de 20; la ventana de evaluación (80 % = 16 días) está abierta desde el **28/08**; WF3 figura `active: true` con Schedule cada 8 h. **`evaluacion_fenologica` sigue en 0.** Dato aportado por el usuario: la última ejecución de WF3 fue el **28/08**, y el **31/08 n8n estuvo corriendo** (se ejecutaron las pruebas de WF1 esa noche), así que "la máquina estaba apagada" **no explica** el silencio posterior.
+>
+> Falta responder dos preguntas, de dos minutos cada una: **¿WF3 figura Active ahora?** y **la ejecución del 28/08, ¿verde o roja, a qué hora y en qué nodo terminó?** La etapa empezó el 12/08 a las 19:39 UTC, o sea que la ventana se abrió el 28/08 a las 19:39 UTC: una corrida anterior a esa hora daba 15 días y se cortaba correctamente en `Hay cultivos a evaluar?`.
+>
+> **Por qué esto no es un detalle operativo.** Si WF3 figura *Active* y no dispara, es la peor forma de fallar para el producto: **el sistema afirma que está funcionando y no está**. No hay aviso, no hay error, no hay ejecución en rojo. Un productor que ve el interruptor en verde asume que su planta está siendo vigilada. Es la misma familia que 16.39 —el silencio que se lee como salud— pero un escalón peor, porque no depende de que falle un sensor: **el monitoreo se apaga solo y sigue diciendo que está prendido.** Si se confirma, entra como hallazgo 🔴 y probablemente sea el más grave del proyecto para la venta.
+>
+> **Arrancar la sesión 12 por acá:**
+> 1. 🔴 **Resolver la anomalía de WF3.** Antes que nada.
+> 2. **B.13 — respaldar el volumen `n8n_storage`.** Precondición de cualquier cosa que toque el contenedor.
+> 3. **B.14 — fijar la versión de n8n** (hoy `:latest`).
+> 4. **B.1 + 16.37 juntos** — el dato que desbloquea probar la guarda aplicada a ciegas.
+> 5. **16.39** — el fix de dos capas.
+> 6. **13.7.1** — el recheck de riego. Sigue siendo lo más importante que queda.
+> 7. **16.33 y 16.38** — los índices únicos.
+> 8. **Auditar WF5 y WF4.**
+> 9. **Rotar la clave del webhook** (diferido a pedido del usuario, sin apuro).
+>
+> **Lección de la sesión — la documentación tiene el mismo modo de fallo que el sistema que documenta. Tablero** afirmaba un pendiente ya resuelto, igual que las cuatro filas de **Contradicciones** y que **Cierre de sesión** dos sesiones atrás. Siempre en la misma dirección: **el hallazgo y la decisión se registran; el cierre, no.** No es descuido, es estructural — abrir un ítem cuesta una línea justo cuando duele, cerrarlo cuesta acordarse cuando ya no duele. El efecto es un mapa que sobreestima el trabajo pendiente, y eso hace que el próximo lector priorice mal. La contramedida no es más disciplina sino **derivar el estado del artefacto en lugar de repetirlo a mano**: el mismo argumento por el que 16.25 prefirió un `CHECK` en la base antes que un `IF` en el flujo. `CONTEXTO_AGENTE.md` nace con esa deuda encima y hay que tratarlo igual: **se regenera, no se edita a mano.**
+
+
+---
+
+### Nombres reales de los nodos
+
+> [!NOTE]
+> **Nombres reales de los nodos nuevos (exportados 12/08) — usar estos, no los del diseño.** Los nombres del documento eran propuestas; en n8n quedaron con pequeñas diferencias, y como `$('...')` resuelve por coincidencia literal (13.3.2), lo que vale es el nombre real:
+> - **WF1:** `Esta en mantenimiento` · `Dispara WF 2` (con espacio) · `Dispara WF5` · `Trigger WF5`
+> - **WF5:** `Webhook` · **`Get many rows`** (quedó el nombre por defecto de n8n; funciona porque ningún nodo lo referencia por nombre, pero conviene renombrarlo a `Obtener Ultimo Riego` — ver B.4) · `Verificar Cooldown` · `Cooldown Activo` · `Calcular Dosis` · `Registrar Riego` · `Enviar Mensaje de riego`
+> - **WF2:** el IF nuevo del Fix 3 se llama `Diagnostico Valido`, y el nodo de escritura se llama **`Persistir Diagnotico`** (sin la `s` — el documento decía `Persistir Diagnostico`, corregido el 17/08)
+> - **WF3:** `Convertir a Base64` · `Parsear y decidir` · `Persistir Seguimiento Fenologico` · `Generar URL Firmada` · `Obtener Orden Etapas` · `Validacion de foto` · `Cambio de etapa?`
+>
+> **Corrección de documentación (17/08):** el archivo `WORKFLOWS/WF1 - Motor de Inferencia.js` que este documento mencionaba como copia versionada del código **no existe**; en `WORKFLOWS/` hay únicamente los JSON de los workflows. El código del motor vive dentro del JSON de WF1, que sí está al día (incluye `fotoPlausible`).
+>
+> Auditoría automática de los 5 exports del 12/08: **0 referencias `$('...')` rotas** en los 5 workflows; `alwaysOutputData` presente en `Conocimiento Experto` y `Obtener Ultimo Riego` (WF1) y en `Get many rows` (WF5); `retryOnFail` en los 3 nodos de Gemini y en los dos triggers de WF1.
+>
+> **Exports del 18/08:** los 5 JSON fueron re-exportados (todos con fecha 18/08). **Solo WF3 fue auditado** — ver "Auditoría del export de WF3 (18/08/2026)". WF1, WF4 y WF5 siguen con export fresco del 18/08 **sin cruzar todavía contra el plan**.
+>
+> **Exports del 20/08 (WF2 y WF3):** re-exportados el 20/08 a las 23:54 UTC, o sea **más de dos días después de la última grabación del plan** (18/08 19:30 UTC). Esa diferencia de mtime es lo que destapó una sesión de trabajo sin documentar: entre el 18 y el 20 se aplicaron 16.20, 16.21, 16.22 y 16.24 en WF3, 16.15 en WF2, y un upgrade de modelo de Gemini en los dos — nada de eso estaba anotado. Auditado y sincronizado el 21/08. **Nombres de nodo nuevos en WF3 (usar estos):** `Diagnostico util?`, `Marcar Foto Evaluada`, `Foto Descargada` (sin signo de pregunta — el diseño de 16.22 lo llamaba `Foto descargada?`, y el código de `Parsear y decidir` referencia correctamente el nombre real). **En WF2:** `Diagnostico Fallido`.
+>
+> **Método, para el marco teórico:** el drift no se detectó leyendo el documento ni los workflows, sino **comparando la fecha de modificación de los artefactos entre sí**. El plan afirmaba un estado; los archivos tenían timestamps posteriores a esa afirmación. Cuando la fuente de verdad es un documento escrito a mano y el sistema real son archivos y una base, la única señal barata de que se desincronizaron es la **marca temporal**, no el contenido — comparar contenido es caro y solo se hace si algo indica que vale la pena. Práctica adoptada: al abrir sesión, cruzar `mtime` de `WORKFLOWS/*.json` contra el `mtime` del plan **antes** de leer nada.
+
+---
+
+### Notas de estado
+
+Cada una de estas secciones ya tiene el código/SQL exacto escrito en el documento — se puede ir sección por sección sin necesitar que yo intervenga en cada paso, y avisarme cuando algo no ande como se espera en vivo (regla 3: siempre confirmar contra n8n real, no asumir que el documento es lo que hay).
+
+Fase 15 (fertirriego) ya quedó rediseñada y documentada (ver v18 y 15.1.1) — falta implementarla en Supabase/n8n, puede hacerse en paralelo o después de Fase 13. Sigue pendiente, sin bloquear nada por ahora, la decisión de auth del ESP32 real para `comando_dispositivo` (Edge Function proxy vs. RLS por dispositivo vs. aceptar el riesgo) — se revisará recién antes de escribir firmware real, no antes. Ver también el backlog de mejoras futuras al final del documento.
+
+> [!NOTE]
+> **✅ Exports al día (12/08):** los **5** JSON de `WORKFLOWS/` (WF1, WF2, WF3, WF4 y **WF5**) fueron re-exportados al cierre de la sesión 5 y auditados automáticamente: 0 referencias `$('...')` rotas en los 5. El código del `Motor de Inferencia` está además versionado aparte en `WORKFLOWS/WF1 - Motor de Inferencia.js` — **ojo: ese archivo quedó en la versión del 11/08**, le faltan `fotoPlausible` y el `tiene_foto` del Fix 4 de 16.14; regenerarlo la próxima vez que se toque el nodo.
+> **Estado de los exports en `WORKFLOWS/` (11/08, mañana):** los 4 JSON (WF1, WF2, WF3, WF4) fueron re-exportados y reflejan el estado real usado para la auditoría de v25/13.3.2. WF1 y WF4 mantienen `active` tal como documentado (WF1 `true`, WF4 `false` a propósito). Ojo: en cuanto se apliquen los 2 fixes de 13.3.2 y el diseño de 13.4, estos exports vuelven a quedar desactualizados — re-exportar de nuevo después.
+
+> [!NOTE]
+> El ESP32 físico todavía no está armado — se está construyendo la orquestación digital primero, a propósito desacoplada del hardware (el sistema solo habla vía HTTP contra Supabase, nunca al revés — ver el contrato en 13.6). Ninguna fase nueva depende de tener el ESP32 para poder programarse y testearse con datos simulados.
+
+---
+
+### Contradicciones
+
+Al reordenar el documento se cruzaron sus afirmaciones de estado contra los artefactos reales (`WORKFLOWS/*.json` del 24/08). **Siete no coinciden.** Se listan acá en vez de corregirse en silencio dentro de cada sección: cambiar un `**Estado:**` es afirmar algo sobre el sistema, y eso se confirma, no se asume (reglas 3 y 4).
+
+Las cuatro primeras están **verificadas contra el export** y el documento es el que está atrasado. Las tres últimas son contradicciones **internas** del documento, que solo se pueden cerrar mirando n8n o la base.
+
+| # | El documento dice | El artefacto dice | Veredicto |
+|---|---|---|---|
+| **a** | La tabla "Estado Actual" daba WF3 en `active: false` "hasta cerrar tres pendientes" | `"active": true` en el export del 24/08 | 📄 **Documento atrasado.** El bloque de cierre de la sesión 8 ya lo decía bien; la tabla no se actualizó |
+| **b** | WF3 tiene "**4 nodos huérfanos a propósito** — borrarlos antes de dar 16.25 por cerrado" | 17 nodos, **0 huérfanos**. `Diagnostico util?`, `Marcar Foto Evaluada`, `Actualizar etapa en cultivo` y `Persistir Seguimiento Fenologico` **ya no existen** en el JSON | 📄 **Pendiente ya ejecutado.** La estrategia de rollback se cerró y no se anotó |
+| **c** | "Confirmar que la URL de Gemini volvió a `gemini-3.5-flash`" tras el test de inyección de fallos (WF3) | `gemini-3.5-flash` en WF2 y WF3. WF4 sigue en `2.5` (16.30, sigue abierto) | 📄 **Confirmado.** Pendiente cerrado |
+| **d** | 16.26 🟠 figura como "identificado, **sin aplicar**" en su sección y en el tablero | `Validacion de foto` tiene `={{ $json.ultima_foto_path }}` **sin el `=` de más**, y hay **0 ocurrencias** del patrón `"={{ =` en todo el JSON | 📄 **Ya aplicado.** El bloque de cierre de la sesión 8 lo marcaba ✅; su propia sección quedó desactualizada |
+| **e** | 16.19 🟡: "identificado, **sin aplicar**" | **16.28** afirma: *"RESUELTO (23/08), **y con ello también 16.19**"* — `fn_registrar_evaluacion_fenologica` recibe el objeto `jsonb` completo | ⚠️ **Contradicción interna.** Verificar contra la base qué forma tiene hoy `diagnostico_ia` escrita por cada workflow, y cerrar 16.19 o reabrir 16.28 |
+| **f** | 16.1: el subtítulo `#### ⏳ Gemini — pendiente` sigue abierto | La tabla "Estado Actual" afirmaba *"Gemini rotada y confirmada en los 3 workflows ✅"*, y v14 lo da por hecho | ⚠️ **Contradicción interna.** Mirar las credenciales en n8n y cerrar el subtítulo, o corregir el tablero |
+| **g** | 16.5 conserva 🔴 y "**bug activo**" en su título | Su diseño definitivo se trasladó a 12.2, que figura ✅ aplicado en los tres workflows | ⚠️ **Título desactualizado.** Si 12.2 está cerrado, 16.5 lo está |
+
+> **Nota de método, para el marco teórico.** Las cuatro primeras filas tienen la misma forma: **el documento registró bien el hallazgo y bien la decisión, pero no el cierre**. Un sistema de trazabilidad escrito a mano tiene un sesgo estructural hacia el falso positivo — abrir un ítem cuesta una línea en el momento en que duele, cerrarlo cuesta acordarse cuando ya no duele. El efecto acumulado es un backlog que sobreestima el trabajo pendiente, y eso no es inocuo: hace que el próximo lector priorice contra un mapa equivocado. Es el mismo argumento por el que 16.25 prefirió un `CHECK` en la base antes que un `IF` en el flujo — **el estado conviene derivarlo del artefacto, no repetirlo a mano en un segundo lugar**. La contramedida barata, ya adoptada en el protocolo de arranque, es cruzar los `**Estado:**` contra los JSON en cada auditoría, no solo los hallazgos nuevos.
+
+---
+
+### Historial de sesiones
+<details>
+<summary><b>Cierre de la sesión 10 (31/08) — histórico</b></summary>
+
+
+> [!IMPORTANT]
+> **Cierre de la sesión 10 (31/08) — estado y próximos pasos.** *Reemplaza al bloque de la sesión 9, que queda en **Historial de sesiones** como historia.*
+>
+> **Lo que se hizo:**
+> 1. ✅ **El batch de WF1 aplicado entero**, los 5 cambios en un solo ciclo. Re-exportado a `WORKFLOWS/WF1.json` y commiteado. El diff confirma que cambiaron exactamente los 4 nodos esperados y que `Alerta Telegram` **no** cambió — o sea que el paso 1 era un no-op y el `chatId` ya estaba bien.
+> 2. ✅ **16.34 cerrado y verificado contra la base:** una telemetría deliberadamente parcial (sin pH) escribió **4 filas y ninguna de pH**. Con el código anterior se perdía la lectura **entera**.
+> 3. ✅ **16.36 cerrado y verificado en vivo:** llegó la alerta de Telegram, o sea que `Requiere Alerta?` ya rutea sobre `requiere_alerta` y no sobre el string `estado`.
+> 4. 🟡 **16.35 y 16.37 aplicados pero sin ejercitar.** 16.37 no se puede probar hasta cargar el dato que falta (**B.1**): hoy no hay ningún cultivo en una etapa sin umbrales.
+> 5. 🟠 **16.39 abierto y confirmado en vivo.** La hipótesis que la sesión 9 dejó a propósito sin numerar resultó cierta.
+> 6. ✅ **Residuos limpiados** (`SQL/sesion10_limpieza_residuos.sql`) y las dos fotos huérfanas de Storage borradas a mano.
+>
+> **Estado verificado contra Supabase (03/09):** `evento_riego` **8** (las 8 `pendiente`), `comando_dispositivo` **8**, `seguimiento_fenologico` **24**, `evaluacion_fenologica` **0**, `lectura_sensores` **220**, cultivo en **Floración** desde el 12/08, `ultima_foto_evaluada_path` en `null`. Idéntico al cierre de la sesión 10: **nadie tocó nada en tres días** (árbol de git limpio y `mtime` de los workflows anterior al del plan).
+>
+> **⚠️ Anomalía a investigar antes que nada.** El cultivo lleva **22 días** en una Floración de 20, o sea que la ventana de evaluación de WF3 (80 % = 16 días) está abierta **desde el 28/08**. WF3 está `active: true` y corre cada 8 h, así que debería haber evaluado unas nueve veces entre el 31/08 y el 03/09. **`evaluacion_fenologica` sigue en 0 y `ultima_foto_evaluada_path` sigue en `null`.** La explicación más probable es que n8n no estuvo corriendo (máquina apagada), y en ese caso no hay nada roto. La alternativa es que WF3 esté fallando en silencio, que sería un hallazgo. Se distinguen mirando el historial de ejecuciones de WF3 en n8n: **si no hay ejecuciones, fue la máquina; si las hay y están en rojo, es un bug.**
+>
+> **Arrancar la sesión 11 por acá, en este orden:**
+> 1. ⚠️ **Rotar la clave del webhook.** Quedó expuesta en el chat de la sesión 10. Hoy es barato: el único cliente es PowerShell y el ESP32 no existe.
+> 2. **Resolver la anomalía de WF3** (arriba). Es un chequeo de dos minutos y decide si hay un hallazgo nuevo o no.
+> 3. **B.13 — respaldar el volumen `n8n_storage`.** Es precondición de cualquier cosa que toque el contenedor, incluida la actualización de n8n.
+> 4. **B.14 — fijar la versión de n8n** en `docker-compose.yaml`. Una línea, y convierte la actualización en un acto deliberado en vez de un efecto secundario.
+> 5. **B.1 + 16.37 juntos** — cargar `parametro_etapa` de Cosecha y agregar Fructificación. Es lo que **desbloquea poder probar 16.37**, que hoy está aplicado a ciegas.
+> 6. **16.39** — el fix de dos capas (cerrar el contrato en las ramas de guarda, y que `Preparar Foto binaria` falle nombrando la causa).
+> 7. **13.7.1** — el recheck de riego. Sigue siendo la última precondición antes de conectar una bomba real, y sigue siendo lo más importante que queda.
+> 8. **16.33 y 16.38** — los dos índices únicos. Requieren SQL en producción y confirmación previa (regla 2).
+> 9. **Auditar WF5 y WF4**, los dos últimos con estado desconocido.
+>
+> **Lección de la sesión, para el marco teórico — el mismo procedimiento, resultados opuestos.** 16.32 y 16.39 nacieron igual: una deducción sobre el modelo de ejecución de n8n, barata de ejercer, ejercida antes de tocar nada. Uno quedó **refutado** y el otro **confirmado**. La regla que el proyecto adoptó tras 16.32 —*ningún hallazgo entra como cierto sin ejercerlo si ejercerlo es barato*— no es un filtro que solo descarta: es un procedimiento que **también promueve**, y con evidencia de las **dos mitades** de la afirmación. Acá las dos mitades fueron "se cortó en el nodo predicho" **y** "no escribió nada": un test que solo hubiera mirado el color de la ejecución habría confirmado la mitad barata y dejado abierta la que importa.
+>
+> **Segunda lección, sobre el orden entre el fix y el test.** El batch de la sesión 9 dejó escrito *"no apliques el fix de una línea antes de correr esto"*, y tenía razón. Con `foto_base64` ya agregado a las guardas, la corrida habría dado verde y **no habría distinguido "la hipótesis era falsa" de "era cierta y el fix la tapó"**. Un fix aplicado antes del test convierte al test en una tautología.
+
+---
+
+</details>
+
+<details>
+<summary><b>Cierre de la sesión 9 (24/08) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 9 (24/08) — estado y próximos pasos.** *Reemplaza al bloque de la sesión 8, que queda abajo como historia.*
+>
+> **Base restaurada y verificada contra Supabase, no contra el documento:** `evento_riego` **8** (todas `pendiente`), `comando_dispositivo` **8**, `seguimiento_fenologico` **24**, `evaluacion_fenologica` **0**, `lectura_sensores` **220**, `cultivo.ultima_foto_path` de vuelta en la foto del 20/08, `ultima_foto_evaluada_path` en `null`, cultivo en Floración (`etapa_actual_id = 4`) desde el 12/08.
+>
+> **Lo que se hizo:**
+> 1. ✅ **Limpieza de los residuos del test de 16.32.** Eran **cinco**, no dos: el plan documentó `evento_riego`/`comando_dispositivo` #9 y omitió la fila 25 de `seguimiento_fenologico` (WF2 diagnosticando la foto del test), las 5 filas de `lectura_sensores` y el par **objeto de Storage + `cultivo.ultima_foto_path`**. Borrado en una sola transacción, con el `DELETE` de `evento_riego` antes que el de `comando_dispositivo` por la FK `evento_riego_comando_id_fkey`.
+> 2. ✅ **Auditoría de WF1 completada con 16.34/16.35/16.36 traducidos a cambios exactos**, fusionados con 16.37 en un solo pegado (`SESION9/`). **Sin aplicar.**
+> 3. ✅ **Volcado del handoff de la sesión paralela de base de conocimiento** (`HANDOFF_base_conocimiento_2026-08-24.md`), con tres correcciones: la urgencia de 16.37 estaba mal fechada, el script de B.1 no es ejecutable como estaba, y el análisis de sensibilidad necesita un cambio de método (ver Fase 17).
+>
+> **Arrancar la sesión 10 por acá, en este orden:**
+> 1. ⚠️ **Confirmar el `chatId` de `Alerta Telegram` en n8n** (`5593622386`). Es lo único del test que no se puede verificar desde acá.
+> 2. **Aplicar el batch fusionado de WF1** — 5 nodos, un solo ciclo (ver `SESION9/SESION9_WF1_batch.md`), y **re-exportar WF1** al terminar.
+> 3. **Ejercer la hipótesis de la rama sospechosa + foto** (16.37, sección "hipótesis abierta"). Dos minutos, y hay que hacerlo **antes** de uniformar `foto_base64` en las guardas: el fix y el test se anulan mutuamente.
+> 4. **Cargar `parametro_etapa` de Cosecha y agregar Fructificación** (B.1 + 16.37, acciones 1 y 2). Aplicar el `INSERT` del catálogo **sin** sus parámetros es construir a mano el escenario de 16.37.
+> 5. **16.33 🟠** — índice único parcial sobre `cultivo(dispositivo_id) where active`.
+> 6. **16.38 🟠** — unicidad en `etapas_especie` y `parametro_etapa`.
+> 7. **16.31 🟠** — aviso ante `etapa_no_coincide` repetido.
+> 8. **13.7.1** — recheck + tope duro. Sigue siendo la última precondición antes de conectar una bomba real.
+> 9. **Auditar WF5 y WF4**, los dos últimos con estado desconocido.
+> 10. Diferidos con fecha abierta: 12.6, 16.13 + B.9, B.7/B.8, B.10, B.11, B.12, 16.29, 16.30 y el renombre de `Get many rows` (B.4).
+>
+> **Lección transversal de la sesión, para el marco teórico — el defecto de composición por concurrencia.** El proyecto ya tenía documentado que *un fix correcto en aislamiento puede ser incorrecto en composición* (sesión 8, a partir de 16.25/16.26/16.27). Esta sesión produjo el mismo defecto por una causa **nueva**: no un fix aplicado y no ejercido, sino **dos autores trabajando en paralelo sin canal entre ellos**. El handoff propuso una guarda de umbrales que termina en *"y que `Requiere Alerta?` lo trate como alerta"* — verdadero mientras ese IF ruteara sobre `estado !== 'OK'`, y **falso desde el momento en que 16.36 lo pasó a rutear sobre un booleano de dominio**. Los dos cambios son correctos; su composición produce exactamente el silencio que ambos venían a eliminar. La conclusión práctica es que **el contrato de salida uniforme no es solo una regla de escritura, es la superficie de acoplamiento entre autores**: cuando dos personas tocan el mismo nodo, lo único que las mantiene compatibles es que el conjunto de campos y tipos que ese nodo emite esté declarado y sea el mismo por todos los caminos. Sin eso, la única forma de detectar la incompatibilidad es ejecutarla.
+>
+> **Segunda lección, sobre cómo se fecha un riesgo.** El handoff fechó 16.37 como *"🔴 antes del 28/08"*, razonando que WF3 avanzaría el cultivo a Cosecha —la etapa sin umbrales— al abrirse la ventana de evaluación. **La topología del código lo refuta:** `Parsear y decidir` exige `etapaCoincide`, la foto produce `"Fructificación"` y la etapa esperada es `"Cosecha"`, así que da `etapa_no_coincide` y no avanza — comportamiento **ya ejercido dos veces**, el 23/08 y el 24/08. Pero la corrección **agrava** el hallazgo en vez de aliviarlo: `vista_cultivos_activos` usa `LEFT JOIN` contra `etapas_especie`, así que **un alta de Albahaca en Germinación o Plántula dispara 16.37 hoy mismo**, sin esperar nada. El riesgo no tenía fecha: tenía un **disparador**, y el disparador es la acción más común del producto. Un riesgo con fecha se administra; uno que se activa con el primer alta de un cliente nuevo, no. Nota de método: **fechar un riesgo es una afirmación sobre el sistema y hay que verificarla igual que cualquier otra** — acá la fecha era falsa en las dos direcciones a la vez, tarde para el disparador real y temprano para el que se creía.
+
+---
+
+</details>
+
+<details>
+<summary><b>Cierre de la sesión 8 (21/08) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 8 (21/08) — histórico, superado por el bloque de la sesión 9.**
+> **WF3 quedó cerrado y reactivado.** ✅ 16.25 (campaña de tests completa), ✅ 16.26 (el `=` de más), ✅ 16.27, ✅ 16.19/16.23/16.28, ✅ 16.21 en su camino feliz. Export del 24/08 verificado: `active: true`, modelo `gemini-3.5-flash` restaurado, 17 nodos, **0 huérfanos, 0 referencias rotas, 0 dobles `==` en todo el JSON**. Se abrió **16.31 🟠**.
+>
+> **Arrancar la sesión 9 por acá, en este orden:**
+> 1. ⚠️ **Limpieza pendiente del test de WF1**, antes de tocar nada: devolver el `chatId` de `Alerta Telegram` a `5593622386` si quedó en `1`, y decidir si se borra el `evento_riego`/`comando_dispositivo` **#9** que creó la inyección de fallos (el plan venía usando "8 filas, todas `pendiente`" como referencia de 13.7.1).
+> 2. **16.33 🟠** — índice único que impida dos cultivos activos por dispositivo. Requiere SQL en producción y confirmación previa (regla 2), y verificar antes que ningún dato existente lo viole.
+> 3. **16.34 🟠** — el JSON por concatenación en `fn_registrar_telemetria`.
+> 4. **16.35 🟡 y 16.36 🟢** — dos caracteres y una condición; se aplican junto con cualquier otro cambio a WF1.
+> 5. **16.31 🟠 y B.1 juntos** — agregar "Fructificación" al catálogo (dato) **y** el aviso ante `etapa_no_coincide` repetido (control). Son complementarios, no alternativos.
+> 6. **13.7.1** — recheck + tope duro. Sigue siendo la última precondición antes de conectar una bomba real.
+> 7. **Auditar WF5 y WF4**, los dos últimos con estado desconocido. Sus exports del 24/08 son **byte a byte idénticos** a los del 18/08, así que lo que se audite será el estado real.
+>
+> *⚠️ **Residuo de edición.** Lo que sigue hasta el próximo separador son **dos versiones anteriores de los puntos 5–8 de esta misma lista**, que quedaron duplicadas al reescribirla. Se conservan sin tocar por trazabilidad; la lista vigente de la sesión 8 es la de los puntos 1–7 de arriba.*
+>
+> 5. **Auditar WF1, WF4 y WF5** contra el plan. Sus exports son del 18/08 y nunca se cruzaron; WF1 es el único `active: true` que mueve datos en cada telemetría.
+> 6. **13.7.1** — recheck + tope duro de riegos por ventana. **`evento_riego` ya tiene 8 filas, todas en `resultado = 'pendiente'`** (eran 5 el 17/08): el loop nunca se cerró ni una vez, así que `falla_riego_persistente` sigue siendo código inalcanzable. Última precondición antes de conectar una bomba real.
+> 7. **13.13 (WF6)** — `/pausar` y `/calibrar` por Telegram.
+> 8. Diferidos con fecha abierta: 12.6 (Claim Check), 16.13 + B.9 (permisos), B.1 (Fructificación), B.7/B.8, 16.29 y 16.30, y el renombre de `Get many rows` en WF5 (B.4).
+>
+> 5. **13.7.1** — recheck + tope duro de riegos por ventana. `evento_riego` sigue en **8 filas, todas `pendiente`**: el loop nunca se cerró, así que `falla_riego_persistente` sigue siendo código inalcanzable. Última precondición antes de conectar una bomba real.
+> 6. **13.13 (WF6)** — `/pausar` y `/calibrar` por Telegram.
+> 7. **Auditar WF1, WF4 y WF5** contra el plan. Sus exports son del 18/08 y nunca se cruzaron; WF1 es el único `active: true` que mueve datos en cada telemetría.
+> 8. Diferidos con fecha abierta: 12.6 (Claim Check), 16.13 + B.9 (permisos), B.1 (Fructificación, ahora con evidencia acumulable — ver abajo), B.7/B.8, 16.29, 16.30, B.10, y el renombre de `Get many rows` en WF5 (B.4).
+>
+> **Estado de la base al cierre del 23/08 (verificado contra Supabase, no asumido):** 1 cultivo (Tomate Cherry demo, Floración desde el 12/08 — restaurado tras el test), `seguimiento_fenologico` con **24 filas**, `evaluacion_fenologica` con **0 filas** (limpiada tras el test), `evento_riego` con **8 filas** todas `pendiente`, y `cultivo.ultima_foto_evaluada_path` en `null`.
+>
+> **Lección transversal de la sesión, para el marco teórico:** los tres hallazgos nuevos de peso (16.25, 16.26, 16.27) **no son bugs de los fixes del 20/08: son bugs de la costura entre un fix y el resto del sistema**. 16.21 introdujo una marca de idempotencia y no definió en qué momento del ciclo de vida se commitea; 16.22 introdujo un filtro y una guarda, y el `=` de más de 16.26 sobrevivió porque la guarda nueva lo tapa aguas abajo; 16.15 se aplicó en un workflow y no en el otro. La conclusión de ingeniería es que **un fix correcto en aislamiento puede ser incorrecto en composición**, y que el momento de mayor riesgo de un sistema no es cuando está roto sino **justo después de arreglarlo**, cuando el arreglo todavía no fue ejercido y la confianza ya subió.
+>
+> **Segunda lección, del propio proceso de arreglarlo:** durante esta sesión el defecto de composición **se repitió dos veces más, en el arreglo del arreglo**. Al recablear WF3 quedó conectado `Persistir Seguimiento Fenologico`, que habría duplicado la fila de la historia clínica; y la función nueva rompió, en su `RETURN` temprano, el mismo contrato de salida uniforme que su camino principal respetaba. Ninguno de los dos era un error de concepto: los dos eran **el borde de un cambio que no se revisó con el mismo cuidado que su centro**. De ahí la práctica que esta sesión deja instalada: **auditar el artefacto exportado antes de ejecutarlo**. No reemplaza al test —los dos defectos habrían aparecido igual en la verificación contra la base— pero cambia el costo del diagnóstico: leído en el JSON cuesta un cable, encontrado en la base cuesta limpiar filas y descartar hipótesis sobre el componente equivocado.
+
+</details>
+
+<details>
+<summary><b>Cierre de la sesión 6 (17/08) y sesión 7 (18/08) — histórico, ya ejecutado</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 6 (17/08) — próximos pasos, en orden.** *Actualizado el 18/08 (sesión 7): el punto 1 está hecho y auditado; los hallazgos que abrió la auditoría (16.20 a 16.24) se intercalan abajo.*
+> 1. ✅ **Hecho (18/08). Re-exportar WF3** a `WORKFLOWS/` con los 6 cambios de la sesión (4 de 16.16 + `Execute Once` de 16.17 + Batching de 16.18) y **reactivarlo**. Auditado contra este documento y contra Supabase: los 6 cambios confirmados, 0 referencias rotas, 0 `.first()`. **Abrió 5 hallazgos nuevos:** 16.20 🔴 (la decisión de avanzar de etapa no valida `etapa_detectada`), 16.21 🔴 (la misma foto se re-analiza cada 8 h sin límite), 16.22 🟠 (una foto rota aborta la corrida de todos los cultivos), 16.23 🟡 (dual-write sin atomicidad, converge con 16.19) y 16.24 🟢 (`limit` faltante en el catálogo de etapas).
+> 2. **16.15 — señal operativa ante degradación** (`Stop and Error` en la rama FALSE de `Diagnostico Valido` en WF2, y equivalente en `Cambio de etapa?` de WF3). Confirmado en vivo dos veces esta sesión: el sistema degrada bien y no deja rastro. Es el hallazgo más barato de arreglar que queda.
+> 3. **16.19 — heterogeneidad de `diagnostico_ia`**: WF2 guarda un objeto JSON y WF3 un string concatenado en la misma columna `jsonb`. Arreglarlo resuelve de paso la pérdida de `etapa_detectada` que agrava B.1.
+> 4. **13.7.1** — recheck (`Cerrar Loop de Riego`) + tope duro de riegos por ventana. Sigue siendo la última precondición antes de conectar una bomba real. **Los 5 `evento_riego` existentes están todos en `resultado = 'pendiente'`**: el loop nunca se cerró ni una sola vez, así que el circuit breaker de 13.3.1 (`falla_riego_persistente`, que se activa con `resultado = 'insuficiente'`) es hoy código inalcanzable — nunca puede dispararse porque nadie escribe ese valor.
+> 5. **13.13 (WF6)** — `/pausar` y `/calibrar` por Telegram.
+> 6. **Hallazgos abiertos por la auditoría del 18/08**, en orden de gravedad para el producto: **16.20** (tercer término en `debe_actualizar` — es el más barato de los tres 🔴/🟠 y el único de la categoría "daña el cultivo"), **16.21** (bucle de costo por foto no refrescada — el de mayor impacto en economía unitaria, y conviene pensarlo junto con 16.15 porque comparten la raíz de "los negativos no se registran"), **16.23 + 16.19** juntos vía `fn_registrar_avance_etapa`, **16.24** (un minuto), y **16.22** cuando haya más de un cultivo activo.
+> 7. Diferidos con fecha abierta: 12.6 (Claim Check), 16.13 + B.9 (permisos), B.1 (Fructificación), B.7/B.8, y el renombre de `Get many rows` en WF5 (B.4).
+>
+> **Estado del sistema al cierre:** WF1, WF2 y WF5 activos; **WF3 desactivado** tras el test N=2 (reactivar, punto 1); WF4 inactivo a propósito. El riego automático funciona de punta a punta con datos simulados y **WF3 quedó verificado para múltiples cultivos**, cosa que hasta esta sesión no se podía afirmar. Base restaurada al estado previo al test: 1 cultivo, 1 dispositivo, `seguimiento_fenologico` con **23 filas y 0 corruptas**, y la historia clínica terminando coherentemente en Floración, igual que el cultivo. El ESP32 sigue sin construirse, y nada de lo anterior depende de él.
+>
+> **Lección transversal de la sesión, para el marco teórico:** los tres bugs de WF3 (16.16, 16.17, 16.18) eran **el mismo bug latente visto en tres capas**: código, datos y carga. Ninguno era observable con un solo cultivo, y los tres aparecieron en cascada al hacer que la rama llevara dos ítems por primera vez. La conclusión de ingeniería es que **N=1 no es un caso de prueba de un sistema que itera**: es el caso donde todas las formas de romper la iteración dan el mismo resultado correcto.
+
+</details>
+
+<details>
+<summary><b>Siguiente paso recomendado al cierre de la sesión 4 (11/08) — histórico, ya ejecutado</b></summary>
+
+**Siguiente paso recomendado (11/08, segunda pasada):** los 4 JSON de `WORKFLOWS/` fueron re-exportados y auditados **dos veces**: contra el plan (v25) y contra el estado vivo de Supabase + la semántica de ejecución de n8n (v26). **WF1 está `active: true` pero no funciona hoy.** Antes de tocar nada de 13.4 hay 4 fixes pendientes en WF1, los tres primeros bloqueantes:
+
+1. **🔴 Bloqueante** — cambiar `$('Obtener Último Riego')` por `$('Obtener Ultimo Riego')` (sin tilde, nombre real del nodo) en `Motor de Inferencia`. Sin este fix, WF1 tira error en cualquier lectura que no sea "Lectura Sospechosa" — telemetría real rota hoy. Ver 13.3.2.
+2. **🔴 Bloqueante y silencioso** — activar **Always Output Data** en `Obtener Ultimo Riego` + lectura defensiva en el Code. `vista_ultimo_riego` devuelve 0 filas hoy (`evento_riego` vacía) y un nodo que emite 0 ítems corta la cadena entera **sin marcar error**. Ver 13.3.3.
+3. **🔴 Bloqueante para 13.4** — contrato de salida uniforme en `Motor de Inferencia`: mover `enMantenimiento` al principio del nodo y completar el `return` de `Lectura Sospechosa` con los campos que los IF de 13.4 leen. Ver 13.3.3.
+4. **🟡 Silencioso** — cambiar `$('Preparar Foto Binaria')` por `$('Preparar Foto binaria')` (b minúscula) en `Consolidar datos`. No rompe nada (está en try/catch), pero `seguimiento_fenologico.path_foto` de WF2 queda siempre `null` para diagnósticos de emergencia. Ver 13.3.2.
+
+**Después de esos 4 fixes, en este orden:**
+
+3. **13.4** (reescrito 11/08 con la topología real, ver más abajo) — agregar 3 IFs nuevos después de `fn_registrar_telemetria` (no después de `Motor de Inferencia`, como decía la versión vieja del diseño) + el nodo HTTP nuevo "Trigger WF5 Control de Riego". El nodo `Obtener Ultimo Riego` que pedía 13.4 **ya existe y está cableado** — no hace falta agregarlo.
+4. **13.5** — construir WF5 completo (8 nodos, todos con código/config detallados).
+5. **13.7.1** — implementar el recheck (`Cerrar Loop de Riego`) y el tope duro de riegos por ventana. **No es opcional antes de que WF5 riegue un cultivo real**: sin esa señal el circuit breaker de 13.3.1 nunca abre y el sistema puede regar indefinidamente.
+6. **13.13** — construir WF6 (Telegram Trigger + Code + Switch, código completo en el documento) para modo mantenimiento y calibración guiada.
+7. **13.6/13.10** — testear todo con el simulador PowerShell, sin necesidad de ESP32 físico.
+8. **Re-exportar WF1** a `WORKFLOWS/` una vez aplicados los fixes y 13.4 (el export actual del 11/08 ya sirvió para esta auditoría, pero quedará desactualizado en cuanto se peguen los cambios).
+
+</details>
+
+<details>
+<summary><b>Tabla "Estado Actual" original (v40, 24/08) — conservada sin editar, superada por **Tablero**</b></summary>
+
+| Área | Estado |
+|---|---|
+| WF1 — Pipeline Telemetría | ✅ Activo. **Auditado el 24/08 por primera vez** (ver "Auditoría de WF1"): 18 nodos, todos alcanzables, **0 referencias `$('...')` rotas**, y los 6 fixes históricos confirmados en el JSON. **4 hallazgos nuevos abiertos: 16.33 🟠 · 16.34 🟠 · 16.35 🟡 · 16.36 🟢**. Un quinto (**16.32**) quedó **descartado**: las tres ramas de `Requiere Alerta?` son paralelas e independientes y un fallo de Telegram no bloquea el riego — confirmado por inyección de fallos y por la topología real. ✅ **Residuos del test limpiados el 24/08 (sesión 9)** — resultaron ser **cinco y no dos**: `evento_riego`/`comando_dispositivo` #9 (id 11), la fila 25 de `seguimiento_fenologico` que escribió WF2, las 5 filas de `lectura_sensores` (271-275) y el par foto de Storage + `cultivo.ultima_foto_path`. Base restaurada exacta y verificada: 8 / 8 / 24 / 0 / 220. ⚠️ **Queda el `chatId` de `Alerta Telegram`**, que solo se puede confirmar mirando n8n: el export del 24/08 es de las 16:28 UTC y la inyección de fallos corrió a las 16:39. **Batch de cambios preparado y fusionado, sin aplicar: 16.34 + 16.35 + 16.36 + 16.37** (ver `SESION9/`). Historial — verificado de punta a punta el 11/08 a las 19:56 tras aplicar los 4 fixes de 13.3.2/13.3.3; **cambios de nodos del 06/08:** `Motor de Inferencia` ampliado con los 4 cambios de 13.3 (riego, falla persistente, modo mantenimiento con fix de `!!`, chequeo de lectura sospechosa) — confirmado pegado y corregido por el usuario. **Pendiente re-exportar el JSON de WF1 a `WORKFLOWS/`** — el export actual ya no refleja el nodo real |
+| WF2 — Diagnóstico IA Emergencia | ✅ Activo. **16.14 cerrado el 17/08 por inyección de fallos. Re-exportado el 20/08 con dos cambios que no estaban documentados** (auditados el 21/08, ver sección de la sesión 8): **16.15 aplicado acá** — nodo nuevo `Diagnostico Fallido` (Stop and Error) colgando de la rama FALSE de `Diagnostico Valido` — y el modelo subido a **`gemini-3.5-flash`**. El nombre real del nodo de escritura sigue siendo `Persistir Diagnotico`, sin la `s` |
+| WF3 — Validación Fenológica | 🟡 **Reconstruido con la escritura transaccional de 16.25 y verificado de punta a punta el 24/08**: N=2, camino `avanza`, camino de fallo y política de terminación, con la base restaurada exacta al terminar. `active: false` hasta cerrar tres pendientes: **confirmar que la URL de Gemini volvió a `gemini-3.5-flash`** tras el test de inyección de fallos, aplicar **16.26**, y **borrar los 4 huérfanos**. El test abrió **16.31 🟠** (`etapa_no_coincide` como estado absorbente). Topología nueva: `Parsear y decidir` → `Registrar Evaluacion` (RPC) → `Cambio de etapa?` → Telegram. 17 nodos alcanzables, 0 referencias `$('...')` rotas, y **4 nodos huérfanos a propósito** (`Diagnostico util?`, `Marcar Foto Evaluada`, `Actualizar etapa en cultivo`, `Persistir Seguimiento Fenologico`) que quedaron desconectados en vez de borrados como estrategia de rollback — **borrarlos antes de dar 16.25 por cerrado**. Cierra 16.25, 16.23, 16.19, 16.28 y 16.21 en su camino feliz. Sigue abierto **16.26** (el `=` de más). Historial — **re-exportado el 20/08 con 16.20, 16.21, 16.22 y 16.24 ya aplicados** (sin documentar en su momento; auditado el 21/08). Los 6 cambios de la sesión 6 siguen intactos, 0 referencias `$('...')` rotas, 0 `.first()`. **Abre 6 hallazgos nuevos: 16.25 🔴 · 16.26 🟠 · 16.27 🟠 · 16.28 🟡 · 16.29 🟢 · 16.30 🟢.** 16.23 sigue sin aplicar y **empeoró**: ahora son tres escrituras independientes, no dos. **Ojo para testear:** el cultivo está en Floración desde el 12/08 y la ventana se abre recién el 28/08 — hoy el workflow se corta en `Hay cultivos a evaluar?`, y `cultivo.ultima_foto_evaluada_path` está en `null`, o sea que **nada de lo aplicado el 20/08 se ejerció todavía ni una vez** |
+| WF4 — Análisis Preventivo | ✅ Corregido y **validado en los 3 escenarios** (seria/leve/óptimo, 05/08) — ver Fase 11. `active: false` **a propósito**: sin ESP32 real no hay telemetría fresca que analizar, activarlo hoy solo generaría ejecuciones vacías. Activación diferida hasta haber telemetría real y periódica. No es un pendiente, es una decisión |
+| Fase 11 — Testing integral | ✅ **Cerrada (05/08)**. Los 3 escenarios de WF4 validados de punta a punta, Gemini confirmado en WF2/WF3, datos de test borrados (`lectura_sensores` 156-160, confirmado 0 filas) |
+| Fase 12 — Migración a producción | 🟡 12.1 ✅ · 12.2 ✅ · 12.3 ✅ · **12.5 ✅ resuelto (05/08, ver sección 12.5 actualizada)** · 12.4 pendiente, bloqueado por ESP32 físico |
+| Fase 13 — Riego Automático | 🟢 **Riego automático funcionando de punta a punta (12/08)** — WF1 operativo con los 6 fixes, 13.4 construido y verificado, `fn_registrar_riego` aplicada, **WF5 activo y validado** (riego + cooldown). Pendientes: 16.14 (4 fixes en WF2), 13.7.1 (recheck + tope duro), WF6 (13.13), re-exportar los JSON. SQL de 13.1, 13.2 y 13.12/13.13 aplicado y verificado — 6 tablas nuevas + `vista_cultivos_activos` ampliada (16 columnas) + `mantenimiento_hasta` + `CALIBRAR_BOMBA` en Supabase, RLS activo. **13.3 implementado en n8n**, pero la auditoría del 11/08 (ver 13.3.2) encontró **2 bugs reales sin corregir todavía**: referencia rota a `Obtener Ultimo Riego` (🔴 crítico — rompe WF1 completo, `active: true` en producción) y a `Preparar Foto binaria` (silencioso, pero `seguimiento_fenologico.path_foto` de WF2 queda siempre `null`). El nodo `Obtener Ultimo Riego` de 13.4 **ya está insertado y cableado** en WF1 real (hallazgo, no documentado antes). **13.4 reescrito (11/08)** con la topología real y los 3 IF + HTTP nuevos listos para pegar — nada de esto aplicado todavía. WF5, WF6 y contrato ESP32 diseñados, sin construir |
+| Fase 14 — Anticipación de Etapa (NPK/pH) | 🆕 Diseñada, sin implementar |
+| Fase 15 — Recomendación de Fertirriego | 🆕 **Rediseñada (06/08, ver 15.1.1)**, sin implementar — corrige confusión óxido/elemental en fertilizantes y doble conteo en productos combinados |
+| Fase 16 — Seguridad y Buenas Prácticas | 🟡 Gemini rotada y confirmada en los 3 workflows (WF2/WF3/WF4) ✅ · **16.12 nuevo bug encontrado y resuelto (05/08)** · 16.9: 2 ítems cosméticos menores pendientes, centralización de chatId diferida a pedido del usuario (evalúa reemplazar Telegram por app propia) · **16.13 nuevo (11/08):** auditoría de GRANTs — `anon`/`authenticated` tienen `ALL` sobre las 18 tablas y vistas por las *default privileges* de Supabase; no explotable hoy (RLS lo tapa) pero deja la seguridad en una sola capa. SQL de corrección propuesto, sin aplicar |
+
+</details>
+
+---
+
+## Índice
+
+- [Guía del documento](#guía-del-documento)
+    - [Convenciones](#convenciones)
+    - [Protocolo de arranque de sesión](#protocolo-de-arranque-de-sesión)
+- [Estado Actual](#estado-actual)
+    - [Tablero](#tablero)
+    - [Hallazgos abiertos](#hallazgos-abiertos)
+    - [Cierre de sesión y próximos pasos](#cierre-de-sesión-y-próximos-pasos)
+    - [Nombres reales de los nodos](#nombres-reales-de-los-nodos)
+    - [Notas de estado](#notas-de-estado)
+    - [Contradicciones](#contradicciones)
+    - [Historial de sesiones](#historial-de-sesiones)
+- [Changelog](#changelog)
+- [Versionado y ritual de sesión](#versionado-y-ritual-de-sesión)
+    - [Por qué se versiona](#por-qué-se-versiona)
+    - [Lo que git no resuelve](#lo-que-git-no-resuelve)
+    - [Ritual de cierre](#ritual-de-cierre)
+    - [Qué queda fuera del repositorio](#qué-queda-fuera-del-repositorio)
+- [Diagnóstico de tu Base de Datos Actual](#diagnóstico-de-tu-base-de-datos-actual)
+- [Fase 1 · Ajustes SQL en Supabase](#fase-1-ajustes-sql-en-supabase)
+- [Fase 2 · Bot de Telegram](#fase-2-bot-de-telegram)
+- [Fase 3 · Credenciales en n8n](#fase-3-credenciales-en-n8n)
+- [Fase 4 · Workflow n8n (Nodo por Nodo)](#fase-4-workflow-n8n-nodo-por-nodo)
+- [Fase 5 · Pruebas con cURL](#fase-5-pruebas-con-curl)
+- [Fase 6 · Producción](#fase-6-producción)
+- [Fase 7 · Setup Google Gemini (Gratis)](#fase-7-setup-google-gemini-gratis)
+- [Fase 8 · WF2 — Diagnóstico IA de Emergencia (Nodo por Nodo)](#fase-8-wf2-diagnóstico-ia-de-emergencia-nodo-por-nodo)
+- [Fase 9 · WF3 — Validación Fenológica (Nodo por Nodo)](#fase-9-wf3-validación-fenológica-nodo-por-nodo)
+- [Fase 10 · WF4 — Análisis Preventivo de Rutina (Nodo por Nodo)](#fase-10-wf4-análisis-preventivo-de-rutina-nodo-por-nodo)
+- [Fase 11 · Testing Integral](#fase-11-testing-integral)
+- [Fase 12 · Migración de Demo a Producción (Eliminar Hardcodes)](#fase-12-migración-de-demo-a-producción-eliminar-hardcodes)
+- [Fase 13 · Riego Automático — Control de Humedad en Loop Cerrado](#fase-13-riego-automático-control-de-humedad-en-loop-cerrado)
+- [Fase 14 · Anticipación de Etapa Fenológica por NPK/pH](#fase-14-anticipación-de-etapa-fenológica-por-npkph)
+- [Fase 15 · Recomendación de Fertirriego (N/P/K/pH) — Asistido, No Automatizado](#fase-15-recomendación-de-fertirriego-npkph-asistido-no-automatizado)
+- [Fase 16 · Registro de Hallazgos](#fase-16-registro-de-hallazgos)
+    - [16.0 — Índice de hallazgos](#160-índice-de-hallazgos)
+    - [16.A — Procedencia: las auditorías que produjeron estos hallazgos](#16a-procedencia-las-auditorías-que-produjeron-estos-hallazgos)
+- [Fase 17 · Trazabilidad y validación de la base de conocimiento](#fase-17-trazabilidad-y-validación-de-la-base-de-conocimiento)
+- [Backlog — Mejoras futuras diferidas](#backlog-mejoras-futuras-diferidas)
+- [Anexos](#anexos)
+
+---
+
+## Changelog
+
+Una fila por versión, **de la más reciente a la más antigua**. Cada entrada dice qué cambió en el sistema, no solo en el documento.
+
+<details>
+<summary><b>Changelog completo (v41 → v3) — click para expandir</b></summary>
+
+| Versión | Fecha | Cambio |
+|---------|-------|--------|
+| v49 | 18/09 | **Hallazgo 16.40 🔴 — un JWT `service_role` estaba en texto plano dentro de este documento, cuatro veces.** Apareció en el barrido de secretos previo a publicar el repositorio en un servidor remoto, y es el hallazgo de seguridad más grave del proyecto: `service_role` omite por completo las políticas de seguridad a nivel de fila. **Sobrevivió a 16.1 porque aquella verificación se hizo sobre los archivos equivocados**: se comprobó que no hubiera claves en los JSON de los workflows, y el documento que los describe quedó fuera del alcance. De ahí la regla que se incorpora: **el alcance de una verificación de secretos es el conjunto de archivos que se publican, no el de los que se editaron.** Las cuatro ocurrencias fueron redactadas. **El secreto nunca salió de la máquina**: el repositorio jamás tuvo servidor remoto y el historial que lo contenía se eliminó al reconstruirlo desde cero — pero esa contención fue accidental, porque ninguna de las razones para diferir el remoto era ésta. Queda pendiente verificar en el panel del proveedor si las claves heredadas siguen habilitadas y rotarlas si es así |
+| v48 | 18/09 | **Cierre de estados atrasados y desacople de los archivos de trabajo.** Cinco secciones seguían declarando "sin aplicar" un trabajo ya hecho y verificado: **16.34** (verificado contra la base: 4 filas y ninguna de pH), **16.36** (verificado en vivo: llegó la alerta), **16.35** (aplicado, sin ejercitar), **16.37** (guarda aplicada pero **inalcanzable** hasta cargar el dato de B.1) y **16.26** (verificado contra el export: 0 ocurrencias del patrón). Es la **cuarta** aparición del mismo sesgo estructural que describe **Contradicciones** —el hallazgo se registra, el cierre no— y la primera vez que se corrige en bloque en lugar de de a uno. Se eliminaron además las referencias a `SESION9/` y al handoff de base de conocimiento del texto vivo, porque esos archivos se retiran de la carpeta de trabajo; las menciones dentro de bloques históricos y del changelog se conservan, ya que describen lo que ocurrió y no dónde buscarlo. El material de tesis se separó a una carpeta propia fuera del repositorio, con la fundamentación técnica, el esquema comentado y los cinco flujos exportados |
+| v47 | 17/09 | **Eliminada la notación `§`, a pedido del usuario.** La había introducido la v42 para resolver un choque real —al numerar la guía 0 a 4, `1.1` pasó a significar a la vez "Tablero" y "Agregar columna `etapa_actual_id`" de la Fase 1, y `4.3` otras dos cosas—, pero el símbolo **falló en su propósito**: el dueño del documento no lo reconocía, y se lo venía usando en cada mensaje como si fuera vocabulario compartido. La solución que lo reemplaza no necesita ningún símbolo: **las secciones de la guía pasan a llamarse por su nombre** (Tablero, Hallazgos abiertos, Cierre de sesión, Contradicciones, Historial de sesiones, Ritual de cierre), que se leen solas y no chocan con nada. **Los números de Fase y de hallazgo no se tocaron** (`1.1`, `13.7.1`, `16.39`, `B.1`): están referenciados en los workflows, en `SESION9/` y en todo el changelog. Índice regenerado con 39 entradas y enlaces verificados. **Nota de método:** una convención de notación es una decisión de interfaz, no de corrección. Era correcta —el choque de numeración existía— y aun así estaba mal, porque el criterio que decide no es si resuelve el problema sino si la entiende quien la usa. El mismo razonamiento que el proyecto aplica a los mensajes de Telegram: la calidad percibida de un sistema es en buena medida la calidad de lo que comunica |
+| v46 | 17/09 | **Sesión 11 — verificación tras 14 días y creación del paquete de contexto.** Estado confirmado contra Supabase, **sin cambios**: 220 lecturas (última del 20/08), 8 riegos todos `pendiente`, 24 / 0, 3 etapas sin umbrales. **Nuevo `CONTEXTO_AGENTE.md`** (28 KB): paquete autosuficiente para que un agente opere sin leer este plan — arquitectura, mapa real de los 5 workflows extraído de los JSON, modelo de datos, las 11 reglas de semántica de n8n del proyecto, principios de diseño, estado, hallazgos abiertos, protocolo de testing y reglas de trabajo, más un mapa para abrir solo la sección necesaria. **96 % más chico** que este documento. Nace con una condición: **se regenera, no se edita a mano**, justamente para no heredar el sesgo de staleness. **Corregido el Tablero**, que seguía dando el batch de WF1 por aplicar cuando se aplicó el 31/08 — tercera aparición del patrón de **Contradicciones**. **La anomalía de WF3 se agrava:** 35 días en una Floración de 20, ventana abierta desde el 28/08, última ejecución el 28/08, y n8n confirmadamente corriendo el 31/08. `evaluacion_fenologica` sigue en 0. Si WF3 figura Active y no dispara, es un 🔴 y probablemente el hallazgo más grave del proyecto de cara a la venta: el sistema afirma estar funcionando y no lo está |
+| v45 | 03/09 | **Corrección del bloque de arranque, que había quedado dos sesiones atrasado. Cierre de sesión** —la sección que el propio protocolo de **Guía del documento** manda leer primero— seguía siendo el cierre de la **sesión 9** aunque la 10 ya estaba documentada en el changelog y en **Hallazgos abiertos**. Es el mismo sesgo estructural que **Contradicciones** describe: **el hallazgo y la decisión se registran, el cierre no**, y acá el que no se registró fue el del propio documento. Reescrito con el cierre de la sesión 10 y los 9 próximos pasos; el bloque de la sesión 9 pasa a **Historial de sesiones** como histórico. **Anomalía anotada, sin resolver:** el cultivo lleva 22 días en una Floración de 20 y la ventana de WF3 está abierta desde el 28/08, pero `evaluacion_fenologica` sigue en **0** y `ultima_foto_evaluada_path` en `null` — WF3 está activo y debería haber corrido unas nueve veces. Se distingue mirando el historial de ejecuciones: sin ejecuciones fue la máquina apagada, con ejecuciones en rojo es un bug. Estado verificado el 03/09, idéntico al cierre del 31/08: 220 / 8 / 24 / 0, árbol de git limpio y `mtime` de los workflows anterior al del plan, o sea que **nadie tocó nada en tres días** |
+| v44 | 31/08 | **Cierre de la sesión 10.** WF1 re-exportado y commiteado: el diff confirma que cambiaron exactamente los 4 nodos esperados (`Motor de Inferencia`, `Requiere Alerta?`, `Consolidar datos`, `fn_registrar_telemetria`), 18 nodos sin altas ni bajas, y **`Alerta Telegram` sin cambios** — que confirma que el paso 1 del batch era un no-op y el `chatId` ya estaba bien. Es la primera vez que el proyecto responde *qué* cambió entre dos exports en lugar de solo *que* algo cambió: el beneficio concreto de los nombres estables de **Versionado**. Las dos fotos huérfanas de Storage fueron borradas. **Abre B.14 🟠**: `docker-compose.yaml` usa `image: n8nio/n8n:latest`, así que un salto de 16 versiones puede ocurrir como efecto secundario de cualquier recreate del contenedor, sobre un sistema cuya corrección depende de la semántica de ejecución observada de n8n y que no tiene tests automáticos. Pendiente declarado: rotar la clave del webhook, expuesta en el chat de esta sesión |
+| v43 | 31/08 | **Sesión 10 — el batch de WF1 aplicado y verificado en vivo, y una hipótesis abierta que resultó cierta.** Los 5 cambios de `SESION9/` se pegaron en un solo ciclo. **Verificado contra la base, no contra el verde del nodo:** una telemetría deliberadamente parcial (sin pH) escribió **exactamente 4 filas** en `lectura_sensores` y ninguna de pH — con el código anterior el JSON interpolado quedaba con un hueco y se perdía la lectura **entera**, así que **16.34 queda cerrado**. El test además llegó con foto y ejercitó el camino completo: llegó la alerta de Telegram, lo cual **cierra 16.36** (el IF ya rutea sobre `requiere_alerta` y no sobre el string `estado`), WF2 diagnosticó por Gemini, y el diagnóstico se guardó como **objeto** y con **ruta** —no URL firmada—, o sea que 16.14 y 12.2 siguen sanos. `evento_riego` no se movió de 8: humedad 55 quedó en rango y WF5 no se disparó, como estaba previsto. **16.35 y 16.37 quedan aplicados pero sin ejercitar**: 16.37 necesita además el dato de B.1 para poder probarse. **Abre 16.39 🟠, confirmado en vivo:** la hipótesis que la sesión 9 dejó deliberadamente sin numerar resultó cierta — una lectura de sensor desconectado que además trae foto entra al camino de la foto por `tiene_foto` sin llevar `foto_base64`, `Preparar Foto binaria` no valida y termina en verde con un binario vacío, y `Subir Foto a Storage` corta el workflow con su `onError` por defecto. **Se pierde la lectura entera y no llega ninguna alerta**, justo en el escenario que el propio nodo describe como frecuente tras un trasplante. Verificado por las dos mitades: se cortó en el nodo predicho **y** no escribió nada (220 / 24 / 8 sin cambios, sin objeto huérfano en Storage). Residuos del primer test limpiados en una transacción (`SQL/sesion10_limpieza_residuos.sql`) con la base restaurada exacta a 8 / 8 / 24 / 0 / 220. Quedan **dos fotos huérfanas en Storage** por borrar a mano: la de hoy y la del 24/08 que la sesión 9 dejó marcada y nunca se borró. **Nota de método:** 16.32 y 16.39 son el mismo procedimiento con resultados opuestos — la regla de no dar por cierto un hallazgo sin ejercerlo no solo descarta hipótesis, también las promueve, y con evidencia de las dos mitades de la afirmación |
+| v42 | 27/08 | **El proyecto pasa a estar versionado con git** (local, sin remoto, alcance mínimo deliberado: sin CI, sin ramas, sin migraciones del CLI de Supabase). Fundamentación completa en la **sección Versionado**: el plan, los JSON y el esquema son un **triple-write sin atomicidad**, y cada drift que costó una sesión (v22, v36, las siete contradicciones de la sección Contradicciones) fue una escritura parcial de ese triple-write — el mismo patrón que 13.5.2 y 16.25 ya habían resuelto dentro de la base, resuelto ahora con el commit como unidad atómica. Los 5 exports se renombraron a **`WF1.json` … `WF5.json`**: con el nombre anterior (`WF1 8-24-26 .json`) cada export estrenaba archivo y git veía borrado+alta en vez de modificación, o sea que se perdía el diff, que es el único motivo para versionar. Verificado antes de inicializar: **cero secretos en claro** en los 5 JSON (credenciales por `id`+`nombre`), `pinData` vacío, `docker-compose.yaml` y `.claude/settings.local.json` limpios. Historia inicial de dos commits — `baseline` con el estado de la sesión 9 (plan v40) y la reorganización encima — para que **el diff de la v41 quede verificable**. Ritual de cierre de sesión en **Versionado**. Abre **B.13 🟠**: el volumen `n8n_storage` concentra workflows, credenciales y la clave que las descifra, no está respaldado y git no puede cubrirlo. Motivación empírica adicional: durante la sesión desapareció `infografia_tesis_corta.html`, que nunca llegó a estar versionado y no es recuperable |
+| v41 | 27/08 | **Reorganización estructural del documento, sin cambios en el sistema.** El changelog salió de adentro de `## Índice` (donde ocupaba el 14 % del archivo bajo un `<summary>` que decía "v3 → v10") y quedó ordenado de v41 a v3 — venía subiendo de v3 a v17 y después bajando de v40 a v18. El **backlog**, partido en dos bloques y desordenado (`B.1–B.4` en el medio, `B.10, B.11, B.12, B.9, B.7, B.8, B.6, B.5` al final), quedó unificado en `B.1 → B.12`. Las **secciones 16.14 a 16.38**, que colgaban por accidente de jerarquía de `## Mejoras Futuras (Backlog)` y de cuatro encabezados `## Auditoría de…` al mismo nivel que las Fases, se consolidaron en **Fase 16 · Registro de Hallazgos** en orden numérico, con las auditorías conservadas como procedencia en 16.A. `Solución aplicada: fn_registrar_riego` bajó a **13.5.3** (estaba en `##` y dejaba huérfanas a 13.6–13.14) y `Solución aplicada: evaluacion_fenologica` a **9.14**. Fase 12 quedó en orden (12.4, 12.5, 12.6 — estaba 12.6, 12.4, 12.5). El bloque de cierre de la sesión 8 tenía los puntos 5–8 **triplicados** por un error de edición: se marcaron como residuo en vez de borrarlos. La tabla "Estado Actual", con celdas de hasta 1.700 caracteres que mezclaban estado vigente e historial, se reemplazó por el tablero de **Tablero** y **Hallazgos abiertos** y se conserva íntegra en 1.7. **Nada de contenido se borró.** Al cruzar las afirmaciones de estado contra los exports aparecieron **siete contradicciones** — cuatro en las que el documento está atrasado respecto del artefacto (WF3 `active`, los 4 huérfanos ya borrados, el modelo de Gemini confirmado, **16.26 ya aplicado**) y tres internas (16.19 vs 16.28, 16.1, 16.5) — documentadas en **Contradicciones**, sin editar las secciones. Respaldo del estado previo en `implementation_plan_v40_pre-reorg.bak.md` |
+| v40 | 24/08 | **Sesión 9 — limpieza de residuos, batch de WF1 fusionado, y volcado del handoff de base de conocimiento con tres correcciones. (1) Los residuos del test de 16.32 eran cinco y no dos.** Además de `evento_riego`/`comando_dispositivo` #9, el test había dejado la fila **25** de `seguimiento_fenologico` (WF2 diagnosticando la foto del test a las 16:40:30 UTC), **5 filas** de `lectura_sensores` (271-275, formato largo: una por métrica) y el par **objeto de Storage + `cultivo.ultima_foto_path`**. Nota de método: el plan se grabó a las **16:48** afirmando "24 filas" cuando la 25 existía desde las **16:40** — no fue un error de conteo sino **un número arrastrado en vez de re-verificado**, que es el modo de fallo exacto que apunta la regla 4. **El residuo tenía consecuencia futura:** WF3 quedó activo con `ultima_foto_evaluada_path` en `null`, así que al abrirse la ventana (~28/08) habría evaluado **la foto de una inyección de fallos como si fuera una observación real del cultivo**. Y limpiarlo a medias era peor que no limpiarlo: borrar el objeto de Storage dejando el puntero produce exactamente **B.10** —descarga fallida 3 veces por día, para siempre, sin registro ni tope—, porque foto y puntero son un **dual-write que se escribe junto y se revierte junto**, la misma forma que 13.5.2 y 16.25 resolvieron con transacción, ahora del lado del rollback. Todo borrado en una transacción (`evento_riego` antes que `comando_dispositivo` por la FK) y **verificado contra el estado persistido**: 8 / 8 / 24 / 0 / 220, todos los riegos en `pendiente`, cultivo en Floración. **(2) Batch de WF1 preparado y fusionado, sin aplicar: 16.34 + 16.35 + 16.36 + 16.37.** Se aparta del plan en dos puntos, los dos discutidos en sus secciones: en **16.35** se normaliza en el borde (`{ ...cultivoRaw, tiene_actuador_riego: !!… }`) en vez de agregar el quinto `!!`, que es lo que la propia sección concluye tras verlo aparecer cuatro veces; y en **16.36** el fix que proponía el plan —rutear sobre `total_alertas > 0`— **era más débil que el principio que invocaba**, porque `total_alertas` es literalmente `observaciones.length`, la longitud del array de presentación. Buscando el predicado correcto apareció el hueco real: **`Exceso Hídrico` no tenía ninguna bandera de dominio**, era el único estado distinto de `'OK'` que ningún booleano representaba, así que el fix "correcto" habría metido un falso negativo en el camino del exceso de agua. Se agregó `hayExcesoHidricoFlag` y el Motor pasa a exponer `requiere_alerta`, equivalente por construcción a `estado !== 'OK'` sobre los cinco casos que sacan a `estadoGlobal` de `'OK'`. **Hallazgo lateral de 16.34:** la normalización obvia (`Number.isFinite(Number(v))`) habría convertido un sensor ausente en **0**, porque `Number(null) === 0` y `Number('') === 0` — y 0 de humedad no es un dato faltante, es **sequía**, que dispara riego real. El fix que venía a arreglar el sensor roto habría introducido un daño de categoría "mata la planta"; por eso la ausencia se decide **antes** de convertir. Verificado además contra `pg_proc` que `fn_registrar_telemetria` **filtra con `WHERE v.valor IS NOT NULL`**: la función no solo acepta lecturas parciales, las contempla explícitamente, y el contrato de la base era más amplio que el del cliente. **(3) Volcado del handoff de la sesión paralela de base de conocimiento**, con **16.37 🔴** y **16.38 🟠** nuevos, la corrección de **B.1** (punto 1.2 del handoff), **B.11** y **B.12** nuevos, y **Fase 17** para el material académico. Tres correcciones al handoff: la **urgencia de 16.37 estaba mal fechada** —16.20 bloquea el avance a Cosecha, ejercido dos veces, y el disparador real es un alta de Albahaca disponible hoy—, el **script de B.1 no es ejecutable** (`:ee_fruct` es un bind de `psql` y `RETURNING id` "debería dar 6" es una suposición sobre una secuencia), y el **análisis de sensibilidad barre sobre 220 lecturas sintéticas**, muchas construidas a mano para caer en escenarios específicos, así que mide la distribución del simulador y no la del cultivo. **Lección transversal: el defecto de composición apareció por primera vez por concurrencia y no por olvido** — la guarda del handoff terminaba en "y que `Requiere Alerta?` lo trate como alerta", verdadero con el IF viejo y falso con el de 16.36. |
+| v39 | 24/08 | **Cierre de la sesión 8 — WF3 cerrado y reactivado, y primera auditoría de WF1 en la historia del proyecto. WF3:** 16.26 aplicado (el `=` de más), los 4 huérfanos borrados, modelo restaurado a `gemini-3.5-flash` tras la inyección de fallos, y el export del 24/08 verificado — `active: true`, 17 nodos, **0 huérfanos, 0 referencias rotas y 0 dobles `==` en todo el JSON**. Con eso quedan cerrados **16.25, 16.26, 16.27, 16.19, 16.23 y 16.28**, y **16.21** en su camino feliz. **Auditoría de WF1:** los exports del 24/08 de WF1, WF2, WF4 y WF5 son **byte a byte idénticos** a los del 18/08 (verificado por hash), o sea que no hubo drift y lo auditado es el estado real. WF1 sano en lo estructural — 18 nodos, todos alcanzables, 0 referencias `$('...')` rotas, y los 6 fixes históricos confirmados. **Cuatro hallazgos nuevos: (16.33 🟠)** `Resolver Cultivo` usa `limit: 1` + `.first()` sobre un filtro por MAC, y **nada en el esquema impide dos cultivos activos por dispositivo** — el caso más natural del producto (replantar la misma maceta sin desactivar el cultivo anterior) hace que la telemetría se atribuya a cualquiera de los dos sin orden determinístico, con los umbrales, el riego y la historia clínica de la planta equivocada, y sin un solo error; el `limit: 1` **no implementa el invariante, lo oculta**, misma familia que 16.24, y el fix va en la capa que no se puede esquivar (índice único parcial sobre `cultivo(dispositivo_id) where active`); **(16.34 🟠)** el `jsonBody` de `fn_registrar_telemetria` se arma **concatenando texto**, así que un sensor que no reporta deja el cuerpo como `"p_humedad": ,` y rompe la telemetría — y lo llamativo es que **la función sí acepta lecturas parciales** (sus 5 parámetros son `DEFAULT NULL`): el contrato de la base es más amplio que el del cliente que la consume; es el mismo principio de 16.25 (nunca construir un formato estructurado por concatenación, la razón de ser de las *prepared statements*) y hoy no muerde solo por **sesgo del caso feliz en los datos de prueba**, igual que 13.4.3; **(16.35 🟡)** `tiene_actuador_riego` sale con `!!` en una rama del Motor y crudo en la otra — **cuarta aparición** del patrón de 16.12/v23/13.3.3-Bug 4, y violación del contrato uniforme *dentro del mismo nodo*: las ramas deben coincidir en campos **y en tipos**; que reaparezca cuatro veces sugiere normalizar en el borde en vez de revisar caso por caso; **(16.36 🟢)** `Requiere Alerta?` sigue ruteando sobre el string `estado !== 'OK'` cuando 13.4.2 estableció lo contrario y se aplicó a los otros tres IF — otro criterio que no se propagó del todo. **(16.32 ⚪) Una hipótesis 🔴 que el test refutó, y es la parte más instructiva de la sesión.** Se razonó, desde el JSON y el modelo de ejecución documentado de n8n, que `Alerta Telegram` —sin `onError` y ubicado **entre** los dos triggers por posición de canvas— podía abortar la ejecución y **impedir el riego**, con la peor asimetría posible: la presentación bloqueando la acción. El usuario lo cuestionó antes de aceptarlo; la inyección de fallos (`chatId = 1` + telemetría de sequía) costó dos minutos y mostró que **el riego se disparó igual** (`evento_riego` 8 → 9, `comando_dispositivo` 8 → 9, dos segundos después de la lectura). El diagrama del canvas lo cerró: las tres salidas de `Requiere Alerta?` son **ramas paralelas independientes** y un fallo en una no corta las otras. **El fix que había propuesto habría sido peor que el problema**: un `onError` en un nodo terminal no protege nada y en cambio silencia un error real — 16.15 al revés. Se corrigió además una segunda afirmación errónea de la primera redacción: esto **no** obliga a revisar 16.22, que es un mecanismo distinto (un nodo procesando N ítems dentro de una cadena lineal, no ramas hermanas); **16.22 queda intacto**. Regla que queda: **un modelo mental del runtime es una hipótesis, no evidencia**; ningún hallazgo entra como 🔴 sin haber sido ejercido, si ejercerlo es barato. **Residuos del test a limpiar al abrir la sesión 9:** el `chatId` de `Alerta Telegram` y el `evento_riego`/`comando_dispositivo` **#9**. |
+| v38 | 24/08 | **Sesión 8 (cierre) — campaña de tests de 16.25 completa: cardinalidad, camino `avanza`, camino de fallo y terminación, todo verificado en vivo. Y un hallazgo nuevo que solo podía aparecer con N=2.** Escenario: cultivo B de test en **Vegetativo** (no en Floración) con dispositivo propio y foto distinta — la etapa se eligió a propósito para que los dos ítems llevaran prompts distintos, esperaran destinos distintos (`ee_id` 9 vs 8) y pudieran tomar ramas distintas; si los dos hicieran lo mismo, un cruce entre ellos sería indetectable (16.16). **La verificación que impedía el falso verde:** `vista_cultivos_activos` tiene `JOIN dispositivo` (inner), así que un cultivo mal armado no aparece y N seguiría siendo 1 — el test de cardinalidad daría verde **sin haberse ejecutado**; por eso el script exige confirmar dos filas evaluables en la vista antes de correr nada. Es la regla 5 un nivel más arriba: no alcanza con que el workflow llegue a los nodos, tienen que llegar los **datos** que hacen que el nodo se ejerza. **Resultados:** cardinalidad ✅ (2 filas, cada una con su `path_foto` y su par origen→destino, sin cruzarse; **evidencia extra**: confianzas distintas —0.98 vs 0.99— sobre la **misma imagen**, o sea dos inferencias independientes y no una respuesta duplicada); dedup con N=2 ✅ (los dos filtrados; con N=2 el test **puede fallar de una forma que con N=1 no existía**: una dedup global habría dejado exactamente una fila nueva); camino `avanza` ✅ probado por **llamada directa a la RPC y no vía Gemini**, porque **una aserción no puede depender de una dependencia no determinística** —si el test esperaba "Floración" y el modelo decía otra cosa, el resultado no distinguiría "la transacción está rota" de "el modelo contestó distinto"—, con el `seguimiento_id` devuelto coincidiendo con el `id` real de la fila (las dos escrituras enlazadas en la misma transacción) y `jsonb_typeof(diagnostico_ia) = 'object'`, que es el valor concreto que cierra 16.19 y 16.28; camino de fallo ✅ (2 corridas → 4 filas `diagnostico_fallido`, **2 por cultivo contadas contra su propia foto**, las dos fotos **sin marcar**); terminación ✅ (3ª corrida → `agotada` y recién ahí las fotos marcadas); **bucle cortado ✅ (4ª corrida: 0 filas nuevas)**. Base restaurada exacta. **Dos supuestos del diseño convertidos en hechos:** que `IA Vision Fenologica` con `onError: continueRegularOutput` emite **un ítem de error por ítem de entrada** (si emitiera uno solo, la corrida de fallo habría dejado una fila y no dos), y que el contador va por `(cultivo_id, path_foto)` y no global (si fuera global, cada cultivo habría mostrado 4 fallidos y no 2). **Es el primer circuit breaker del proyecto que efectivamente abre** — el de `falla_riego_persistente` sigue inalcanzable con los 8 `evento_riego` en `pendiente` (13.7.1); y la diferencia entre *tener un contador* y *tener un circuit breaker* es exactamente esa cuarta corrida. **16.31 🟠 nuevo, hallazgo del test:** el cultivo B, en Vegetativo, recibió `etapa_detectada: "Fructificación"` con 0.99 — la planta pasó Vegetativo pero el sistema no la avanza, y **no saldrá nunca de ahí por sí solo**, porque cada foto futura produce el mismo resultado. `etapa_no_coincide` es un **estado absorbente**: sin bucle de costo (la dedup lo corta) pero sin avance **ni señal**, con el cultivo operando indefinidamente con los umbrales de la etapa vieja y todas las ejecuciones en verde. 16.20 cambió falsos positivos por falsos negativos —decisión correcta, porque el falso positivo daña— pero un falso negativo **indefinido y silencioso** deja de ser una demora y pasa a ser un error permanente: la guarda es un **lazo abierto**, rechaza la acción y no realimenta nada sobre el rechazo. El contador de 16.27 no lo cubre ni debería, porque el remedio es distinto: ante un fallo repetido de la IA corresponde **dejar de intentar**; ante una etapa ausente del catálogo corresponde **escalar a una persona**, una sola vez, para no caer en la fatiga de alertas de B.7. Se distingue de **B.1** con la misma separación que 16.20/B.1: B.1 es de **datos** (falta Fructificación), 16.31 es de **control** (falta la señal); agregar la etapa resuelve el caso para el tomate, y 16.31 sigue haciendo falta para la primera especie de fruto que se cargue con el catálogo incompleto. **Limitación conocida del test:** las 4 fotos del bucket son la misma imagen, así que un cruce de *diagnósticos* sería indetectable; lo probado es la no-contaminación de `path_foto`, `cultivo_id` y la resolución del catálogo por ítem. **Pendiente urgente:** confirmar que la URL de `IA Vision Fenologica` volvió a `gemini-3.5-flash` tras la inyección de fallos. |
+| v37 | 23/08 | **Sesión 8 (cont.) — 16.25 resuelto de raíz cambiando la unidad de trabajo que el sistema persiste, y verificado en vivo.** Se descartaron las dos opciones baratas (serializar el fan-out; `fn_registrar_avance_etapa` de 16.23) por la opción superset: **tabla `evaluacion_fenologica` + `fn_registrar_evaluacion_fenologica`**, que absorbe las tres escrituras sueltas en una transacción. El cambio conceptual es que la unidad persistida pasa de ser **la transición** a ser **la evaluación**: un sistema que solo registra los cambios no tiene memoria de lo que miró, y de esa única carencia salían tres hallazgos catalogados como independientes (16.21 no podía deduplicar, 16.27 no podía contar fracasos, 16.28/B.1 no podía acumular evidencia). `seguimiento_fenologico` queda intacta como historia clínica. **Cierra 16.25, 16.23, 16.19 y 16.28 de raíz, y 16.21 en su camino feliz.** Fundamentaciones nuevas: **at-most-once vs. at-least-once** decidido por asimetría de costos (trabajo perdido = decisión agronómica; trabajo duplicado = una llamada a Gemini), con el corolario de que **agregar idempotencia sin agregar atomicidad convierte un fallo transitorio en uno permanente**; clave de idempotencia `(cultivo_id, path_foto)` con índice único **parcial** que excluye los fallidos para que los intentos se repitan y las conclusiones no; `RETURNS jsonb` en vez de `RETURNS TABLE` para no agregar una superficie de cardinalidad en un workflow que ya se quemó tres veces con eso; enlace **por nombre** de PostgREST (cada clave del JSON = un parámetro), con `JSON.stringify` y nunca concatenación, porque construir JSON con texto es el mismo error que construir SQL con texto y la inyección es solo su consecuencia más famosa. **Seguridad:** primera tabla del proyecto con las **dos capas** (RLS sin políticas **más** `REVOKE ALL` explícito → `relacl` sin `anon` ni `authenticated`, lo que 16.13 propone y las 6 tablas de 13.1 todavía no tienen), `identity` en vez de `serial` para no dejar una secuencia que permisar aparte, y verificado que **`CREATE OR REPLACE FUNCTION` preserva los privilegios** en vez de asumirlo. **`Diagnostico util?` se pudo eliminar sin perder la barrera** porque la garantía dejó de ser un cable y pasó a ser un valor que la base hace cumplir — y quedó más fuerte, ya que **un IF se puede romper en silencio (16.12, 16.26) y un `CHECK` no**: es la diferencia entre ruteo y aserción, y la base es el único componente por el que todo camino pasa obligatoriamente. Lo que se pierde es legibilidad, y se compensa con documentación, no con técnica. **Corrección de 16.27 (nueva 16.27.1):** el `Stop and Error` propuesto era el fix equivocado para WF3 — correcto en WF2, que procesa un ítem por webhook, y **destructivo en WF3**, que lleva N cultivos por corrida, donde habría reintroducido el destino compartido que el bulkhead de 16.22 acababa de eliminar; **un patrón de observabilidad no se copia entre workflows sin mirar la cardinalidad del que lo recibe**. La señal en WF3 pasa a ser un dato consultable, no una ejecución roja. **Test en vivo (regla 5: se retrasó `fecha_inicio_etapa` 17 días porque con 11 de 16 la corrida se cortaba en `Hay cultivos a evaluar?` y habría dado verde sin ejercer nada):** camino principal OK con `etapa_no_coincide`; dedup verificada en **sus dos capas** —n8n cortando en `Validacion de foto` con 0 descargas y 0 llamadas a Gemini, y la RPC devolviendo `duplicado` ante una llamada directa con distinto `p_resultado`, que es lo que prueba cuál es la clave real—; las 3 guardas de precondición rechazando sin escribir; base restaurada exacta. **El smoke test resultó ser un test de regresión sin buscarlo:** Gemini devolvió `cambio_confirmado: true` con `confianza: 0.98` y `etapa_detectada: "Fructificación"` — con el código previo al 20/08 la planta se iba a Cosecha, que es literalmente lo ocurrido el 17/08 y registrado en B.1; con 16.20 no se movió. **Dos defectos encontrados durante la implementación, los dos en el borde del cambio:** `Persistir Seguimiento Fenologico` quedó cableado al recablear y habría duplicado la fila de la historia clínica sin dar error (detectado **auditando el JSON antes de correr el test**), y la propia función nueva rompía el contrato de salida uniforme en su `RETURN` temprano —5 claves contra 7, la firma exacta del Bug 4 de 13.3.3, en la rama menos transitada de todas— corregido con `null` y no `0` para `intentos_fallidos`, porque **un valor por defecto plausible es peor que un nulo honesto**. **Práctica que queda instalada:** auditar el artefacto exportado antes de ejecutarlo; no reemplaza al test, pero cambia el costo del diagnóstico. **Sin probar todavía:** N=2 (la cardinalidad de `Registrar Evaluacion`), el camino de fallo con el contador llegando a `agotada`, y el destino compartido del nodo nuevo (`Stop Workflow`, familia 16.22, con el ajuste ya especificado). **Backlog B.10 nuevo:** la foto que no se descarga se filtra en `Foto Descargada` y nunca llega a la RPC, así que reproduce el bucle de 16.21 sin registro ni tope. **16.26 sigue abierto.** |
+| v36 | 21/08 | **Sesión 8 — se detectó una sesión de trabajo sin documentar, y los fixes que traía abrieron 6 hallazgos de composición.** El drift no se encontró leyendo nada sino **comparando `mtime`**: el plan estaba grabado el 18/08 19:30 UTC y los JSON de WF2 y WF3 el 20/08 23:54 UTC. Entre esas dos fechas se habían aplicado, sin anotar, **16.20 completo** (normalización NFD + 4º término `etapaCoincide` + `etapa_no_coincide` + `etapa_detectada_cruda`), **16.21 a medias** por la opción 2 (columna nueva `cultivo.ultima_foto_evaluada_path`, expuesta en `vista_cultivos_activos`, 2ª condición en `Validacion de foto`, nodo `Marcar Foto Evaluada`), **16.22 con sus 5 toques** —incluido el punto 5, el que la sección advertía que se olvida—, **16.24 mejorado** (`limit=1000` **más** un `throw` si vuelven ≥1000 filas, porque un `limit` explícito mueve el truncado silencioso, no lo elimina: lo que lo elimina es comparar la cantidad devuelta contra el límite pedido), **16.15 solo en WF2** (nodo `Diagnostico Fallido`), y un upgrade de modelo a `gemini-3.5-flash` en WF2 y WF3. Verificado que los 6 cambios de la sesión 6 siguen intactos, 0 referencias `$('...')` rotas de 7, 0 `.first()`, ningún nodo huérfano. **6 hallazgos nuevos, los tres primeros defectos de *composición* y no de los fixes tomados de a uno: (16.25 🔴)** `Marcar Foto Evaluada` cuelga en **fan-out paralelo** de `Diagnostico util?`, o sea que la marca de "esta foto ya se usó" se commitea **sin garantía de que el avance de etapa se haya escrito** — si la cadena de escritura falla, la evidencia queda consumida y el avance se pierde para siempre; es la elección *at-most-once* vs *at-least-once* decidida al revés de lo que manda la asimetría de costos (trabajo perdido = decisión agronómica; trabajo duplicado = una llamada a Gemini), y **agrava 16.23**, que pasó de dos escrituras a tres, siendo la tercera la que destruye la auto-reparación que antes existía: **la deduplicación convirtió un fallo transitorio en uno permanente**, que es el precio de agregar idempotencia sin agregar atomicidad; **(16.26 🟠)** la condición "tiene foto" de `Validacion de foto` está escrita `=={{ … }}` con **doble `=`**, así que resuelve a la cadena `"=" + valor` y `notEmpty` da TRUE siempre — tercera aparición del mismo dedo en el proyecto (Bug C de 12.2.3) y único caso entre los 17 `leftValue` de los 5 workflows; hoy no corrompe datos porque el bulkhead de 16.22 lo tapa aguas abajo, lo cual deja la nota de método de que **un fix de resiliencia reduce la observabilidad de los defectos que están aguas arriba de él**; **(16.27 🟠)** la salida FALSE de `Diagnostico util?` **no está conectada a nada**, así que un fallo permanente de Gemini sobre una foto reproduce el bucle entero de 16.21 —3 llamadas por día, indefinidamente— justo por el camino donde el valor entregado es cero, y sin dejar señal: un reintento sin política de terminación no es resiliencia, y no puede haber política de terminación sin persistir los negativos para contarlos; **(16.28 🟡)** `etapa_detectada_cruda` se calcula y no se persiste, así que 16.20 detecta el caso que B.1 necesita ver y el sistema lo olvida en el log de ejecución; **(16.29 🟢)** `Marcar Foto Evaluada` con `"=eq"` y sin `retryOnFail` pese a ser el único `UPDATE` **idempotente** de la rama —buen contraste con `Actualizar etapa en cultivo`, que resetea `fecha_inicio_etapa` a `now()` y por eso no lo admite: la idempotencia es propiedad del efecto, no del verbo—; **(16.30 🟢)** WF4 quedó en `gemini-2.5-flash` mientras sus hermanos pasaron a 3.5, con el modelo hardcodeado tres veces en las URL cuando la API key sí está centralizada. **Estado real verificado contra Supabase, no contra el documento:** `ultima_foto_evaluada_path` en `null` (la deduplicación **no corrió nunca**), `seguimiento_fenologico` con 24 filas (el plan decía 23), `evento_riego` con 8 filas todas `pendiente` (decía 5), y 16.19 confirmado en vivo con las dos formas conviviendo en la misma columna `jsonb`. **Nada de lo aplicado el 20/08 en WF3 se ejerció todavía**: la ventana de evaluación no se abre hasta el 28/08 (regla 5). **Lección transversal:** un fix correcto en aislamiento puede ser incorrecto en composición, y el momento de mayor riesgo de un sistema no es cuando está roto sino **justo después de arreglarlo**, cuando el arreglo todavía no fue ejercido y la confianza ya subió. Corolario de gestión: cuando el backlog se organiza por hallazgo y no por la parte del sistema que cada hallazgo toca, la interacción entre dos ítems abiertos es invisible hasta que uno se aplica. |
+| v35 | 18/08 | **Sesión 7 — auditoría del export de WF3: los 6 fixes confirmados, y 5 hallazgos nuevos que ninguno de ellos causó.** Punto 1 del cierre de la sesión 6 ejecutado: el JSON re-exportado de WF3 se cruzó contra este documento y contra el estado vivo de Supabase (esquema de `vista_cultivos_activos`, catálogo `etapas_especie`, FKs de `cultivo` y `seguimiento_fenologico`). **Los 6 cambios están**: los 4 de 16.16, `executeOnce` en `Obtener Orden Etapas` (16.17) y `batchSize: 1` en `IA Vision Fenologica` (16.18), más 0 referencias `$('...')` rotas de 6, 0 `.first()` remanentes, 10 usos de `.item` y ningún nodo huérfano. Verificado también que `cultivo.etapa_actual_id` referencia `tipo_etapa.id` y no `etapas_especie.id`, que es lo que hace correcto el par `etapa_siguiente_id` / `etapa_siguiente_etapas_especie_id`. **Salvedad de método:** `batchInterval` no aparece en el JSON porque coincide con el default del nodo — un cambio de configuración que consiste en dejar un valor en su default es indistinguible, en un artefacto serializado, de no haberlo tocado nunca. **Dos pendientes viejos cerrados sin estar anotados:** `expiresIn` de `Generar URL Firmada` volvió a 60 (punto 1 de 12.2.2, en 300 desde el 28/07) y el nodo `Send a text message` ya se llama `Notificar Cambio de Etapa` (ítem de WF3 de B.4). **5 hallazgos nuevos: (16.20 🔴)** `debe_actualizar` valida que la IA respondió y que está confiada, pero **no que `etapa_detectada` sea la etapa por la que se preguntó** — el sistema avanza a `etapa_siguiente` sea cual sea la etapa que el modelo nombró; ya ocurrió el 17/08 (Gemini vio "Fructificación", el sistema avanzó a Cosecha) y estaba atribuido solo a B.1, que es un hallazgo de datos mientras éste es de control; **(16.21 🔴)** `Validacion de foto` solo chequea que `ultima_foto_path` no esté vacío y no existe columna de fecha de foto, así que un cultivo pasada la ventana del 80% re-analiza **la misma imagen 3 veces por día indefinidamente** — la ventana nunca se vuelve a cerrar porque `diasEnEtapa` solo crece; falta una clave de idempotencia sobre la foto, y el obstáculo es que `seguimiento_fenologico` registra transiciones y no evaluaciones, la misma raíz que 16.15; **(16.22 🟠)** `Descargar Foto` sin `onError` hace que una sola foto rota **aborte la corrida de todos los cultivos** (granularidad equivocada del fail-fast: es un fallo de disponibilidad, no de corrección — patrón *bulkhead*), con un fix de 5 toques encadenados porque agregar un filtro obliga a reapuntar las guardas de cardinalidad de 16.16; **(16.23 🟡)** `Actualizar etapa en cultivo` + `Persistir Seguimiento Fenologico` son un **dual-write sin atomicidad** de la misma forma que 13.5.2 resolvió en WF5 con `fn_registrar_riego` — el criterio se estableció en v30 y nunca se propagó a WF3; una `fn_registrar_avance_etapa` lo cierra **junto con 16.19**, porque el parámetro `jsonb` recibe el objeto completo y con él vuelve `etapa_detectada`; **(16.24 🟢)** `Obtener Orden Etapas` sin `limit` explícito, con truncado silencioso a futuro que la guarda de 16.17 no detecta (detecta duplicados, no ausencias). **Nota operativa:** el cultivo está en Floración desde el 12/08 y la ventana se abre el 28/08, así que hoy WF3 se corta en `Hay cultivos a evaluar?` y cualquier test daría verde sin ejercer nada (regla 5). |
+| v34 | 17/08 | **Sesión 6 — 16.14 cerrado por inyección de fallos, y arreglar un bug destapó otros dos en cascada en WF3.** (1) **Test de inyección de fallos ejecutado** (16.14): con el modelo de Gemini reemplazado por uno inexistente, WF1 registró la telemetría, WF5 respetó el cooldown (3 min 34 s desde el riego anterior) y WF2 cortó en la rama FALSE de `Diagnostico Valido` — **cero filas nuevas** en `seguimiento_fenologico`, contra el `AxiosError` que la misma situación guardaba el 12/08. Verificado reconstruyendo la línea de tiempo desde el estado persistido, no desde el color de los nodos. El cooldown se comportó igual con Gemini caído que con Gemini sano, confirmando el **aislamiento de fallos** (*bulkhead*) entre el subsistema que puede dañar la planta y el que depende de un tercero. (2) **7 filas corruptas eliminadas**: los dos discriminadores independientes (`diagnostico_ia ? 'error'` y `confianza_ia IS NULL`) seleccionaban exactamente el mismo conjunto, y esa coincidencia entre criterios no derivados uno del otro fue lo que dio confianza para borrar. (3) **16.16 — pérdida de cardinalidad en WF3**: 4 puntos donde el workflow colapsaba N cultivos a 1 o los emparejaba mal (`Convertir a Base64`, `Parsear y decidir`, `path_foto` de `Persistir Seguimiento Fenologico`, `Generar URL Firmada`). Con un solo cultivo los cuatro coincidían; corregir solo los dos primeros habría convertido una *pérdida* silenciosa en un *cruce* silencioso — un diagnóstico atribuido a la planta equivocada, que es peor. Se corrigieron los cuatro juntos, con guardas que lanzan excepción ante desalineación. (4) **16.17 — catálogo de etapas duplicado**: al llevar 2 ítems por primera vez, `Obtener Orden Etapas` (HTTP alimentado por `Obtener Cultivos Activos`) corrió **una vez por cultivo** y devolvió el catálogo N veces; `findIndex` matcheó el primer duplicado y "la etapa siguiente a Floración" resolvió a **la otra Floración**. Diagnosticado reproduciendo el array en una simulación que dio los tres valores exactos del log (`indice_etapa_actual: 6`, `etapa_siguiente: Floración`, `etapa_siguiente_etapas_especie_id: 9`). Resuelto con `Execute Once` + guarda de invariante de dominio. **Estaba latente desde siempre, enmascarado por N=1: el fix no lo introdujo, lo reveló** — defecto de segundo orden. (5) **Test N=2 ejecutado y verificado**: dos cultivos con `ultima_foto_path` distintos recorrieron WF3 completo, `indice_etapa_actual: 3`, `etapa_siguiente: Cosecha`, y cada fila con su propio `path_foto`. El diseño del test es parte del resultado: con fotos iguales el cruce habría sido indetectable, por eso los inputs debían diferir en la dimensión exacta que el bug afectaba. (6) La misma corrida **ejerció sola la rama de error** que WF3 heredó de 16.14: Gemini falló para el segundo cultivo, la validación positiva devolvió `diagnostico_fallido: true` y `Cambio de etapa?` cortó — sin fila y sin etapa cambiada. (7) **16.18 nuevo**: la concurrencia contra Gemini no escala — WF3 dispara N llamadas en paralelo y con solo 2 cultivos ya falló una; el `.first()` venía **conteniendo la carga**. Resuelto con Batching (size 1, 1000 ms). (8) **16.15 confirmado en vivo**: el cultivo cuyo diagnóstico falló no dejó rastro en ninguna parte — sin fila, sin Telegram, ejecución en verde. (9) **B.1 agravado**: Gemini devolvió `etapa_detectada: "Fructificación"`, etapa inexistente en el catálogo, y el sistema la tradujo a "Cosecha" salteándose el desarrollo del fruto; además ese campo **no se persiste**, porque WF3 guarda `diagnostico_ia` como string concatenado y descarta el objeto. |
+| v33 | 12/08 | **Cierre de la sesión 5: exports al día, auditados, y medición del daño histórico de 16.14.** Los 5 workflows (WF1, WF2, WF3, WF4, WF5) fueron re-exportados a `WORKFLOWS/` y auditados automáticamente contra sus propios nombres de nodo: **0 referencias `$('...')` rotas** en los 5, `alwaysOutputData` presente donde corresponde (`Conocimiento Experto` y `Obtener Ultimo Riego` en WF1, `Get many rows` en WF5) y `retryOnFail` en los 3 nodos de Gemini y en los dos triggers de WF1. Se registraron los **nombres reales** de los nodos nuevos, que difieren levemente de los propuestos en el diseño (`Esta en mantenimiento`, `Dispara WF 2`, `Dispara WF5`, `Trigger WF5`, `Diagnostico Valido`, y `Get many rows` en WF5, que quedó con el nombre por defecto de n8n) — como `$('...')` resuelve por coincidencia literal, el documento debe reflejar el nombre real y no la propuesta. **Hallazgo al cerrar:** contando filas afectadas por el bug de 16.14 aparecieron **7 de 26 filas (27%) de `seguimiento_fenologico` con un objeto de error guardado como diagnóstico**, fechadas entre el 27/07 y el 05/08 — o sea que el bug venía corrompiendo la historia clínica del cultivo desde hacía **16 días**, no desde el 12/08. Todas comparten `confianza_ia = null`. Es la medición empírica de la **latencia de detección** de un fallo silencioso: no se detectó antes porque las filas tenían contenido, ningún workflow falló y nadie miró la tabla de destino con la pregunta correcta. Limpieza documentada y pendiente de confirmación. |
+| v32 | 12/08 | **Los 5 fixes de 16.14 aplicados y verificados.** Camino feliz confirmado contra la base: la fila de `seguimiento_fenologico` de las 16:46:48 trae `diagnostico_ia.diagnostico_fallido: false` —campo que solo existe en el código nuevo—, `confianza 0.95`, severidad real y `path_foto` bien formado; y el riego de las 16:46:07 (comando 4) se creó correctamente porque para entonces habían pasado 43 minutos desde el anterior, o sea que el cooldown expiró como corresponde. **Fix 5, detectado al aplicar el 4:** `Hay foto nueva?` evaluaba `{{ !!$json.foto_base64 }}` en vez del booleano de dominio, así que una foto truncada dejaba de llamar a Gemini pero **igual se subía a Storage** y quedaba como `ultima_foto_path` del cultivo, propagando el archivo corrupto a WF3 — el mismo concepto ("foto usable") evaluado por dos consumidores con criterios distintos. Unificado leyendo `tiene_foto`, con la definición viviendo únicamente en el productor (13.4.2). Queda pendiente el **test de inyección de fallos** para ejercer la rama de error, que el camino feliz por definición no prueba. |
+| v31 | 12/08 | **WF5 construido, activado y verificado en vivo — Fase 13 llega a riego automático funcionando de punta a punta.** Una telemetría de sequía real recorrió WF1 → 13.4 → WF5 → `fn_registrar_riego` → Telegram, dejando `comando_dispositivo` 3 y `evento_riego` 3 correctamente enlazados (30s, 1625 ml, humedad 25% → objetivo 57.5%), verificado con un `FULL OUTER JOIN` que habría delatado cualquier huérfano. **El cooldown se validó solo:** una segunda telemetría disparada 6 segundos después no generó un segundo riego. Durante la construcción: la URL del `Trigger WF5` pasó de `/webhook-test/` a `/webhook/` y WF5 se activó (la URL de test solo vive mientras el workflow está escuchando, incompatible con disparar desde un WF1 activo), y el mensaje de Telegram de WF5 salió con todos los campos vacíos por usar `$json.*` cuando en ese punto de la cadena `$json` es la respuesta del RPC — corregido a `$('Calcular Dosis').item.json.*`, mismo patrón que ya usaban `Alerta Telegram` y los IF de 13.4. **Hallazgo nuevo (16.14), no corregido:** disparos seguidos hicieron que Gemini devolviera 503, y el objeto de error terminó **guardado como diagnóstico** en `seguimiento_fenologico` — el fallback `|| JSON.stringify(geminiResponse)` de `Parsear Respuesta IA` convirtió el error en JSON válido, así que el `JSON.parse` tuvo éxito y el `try/catch` nunca se disparó. Distinción teórica: un `try/catch` protege contra operaciones que fallan, no contra datos con la forma equivocada; **validez sintáctica no es validez semántica**, y el chequeo debe ser positivo ("¿contiene lo que espero?") y no negativo ("¿no falló?"). 4 fixes documentados, ninguno aplicado. **Corrección de un supuesto propio (B.7):** el análisis de fatiga de alertas asumía telemetría cada 15 minutos, cadencia que el usuario descartó por consumo y rendimiento; los 15 minutos aplican solo al recheck post-riego (13.6). Con la cadencia real, B.7 baja de prioridad sin dejar de ser correcto. También se precisó el criterio de validación de entrada vs. salida en llamadas a la IA: un 503 **no gasta tokens** (el modelo nunca procesa), así que la validación previa sirve para evitar llamadas con datos inservibles —de ahí `fotoPlausible`— pero el fallo de hoy solo se podía atajar del lado de la respuesta. |
+| v30 | 11/08 | **`fn_registrar_riego` creada y aplicada — WF5 pasa de 8 nodos a 7 (13.5.2).** Al revisar qué settings necesitaban los nodos HTTP de escritura de WF5, se identificó un **dual-write sin atomicidad**: `Insertar Comando` e `Insertar Evento Riego` son dos llamadas independientes, y si la segunda falla queda un comando que el ESP32 **va a ejecutar** sin ningún registro de que existió — sin fila en `evento_riego` no hay cooldown, ni recheck, ni circuit breaker posible; el sistema riega y pierde la capacidad de frenarse a sí mismo. Como ambas escrituras van al mismo Postgres, no hacía falta ninguna de las soluciones caras del catálogo (saga con compensación, outbox, deduplicación idempotente): alcanzaba con **una sola transacción de base**. Se creó `fn_registrar_riego(p_cultivo_id, p_dispositivo_id, p_duracion_segundos, p_humedad_inicial, p_humedad_objetivo, p_dosis_ml)` que inserta ambas filas y devuelve los dos ids, extendiendo el patrón que `fn_registrar_telemetria` ya usaba en WF1 en vez de introducir un concepto nuevo. Se implementó **antes** de construir los nodos, no después: como todavía no existían, el costo era solo escribir la función. **Decisiones de seguridad, verificadas en `pg_proc` tras aplicar** (`prosecdef = false`, ACL `postgres=X | service_role=X`): sin `SECURITY DEFINER` (n8n llama con Secret key = `service_role`, que ya pasa por encima del RLS; agregarlo habría creado la puerta trasera que 16.13 busca cerrar) y con `REVOKE ALL FROM PUBLIC, anon, authenticated` explícito, porque **Postgres otorga `EXECUTE` a `PUBLIC` por defecto** — el mismo mecanismo de default permisivo que 16.13 documenta para las tablas, y la misma lección: verificar el resultado, no la intención del script. Se documentó además que `Retry On Fail` queda apagado en ese nodo (un INSERT no es idempotente: el reintento de una respuesta perdida crea un segundo riego real, a diferencia de `Trigger a WF2`, donde el peor caso es un diagnóstico duplicado — **criterio adoptado: los reintentos se habilitan según la idempotencia de la operación, no según su importancia**) y que `Always Output Data` no aplica a nodos de escritura, porque distingue "cero ítems" de "error" y un POST no tiene el primer modo. **Backlog B.9 nuevo:** `fn_registrar_telemetria` es `SECURITY DEFINER` **y** ejecutable por `PUBLIC`/`anon`/`authenticated` (confirmado en `pg_proc.proacl`) — cualquiera con la Publishable key puede insertar telemetría falsa; impacto hoy limitado a contaminación de datos, alto si algo llegara a reaccionar a esas inserciones. |
+| v29 | 11/08 | **13.4 construido y verificado en vivo + hallazgo 13.4.3 + especificación final de WF5 (13.5 y 13.5.1).** Los 5 nodos de 13.4 quedaron armados y cableados en WF1, y una corrida real del test de sequía con foto confirmó el ruteo completo: `¿En Mantenimiento?` → FALSE, `Requiere Alerta?` → TRUE, `¿Dispara WF2?` → TRUE, `¿Dispara WF5?` → TRUE. **Incidente de diseño durante la construcción, valioso como evidencia:** el usuario configuró inicialmente la condición de WF5 como `estado` *contains* `'Sequia'` **sin tilde**, razonando —correctamente— que los acentos son frágiles en comparaciones de texto. Esa condición no habría matcheado nunca (el motor genera `'Sequía'` con tilde) y el riego jamás se habría disparado, sin ningún error visible. Es la confirmación empírica del argumento de 13.4.2 en el mismo día en que se escribió: la solución al problema del acento no es sacar el acento, es **no comparar texto**. Corregido a las condiciones booleanas. **Hallazgo nuevo (13.4.3):** a partir de la pregunta del usuario sobre por qué WF2 y WF5 se disparan sobre la misma lectura —comportamiento correcto: son ortogonales, uno actúa y el otro explica— se detectó que `IA Vision Gemini` (WF2) manda `"data": $json.body.foto_base64` sin verificar que haya foto. Todos los tests del proyecto usaron el mismo fixture *con* foto, así que el caso nunca se ejerció; en producción, donde el ESP32 mandará telemetría en cada ciclo y foto solo a veces, **toda alerta sin foto haría fallar WF2** de forma invisible (`Trigger a WF2` tiene `onError: continue`). Fix: nuevo booleano `tiene_foto` en el motor + segunda condición en `¿Dispara WF2?`. Fundamentación: sesgo del caso feliz en los datos de prueba — un test solo puede fallar por las razones que contempla. **Backlog:** B.7 (fatiga de alertas: el sistema notifica por nivel y no por transición — *level* vs. *edge triggered*, histéresis; 12 alertas y 12 riegos por una sequía de 3 horas) y B.8 (los mensajes de Telegram no se leen como una sola historia). **Credencial `WF1-WF2 Interno` renombrada a `n8n Interno`**, con la decisión documentada en 13.4: una credencial compartida para las llamadas internas en vez de una por canal, porque todos los workflows viven en la misma instancia con el mismo dueño y multiplicar secretos multiplicaría la rotación sin reducir riesgo real. **13.5 reescrita** con la especificación completa verificada contra el esquema real (`Always Output Data` en `Obtener Ultimo Riego` —el mismo Bug 3 reaparece en WF5, confirmando que es una característica del motor a compensar en toda consulta que pueda no traer filas—, credenciales por nodo, header `Prefer: return=representation`, bodies exactos sin los campos que ya tienen `DEFAULT`, y dos `throw` fail-safe en `Calcular Dosis` que abortan el riego ante datos incompletos en vez de usar un default). **13.5.1 nueva:** justificación de los settings del Webhook de WF5 (desacoplamiento temporal por `Respond: Immediately`; IP whitelist a loopback como defensa en profundidad). |
+| v28 | 11/08 | **Dos decisiones de diseño sobre la estructura de 13.4, a partir de preguntas del usuario (13.4.1 y 13.4.2). (1)** ¿Por qué `¿En Mantenimiento?` y `Requiere Alerta?` son dos nodos y no una condición compuesta con AND? Se mantienen separados: son decisiones de **tipo** distinto (política de autorización vs. diagnóstico del dato), tienen **alcance** distinto (mantenimiento suprime todo; la alerta gobierna solo sus ramas), y la separación ya está comprometida por 13.7.1, que necesita colgar `Cerrar Loop de Riego` de la salida FALSE de `Requiere Alerta?` — fusionarlos haría que el recheck corriera en pleno trasplante. Conceptos: *guard clause* y *Policy Enforcement Point*; criterio general adoptado: **separar cuando las razones de cambio son distintas, no cuando las condiciones son distintas** (SRP aplicado a nodos de orquestación). En la misma revisión se corrigió una sobre-modularización propia: los 3 No Op de 13.4 bajan a 1 (el resto de las salidas FALSE quedan sin conectar, que es equivalente en n8n), de 7 nodos nuevos a 5. **(2)** ¿Conviene un `Switch` (case) en vez de la cadena de IF? Son el mismo patrón (*Content-Based Router*), difieren solo en cómo expresan la tabla de ruteo; no se migra por ahora (con `estado` compuesto, un `Switch` por igualdad explota combinatoriamente y con *contains* dependería de la precedencia entre reglas), con criterio de migración registrado para cuando las Fases 14/15 sumen ramas. **Pero la pregunta destapó un problema real:** los IF rutean sobre `estado`, que es un **string de presentación**, mientras el motor ya calcula los hechos como booleanos y los descarta. El caso concreto: la exclusión de `'Falla de Riego - Revisar Sistema'` del disparo de WF5 —una **regla de seguridad**— dependía de que ese texto no contuviera el substring `'Sequía'`; mejorar la redacción del mensaje desactivaría el circuit breaker en silencio y el sistema volvería a regar una maceta que ya demostró no absorber agua. Se corrige exponiendo `hay_sequia` / `hay_estres_quimico` como booleanos de dominio (seteados donde cada condición se detecta, en vez de derivarse parseando `observaciones`, que era el mismo bug un nivel más abajo) y reescribiendo las condiciones de los 3 IF para que **ninguna** rutee sobre texto. Fundamentación: *Primitive Obsession* / *stringly-typed data* y separación entre modelo de dominio y capa de presentación — misma familia de acoplamiento frágil que los *magic strings* de 13.3.2, trasladada de los identificadores a los datos. Regla adoptada: **las decisiones de ruteo leen booleanos de dominio; los strings son para las personas.** |
+| v27 | 11/08 | **Aplicación de los 4 fixes de WF1 + la cadena de `path_foto` auditada de punta a punta (12.2.3) + decisión de diseño Claim Check (12.6).** El usuario pegó el `Motor de Inferencia` corregido (fixes de 13.3.2 Bug 1 y 13.3.3 Bugs 3 y 4) y activó **Always Output Data** en `Obtener Ultimo Riego`; el fix de `Consolidar datos` quedó **verificado en vivo**: el nodo ahora devuelve `path_foto_evento` con un path real (`a1327127-…/1786477446537.jpg`) en vez de `null`. Al verificar ese resultado **contra la tabla destino** en vez de contra el output del nodo, se encontró que arreglar WF1 no alcanzaba — la trazabilidad de la foto estaba rota en los tres workflows, por tres causas distintas (12.2.3): **(B, WF2)** `Persistir Diagnotico` lee `{{ $json.body.path_foto_evento }}` pero en ese punto `Parsear Respuesta IA` ya desenvolvió el body, así que resuelve a `null` en silencio y WF2 seguiría grabando `path_foto: null` aun con WF1 arreglado; **(C, WF3)** `Persistir Seguimiento Fenologico` tiene el campo como `=={{ … }}` (doble `=`: el primero es el marcador de expresión de n8n, el segundo un carácter literal), y por eso hay 2 filas reales en `seguimiento_fenologico` con el path prefijado por `=` — un path que no existe en Storage. Los tres bugs comparten la propiedad de **fallar sin fallar** (salida sintácticamente válida, ningún error, ninguna caída), lo que confirma el método: en un pipeline de datos, verificar el output del nodo no es verificar el resultado — hay que cerrar contra el estado persistido. **Decisión de diseño nueva (12.6):** `foto_base64` hoy **debe** viajar hasta `Consolidar datos` porque `IA Vision Gemini` (WF2) la lee del body, pero eso hace que ~2 MB recorran todos los nodos intermedios y queden duplicados en la base de ejecuciones de n8n (15-20 MB por telemetría con foto entre los dos workflows) — costo que escala linealmente con la cantidad de clientes. Se adopta el patrón **Claim Check** (pasar el path en vez de la imagen, canjeándola contra Storage en WF2, tal como WF3 ya hace desde 12.2.2), con implementación **diferida a después de 13.4** para no mezclar dos refactors en la misma tanda de testeo. Anotado en el backlog **B.6** un `CHECK` de forma para `path_foto`, diferido hasta que el formato del path se estabilice. **Cierre verificado en vivo (11/08, 19:56):** con los 6 fixes aplicados (4 de WF1 + B y C de 12.2.3) se corrió el test de Sequía con foto real de punta a punta y se verificó **contra la base**, no contra el output de los nodos: `lectura_sensores` recibió las 5 métricas (id 176-180) y `seguimiento_fenologico` grabó una fila nueva con `path_foto` bien formado (`a1327127-…/1786478206206.jpg`, sin `=` y sin `null`); los 2 mensajes de Telegram llegaron. Que la lectura se haya persistido con `evento_riego` todavía vacía es la evidencia directa de que el Bug 3 quedó resuelto: `Obtener Ultimo Riego` devolvió 0 filas y la cadena siguió igual. **WF1 vuelve a estar operativo por primera vez desde que se insertó ese nodo.** |
+| v26 | 11/08 | **Segunda auditoría de la sesión 4: los 4 JSON exportados cruzados contra el estado vivo de Supabase, no solo contra el plan.** Verificación automatizada de **todas** las referencias `$('...')` de los 4 workflows contra los nombres reales de nodo: WF2/WF3/WF4 limpios (0 rotas), el drift por *magic string* sigue confinado a WF1 (los 2 bugs de 13.3.2, todavía sin aplicar). **2 bugs nuevos, ninguno documentado antes (ver 13.3.3): (3) 🔴** `Obtener Ultimo Riego` no tiene `alwaysOutputData` y `vista_ultimo_riego` devuelve **0 filas hoy** (`evento_riego` vacía, y lo va a estar hasta el primer riego real) — en n8n un nodo que emite 0 ítems no propaga nada, así que `Motor de Inferencia` y todo lo que sigue nunca se ejecutan y la ejecución figura como **exitosa, sin error**: aún aplicando el fix del Bug 1, WF1 seguiría muerto, ahora en silencio. Fix: activar Always Output Data + lectura defensiva en el Code. **(4) 🔴** el `return` temprano de `Lectura Sospechosa` en `Motor de Inferencia` no emite `en_mantenimiento` ni `tiene_actuador_riego`, campos que los IF de 13.4 leen con `typeValidation: strict` → error de tipo con `undefined`, justo en el escenario que ese chequeo existe para manejar bien. Tercera aparición del patrón de 16.12/v23, ahora por campo ausente en vez de `null`; se corrige moviendo `enMantenimiento` al principio del nodo y completando el objeto de esa rama. Fundamentación teórica en 13.3.3 (modelo *dataflow* vs. control de flujo y Null Object Pattern para el Bug 3; postcondición uniforme / *design by contract* de Meyer para el Bug 4). **Hueco de diseño nuevo (13.7.1):** el recheck de 13.7 no está implementado en ningún nodo — 13.7 se lo atribuye a `Motor de Inferencia`, que no lo hace ni debería (es un Code node; persistir es responsabilidad de otro nodo). Sin esa señal, ningún `evento_riego` sale de `'pendiente'`, `falla_riego_persistente` nunca se activa y **el circuit breaker de 13.3.1 nunca abre**: el único freno real queda siendo el cooldown de 15 min, que espacia pero no corta, así que con humedad persistentemente baja el sistema regaría indefinidamente (riesgo de encharcar y matar la planta — costo de error asimétrico). Se propone un nodo `Cerrar Loop de Riego` en WF1 + un tope duro de riegos por ventana, independiente de la realimentación. **Auditoría de permisos (16.13):** `anon` y `authenticated` tienen `ALL` (incluido `TRUNCATE`) sobre **las 18 tablas y vistas** de `public` — no por un `GRANT` explícito sino por las *default privileges* que Supabase configura en el esquema, lo que contradice lo que v19 daba por hecho para las tablas de 13.1. Hoy no es explotable (RLS sin políticas bloquea todo lo que PostgREST expone, y las 4 vistas no son auto-actualizables), pero deja la seguridad dependiendo de **una sola capa**. SQL de corrección propuesto y sin aplicar. Ningún cambio ejecutado esta pasada: ni n8n, ni esquema, ni datos. |
+| v25 | 11/08 | **Auditoría de drift real antes de retomar 13.4 (sesión 4), a partir de los JSON reales re-exportados hoy en `WORKFLOWS/`.** Se comparó el WF1 real (incluye el `Motor de Inferencia` de 13.3 ya en vivo) contra el plan en vez de asumir que el diseño documentado es lo que hay (regla 3). Dos bugs reales encontrados, ninguno aplicado todavía: **(1) crítico** — `Motor de Inferencia` referencia `$('Obtener Último Riego')` (con tilde) pero el nodo real se llama `Obtener Ultimo Riego` (sin tilde); sin try/catch alrededor, así que cualquier ejecución de WF1 que no corte antes por "Lectura Sospechosa" tira error de nodo inexistente y frena todo el workflow — WF1 está `active: true`, así que esto rompe telemetría real hoy. **(2)** mismo patrón que 12.2.1 (v12), aparentemente revertido en algún momento: `Consolidar datos` sigue referenciando `Preparar Foto Binaria` (B mayúscula) contra el nodo real `Preparar Foto binaria`; como está en `try/catch`, no rompe nada, pero traga `path_foto_evento` en silencio — confirmado que `Persistir Diagnostico` (WF2) graba `seguimiento_fenologico.path_foto` siempre `null` para diagnósticos de emergencia como consecuencia. Fix de una línea para cada uno, ver 13.3.2. De paso se confirmó que el nodo `Obtener Ultimo Riego` de 13.4 **ya está insertado y cableado** en el WF1 real (entre `Conocimiento Experto` y `Motor de Inferencia`) — no estaba documentado como hecho. También se encontró un error de topología en el diseño de 13.4: insertaba el IF de mantenimiento inmediatamente después de `Motor de Inferencia`, pero la persistencia real (`fn_registrar_telemetria`) ocurre más adelante en la cadena real (después de la rama de foto y `Consolidar datos`) — cortar ahí antes hubiera saltado el guardado de la lectura, contradiciendo el propio texto de 13.12 ("la lectura ya quedó guardada"). **13.4 reescrita** con la topología real (los 3 IF nuevos van después de `fn_registrar_telemetria`, no después de `Motor de Inferencia`) y con las condiciones apuntando explícitamente a `$('Motor de Inferencia').item.json.*` en vez de `$json.*` — mismo patrón que ya usan `Requiere Alerta?` y `Alerta Telegram` en el nodo real, porque en ese punto de la cadena `$json` es la respuesta del RPC `fn_registrar_telemetria`, no los datos de Motor de Inferencia. Nada de esto se tocó en n8n — son fixes y diseño listos para pegar, pendientes de que el usuario los aplique y confirme. |
+| v24 | 06/08 | **Cierre de sesión 3.** Confirmado por el usuario: la corrección de `enMantenimiento` (el `!!` de v23) fue aplicada en el nodo real de `Motor de Inferencia`. 13.3 queda **implementado en n8n**, no solo diseñado. Se deja pendiente re-exportar el JSON de WF1 (el nodo cambió de verdad, el export en `WORKFLOWS/` quedó desactualizado). Sesión cerrada con 13.4 diseñado pero sin construir — es el próximo paso concreto de la sesión siguiente. Se preparó un prompt de continuación para retomar en un chat nuevo. |
+| v23 | 06/08 | **13.3 implementado en n8n (código pegado y confirmado por el usuario) + corrección + diseño detallado de 13.4.** Al revisar el código real pegado en `Motor de Inferencia` antes de armar el IF de 13.4, se encontró que `enMantenimiento` podía llegar como `null` en vez de `false` (mismo patrón exacto que el bug 16.12: `&&` en JS no fuerza booleano, y el IF de n8n con `typeValidation: strict` rompe con `null` contra `true`/`false`) — corregido agregando `!!` antes de construir cualquier IF alrededor de ese campo, evitando repetir el bug una tercera vez. Se detalló 13.4 nodo por nodo (antes solo tenía un diagrama compacto): un IF nuevo de mantenimiento antes que todo, y dos IF nuevos que filtran la salida TRUE de `¿Requiere Alerta?` (existente, sin tocar) para que WF2 no dispare con "Lectura Sospechosa" y WF5 solo dispare con Sequía real + actuador disponible. Pendiente: implementar 13.4 en n8n. |
+| v22 | 06/08 | **13.2 aplicado, tras encontrar y corregir un drift real entre el plan y la base viva.** El SQL de 13.2 (ampliar `vista_cultivos_activos`) falló al primer intento: `cannot change name of view column "etapas_especie_id" to "duracion_estimada_dias"` — la vista real ya tenía dos columnas (`etapas_especie_id` de 12.5, `ultima_foto_path` de 12.2) que el borrador de 13.2 no contemplaba, y `CREATE OR REPLACE VIEW` no permite reordenar/renombrar columnas existentes. Se corrigió trayendo la definición real con `pg_get_viewdef` y reescribiendo el SQL respetando el orden real, agregando las 4 columnas nuevas solo al final — aplicado y verificado (16 columnas correctas). Se aprovechó para auditar el resto de las vistas del plan por el mismo motivo (`vista_promedios_recientes`, `vista_conocimiento_experto`): ambas coinciden exactas con lo documentado, el drift fue puntual de `vista_cultivos_activos` (la que más sesiones distintas la fueron modificando). Práctica adoptada para el resto del proyecto: antes de cualquier `CREATE OR REPLACE VIEW` sobre algo que ya existe en vivo, traer la definición real primero en vez de confiar en la copia del documento. |
+| v21 | 06/08 | **SQL de 13.12/13.13 aplicado** (`cultivo.mantenimiento_hasta` y el `CHECK` de `comando_dispositivo.tipo_comando` ampliado con `CALIBRAR_BOMBA`) — esta vez lo corrió el usuario directo en el SQL Editor de Supabase (pidió pegar los comandos él mismo), verificado después vía MCP (lectura). Queda pendiente en Fase 13: 13.2 (vista ampliada), 13.3 (Motor de Inferencia con los 4 cambios ya diseñados), WF5 y WF6 completos (construcción en n8n), y el contrato ESP32. |
+| v20 | 06/08 | **Diseño de dos casos límite de Fase 13, con fundamentación teórica (13.3.1).** A partir de pensar qué pasa si el usuario se olvida de reconectar el sensor tras un trasplante, o lo deja mal puesto: (1) el mensaje de "Falla de Riego" ahora suma explícitamente al sensor como posible causa (antes solo mencionaba tanque/bomba/fuga); (2) nuevo chequeo de plausibilidad en `Motor de Inferencia` (13.3): si humedad/pH/N/P/K llegan **todos en 0 simultáneamente**, se trata como sensor probablemente desconectado (`estado: 'Lectura Sospechosa - Revisar Sensor'`) en vez de emergencia real — corta antes de evaluar nada, avisa por Telegram, pero queda explícitamente afuera de disparar WF2 (no gastar Gemini en datos inválidos) y WF5 (nunca regar automático sobre un dato sospechoso). Se agregó 13.3.1 con la fundamentación teórica de las tres piezas de diseño de la sesión que comparten familia conceptual: el chequeo de plausibilidad como una instancia simple de *Fault Detection and Isolation* (distinguir fallo de sensor vs. fallo de proceso, área establecida de ingeniería de control), el mecanismo de "Falla de Riego" como aplicación del patrón *Circuit Breaker* (Nygard, *Release It!*), y el autoexpirado de `mantenimiento_hasta` (13.12) como aplicación del patrón *lease* de sistemas distribuidos. A pedido del usuario, esta fundamentación teórica pasa a ser una práctica estándar para toda futura adición al plan (no solo hallazgos puntuales) — el documento sirve de insumo directo para el marco teórico de la tesis. |
+| v19 | 06/08 | **Fase 13.1 aplicado en Supabase.** Antes de aplicar se verificó el estado real (regla 3): ninguna de las 6 tablas existía, `cultivo`/`dispositivo` no tenían las columnas nuevas, y se confirmó vía `pg_policies` que hoy ninguna tabla tiene política para `anon` (las vistas públicas funcionan esquivando el RLS de las tablas de abajo, no por política de `anon`, tal como ya documentaba 16.6) — solo `especie_planta`/`cultivo`/`lectura_sensores`/`seguimiento_fenologico` tienen política para `authenticated`, rol que hoy no usa nada del pipeline real. Con esa base, se aplicó el SQL de 13.1 con 3 diferencias respecto al borrador original: RLS explícito desde el origen en las 6 tablas nuevas, sin `GRANT` a `authenticated` en las tablas sensibles (`comando_dispositivo`, `evento_riego` — nada lo usa hoy), y un `CHECK (duracion_segundos <= 30)` en `comando_dispositivo` como tope físico también a nivel de base, no solo en el Code node de n8n. Verificado con `list_tables` (6 tablas creadas, RLS activo, seeds cargados: 4 filas en `tipo_maceta`, 4 en `maceta_recomendada_especie`) y `get_advisors` de seguridad: `comando_dispositivo`/`evento_riego` quedan "RLS enabled, no policy" tal como se buscaba (mismo patrón que `etapas_especie`/`tipo_etapa`), sin ninguna alerta nueva — los únicos hallazgos del advisor son preexistentes y no relacionados (vistas `SECURITY DEFINER`, ya documentado en 16.6; `fn_registrar_telemetria` ejecutable por `anon`/`authenticated`; protección de contraseñas filtradas de Auth, sin uso en el proyecto). **Decisión de alcance (a pedido del usuario):** el usuario tiene el ESP32 físico pero no sabe programarlo todavía — se confirmó que el resto de Fase 13 (WF5, contrato ESP32) se puede seguir construyendo y testeando por completo con el simulador PowerShell ya diseñado en 13.6, sin bloquear nada por el hardware. La decisión de cómo va a autenticar el ESP32 real contra `comando_dispositivo` (pendiente desde v18) se pospone explícitamente hasta el momento de escribir firmware real — no antes, porque hoy no hay ningún dispositivo físico distribuido en juego y posponerla no genera retrabajo. Se documentó además, a pedido del usuario, una explicación didáctica del acoplamiento entre las 6 tablas nuevas (dos flujos separados: configuración del cultivo una vez vs. loop de riego que se repite en cada sequía), con un diagrama de flujo. |
+| v18 | 06/08 | **Revisión de diseño de Fase 13-15 (sesión 3, antes de tocar la base).** A pedido del usuario, se revisó el diseño completo de las 3 fases contra las lecciones de la sesión anterior (RLS sin políticas, arrays/valores hardcodeados, mínimo privilegio) antes de escribir SQL. Hallazgos de Fase 13 (riego): (1) el contrato ESP32↔Supabase (13.6) asumía la Secret key embebida en el firmware — riesgo real dado que el hardware es físicamente extraíble; queda pendiente de decidir la estrategia de auth del dispositivo (Edge Function proxy vs. RLS por dispositivo vs. aceptar el riesgo por ahora). (2) Ninguna de las 6 tablas nuevas propuestas (13/15) declaraba RLS — pendiente de decidir el enfoque (políticas explícitas vs. deny-all vs. definir tabla por tabla). Ninguna de las dos decisiones está tomada todavía. **Fase 15 (fertirriego) sí se rediseñó y quedó cerrada esta sesión:** se detectó que `FACTOR_RETENCION_HIDRICA`/`DENSIDAD_SUSTRATO_KG_L` son constantes únicas para cualquier sustrato (mismo patrón de "constante que debería ser tabla" ya corregido dos veces antes) — anotado como mejora futura compartida entre Fase 13 y 15 (ver 15.7), no implementado todavía. Más importante: se encontraron dos errores reales en el cálculo de NPK de Fase 15 antes de escribirlo en n8n — (a) el diseño original asumía que el % de P y K en la etiqueta de un fertilizante es el nutriente puro, cuando la convención estándar de la industria (Guaranteed Analysis, AAPFCO) los declara como P₂O₅/K₂O, sobreestimando el nutriente real hasta ~2.3× en P; (b) el modelo `producto_fertilizante` (una fila por nutriente) forzaba a tratar un fertilizante combinado como si fueran tres productos independientes, generando recomendaciones que sumaban dosis del mismo frasco en vez de una sola aplicación. **Rediseñado y documentado (15.1-15.9):** `producto_fertilizante` pasa a modelar un producto físico por fila (con `pct_n/p/k` y `formato_declarado`), el nodo `Calcular Recomendación NPK` aplica la conversión estequiométrica óxido→elemental y dosifica por producto según el nutriente más exigente que cubre, y usa los campos numéricos que `Motor de Inferencia` ya expone (`umbrales.n_ideal` etc.) en vez de re-parsear un string de display — mismo criterio que 16.11/12.5. Fundamentación teórica agregada en 15.1.1. Ninguno de los 3 hallazgos de Fase 13 se implementó todavía — quedan como decisiones abiertas para la próxima sesión. |
+| v17 | 05/08 | **Cierre de Fase 11 y hallazgos en vivo (sesión tarde).** (1) Validado el 3er escenario de WF4 (óptimo): `estado_optimo: true`, `desviaciones: []`, sin Telegram — cierra los 3 escenarios. Un primer intento dio falso positivo por una carrera de timing entre el UPDATE de test y la ejecución, no un bug. (2) Confirmado Gemini con key rotada en WF2 (cascada WF1→WF2 con foto real) y en WF3 (`IA Vision Fenologica`). (3) **16.12 (nuevo):** bug real encontrado en `Hay cultivos a evaluar?` (WF3) — condición tipada como string comparando un boolean real, rompía con `typeValidation: strict` cada vez que no había cultivo para evaluar (el caso más común en producción). Corregido con comparación boolean + `!!`. (4) **12.5 resuelto de raíz:** al debuguear el bug anterior se encontró que el array hardcodeado `etapasOrdenadas` en `Calcular Dias en Etapa` no incluía "Cosecha", haciendo imposible evaluar transición para cualquier cultivo en Floración (la última etapa del array). Se rediseñó todo el mecanismo de etapas de WF3 para leer dinámicamente de `etapas_especie`/`tipo_etapa` (mismo patrón que `parametro_etapa` en 16.11) en vez de array hardcodeado + `+2` mágico (duplicado en dos nodos) — ver sección 12.5 actualizada. Nodo nuevo `Obtener Orden Etapas`, con la vuelta: se descubrió que `etapas_especie` y `tipo_etapa` tienen RLS activado sin ninguna política, así que ese nodo usa Secret key (no Publishable) — mismo caso ya documentado para `Obtener etapa nueva` en 16.10, que ahora se elimina por redundante. (5) **Hallazgo de dominio (no bug):** con el rediseño funcionando, Gemini analizó una foto real del cultivo demo y detectó correctamente "Fructificación" — etapa que no existe en el catálogo (`tipo_etapa` solo tiene Germinación/Plántula/Vegetativo/Floración/Cosecha). Aplica a cualquier especie futura de fruto (tomate, pimiento, pepino, berenjena, frutilla), no a hojas/raíz. De paso se encontró que `parametro_etapa` de "Cosecha" (Tomate Cherry) está completamente `NULL` — nunca se cargó porque ningún cultivo había llegado ahí antes. Queda anotado como mejora futura (ver backlog al final), datos FAO a buscar cuando se llegue a esa parte. (6) El test de WF3 alcanzó a escribir en la base (`cultivo.etapa_actual_id = 5`) antes de notar el hallazgo anterior — revertido a su valor real (`etapa_actual_id = 4`, `fecha_inicio_etapa` original) con confirmación previa del usuario. (7) Borradas las lecturas de test (`lectura_sensores` 156-160, confirmado 0 filas). (8) Decisión: WF4 se deja **inactivo a propósito** — sin ESP32 no hay telemetría real que analizar, activarlo hoy no aporta nada. Fase 11 se considera cerrada igual, porque lo que la cierra es la corrección validada, no el toggle. |
+| v16 | 05/08 | Implementado 16.11: nuevo nodo `Calcular Diagnóstico` insertado en WF4 entre `Conocimiento Experto` y `Request a Gemini`, con la fórmula acordada (normalización por ancho de rango para humedad/pH, % relativo al ideal para N/P/K, corte 10%, peor caso manda). Reescrito el prompt de `Request a Gemini` para que reciba el diagnóstico ya calculado y solo redacte texto, y reescrito `Parsear Respuesta de Gemini` para que tome `estado_optimo`/`nivel_alerta`/`desviaciones_leves` del cálculo (con fallback seguro si Gemini falla) en vez del criterio del LLM. Verificado en vivo: mismo caso de prueba corrido 2 veces dio resultados idénticos (200%/0%/50%/36%/53.3%, todas "seria" salvo pH), y un caso construido a propósito en zona "leve" (humedad 49, pH 6.15, N 32, P 48, K 58) dio exactamente lo calculado a mano (6.7%/8.3%/6.7%/4%/3.3%, las 5 "leve") — confirma que el mismo dato de entrada ya da siempre el mismo resultado, cerrando la inconsistencia que motivó el cambio. De paso se confirmó que el caso pH=6.1 usado en pruebas previas (con el criterio viejo de Gemini) da bajo esta fórmula 16.7% → "seria", no "leve" — el corte ahora es fijo y explicable. Pendiente: confirmar Gemini en WF2/WF3 con la key rotada, limpieza 16.9, bajar `expiresIn`, borrar lecturas de test y reactivar WF4. |
+| v15 | 04/08 | Verificación en vivo de 16.3 REABIERTO (guiada nodo por nodo en n8n, usuario reportando pantalla): confirmado que el nombre del nodo HTTP de Gemini y la referencia en `Parsear Respuesta de Gemini` no coincidían; corregido. En el proceso se encontró que **16.4 tampoco estaba realmente resuelto** (mismo patrón: marcado resuelto el 27/07, roto en vivo) — el body de Gemini seguía armado como parámetro de formulario en vez de JSON; corregido (Body Content Type → JSON). Se encontró además un tercer bug no documentado: el prompt de Gemini tomaba humedad/pH/N/P/K y la etapa del cultivo de `$json` plano (nodo `Conocimiento Experto`, que no tiene esos campos o los tiene con otro nombre — la vista expone `etapa`, no `etapa_actual`); corregido referenciando explícitamente `Obtener lecturas y conocimiento` y usando `etapa`. Diagnosticada y resuelta (con confirmación previa del usuario) una causa de datos: `vista_promedios_recientes` exige lecturas de las últimas 6hs y las de test tenían ~2 días de atraso — se insertaron 5 lecturas de test frescas en Supabase (`lectura_sensores` id 156-160, a borrar después de la orquestación completa). **Resultado: WF4 corrió de punta a punta con éxito** (Gemini con key rotada + Telegram con reporte real), confirmando también la key de Gemini en WF4. Durante ese test se detectó que Gemini decide `estado_optimo` de forma no determinística en casos límite (mismo input, distinto resultado entre corridas) — se diseñó y fundamentó (16.11) un reemplazo por cálculo determinístico en Code node, basado en los datos ya existentes en `parametro_etapa`, dejando a Gemini solo la redacción; queda pendiente implementarlo en n8n. |
+| v14 | 02/08 | Cierre de Fase 16 (parcial) + auditoría de WF4. (1) Legacy API keys de Supabase deshabilitadas y testeadas: grep sin hardcodes de key legacy en los 4 JSON + `Invoke-RestMethod` real confirmando que ambos mensajes de Telegram siguen llegando. (2) API key de Gemini rotada: key nueva cargada en la credencial compartida `Gemini` (Query Auth) — se propaga sola a los 3 nodos que la referencian — y la key vieja borrada en AI Studio. Pendiente confirmar que los 3 nodos siguen respondiendo bien con la key nueva. (3) A pedido del usuario ("¿está terminado WF4?"), se releyó el JSON real de WF4 y se encontró una discrepancia seria: el checklist 16.10 da por resuelto (27/07) el bug de referencia de nodo en `Parsear Respuesta de Gemini`, pero el JSON real sigue mostrando `$('AI Request a Gemini - No foto')`, que **no coincide** con el nombre real del nodo (`Request a Gemini  - No foto`, sin "AI ", doble espacio) — mismo patrón de bug que el de `Preparar Foto Binaria`/`Preparar Foto binaria` en WF1 (12.2.1), con el mismo efecto: el `try/catch` lo traga en silencio y el diagnóstico cae siempre en `estado_optimo: true`, así que `Reporte preventivo` nunca se enviaría. No se tocó el nodo — queda documentado en **16.3 REABIERTO** para verificar contra n8n en vivo antes de reactivar WF4. Se actualiza también la tabla "Resumen de Hardcodes" (12.2 y 12.3 pasan a ✅, reflejando el cierre de 12.2.1/12.2.2), y se archivan las Fases 1-11 y "Resumen Final" (plan original, ya superado) en un bloque colapsable para legibilidad. |
+| v13 | 28/07 | Cerrado el pipeline de foto real en WF3 (12.2.2), completando 12.2 en los 3 workflows: nodos nuevos `¿Tiene Foto Reciente?`, `Descargar Foto`, `Extract from File` + `Convertir a Base64`, ajuste de `IA Vision Fenologica`, `path_foto` en `Persistir Seguimiento Fenologico`, y `Generar URL Firmada` + `Mandar foto`. 3 bugs nuevos encontrados y corregidos: (1) lectura de binario en Code node devolvía `filesystem-v2` (referencia a disco, no base64 real) — resuelto con el nodo nativo `Extract from File`; (2) `encodeURIComponent()` de más en `Generar URL Firmada` codificaba la barra del path a `%2F`, y Supabase grababa el path roto tal cual dentro del JWT firmado (confirmado decodificando el token) — se sacó el encoding; (3) token de URL firmada venciéndose durante el testeo manual nodo por nodo (`expiresIn: 60` de sobra en producción, insuficiente para pausas humanas al testear) — subido a 300 temporalmente, pendiente volver a bajarlo. Confirmado de punta a punta: evaluación fenológica real con foto real, cambio de etapa, persistencia, y foto por Telegram. |
+| v12 | 28/07 | Cerrado el pipeline de foto real WF1→WF2 (12.2.1): 3 bugs reales encontrados y corregidos — (1) typo de mayúscula/minúscula en el nombre de nodo referenciado desde `Consolidar datos` (`Preparar Foto Binaria` vs `Preparar Foto binaria`), que hacía que el `catch` tragara el error en silencio y `path_foto_evento` llegara `null` siempre; (2) confirmado que n8n envuelve strings base64 grandes en un objeto `{value: "..."}` ya desde el propio Webhook — se resuelve desenvolviendo una sola vez en `Motor de Inferencia`, en el punto de origen, para que viaje limpio a todos los consumidores; (3) el archivo de foto de test traía un `\r\n` final (de `Set-Content`) que rompía el decoder estricto de base64 de Gemini — agregado `.trim()` en el mismo punto de desenvuelto. Confirmado funcionando de punta a punta con foto real: Storage, `cultivo.ultima_foto_path`, WF2, y diagnóstico real de Gemini. |
+| v11 | 27/07 | 16.6 descartado (nodo nativo Supabase no acepta Publishable key, revertido a Secret, queda como futura mejora). 16.5 corregido: bucket `fotos-cultivos` en realidad NO era público (se creía desde Fase 7.2) — se probó hacerlo público y se revirtió por riesgo de privacidad (fotos revelan predio/espacio del cliente si el sistema escala). 12.2/12.3 rediseñados de raíz: pipeline de foto real por cultivo, path único por evento (`{cultivo_id}/{timestamp}.jpg`, nunca se pisa), columna nueva `cultivo.ultima_foto_path` + vista `vista_cultivos_activos` actualizada (SQL aplicado, confirmado con el usuario antes de ejecutar), URL firmada generada al vuelo solo para Telegram. De paso, la tabla `seguimiento_fenologico` queda como álbum histórico de fotos por etapa sin tablas nuevas. |
+| v10 | 26/07 | Fase 16.1 (Supabase) cerrada y testeada: migración completa a Secret key / Publishable key vía credenciales Header Auth + Query Auth (Gemini). Pendiente: deshabilitar legacy keys, rotar key de Gemini, y el resto de la Fase 16. Reorganizado el documento (índice + estado actual arriba) para legibilidad. |
+| v9 | 25/07 | + Fase 16: auditoría de seguridad sobre los JSON reales de los 4 workflows exportados |
+| v8 | 20/07 | Fix: `foto_base64` no llegaba a WF2 porque el Motor de Inferencia no lo reenviaba (12.2) |
+| v7 | 20/07 | Aclarado: ESP32 aún no armado. Se define el contrato ESP32↔Sistema y un simulador PowerShell en 13.6 |
+| v6 | 20/07 | Fase 15 rediseñada a pedido: sin bombas ni hardware nuevo, pasa a ser una recomendación calculada por Telegram |
+| v5 | 20/07 | + Fase 15: fertirriego automatizado con bombas dosificadoras |
+| v4 | 20/07 | + Fase 13 (Riego Automático) y Fase 14 (Anticipación NPK/pH). Esquema verificado contra Supabase real. |
+| v3 | — | Fases 1-12 base (Pipeline, WF1-WF4, migración a producción) |
+
+</details>
+
+---
+
+## Versionado y ritual de sesión
+
+> **Decisión del 27/08/2026: el proyecto pasa a estar versionado con git, en local y sin remoto.** Alcance mínimo deliberado — sin CI, sin ramas por feature, sin migraciones con el CLI de Supabase. Cada una de esas piezas es compromiso de mantenimiento a cambio de nada mientras haya un solo desarrollador y un solo entorno.
+
+### Por qué se versiona
+
+El plan, los JSON de `WORKFLOWS/` y el esquema de Supabase son **tres escrituras que deben ser consistentes entre sí y que hasta hoy ocurrían por separado**. Cada drift que costó una sesión fue una **escritura parcial** de ese triple-write: la **v22** (el plan afirmaba un esquema que la base ya no tenía), la **v36** (los workflows se tocaron y el plan no se enteró) y las **siete contradicciones** de la sección Contradicciones.
+
+Es exactamente el patrón que este proyecto ya resolvió dos veces *dentro* de la base — 13.5.2 con `fn_registrar_riego` y 16.25 con `fn_registrar_evaluacion_fenologica`. La conclusión de ingeniería es la misma en los dos planos: **cuando varias escrituras tienen que ser consistentes entre sí, la consistencia se impone con una transacción, no con la disciplina de acordarse.** Git aporta acá lo que una transacción aporta allá: **el commit es la unidad atómica**, y su mensaje es la fila del changelog.
+
+La alternativa descartada era seguir con **consistencia por convención** (acordarse de exportar y de anotar). Funciona con un solo autor atento y falla apenas hay dos trabajando en paralelo — que es precisamente cómo se produjo el defecto de composición de la sesión 9.
+
+**Qué agrega git sobre el chequeo de `mtime`.** El chequeo de `mtime` del protocolo de arranque es un **detector sin diagnóstico**: dice *que* el artefacto es posterior a la afirmación, no *qué* cambió. Después hay que releer todo y adivinar — eso fue la v36. Con nombres de archivo estables y un commit por sesión, ese mismo momento pasa a ser un `git diff` que devuelve los nodos exactos que se tocaron. **El detector se conserva; lo que cambia es qué se puede hacer cuando suena.**
+
+Por eso los cinco exports se renombraron a `WF1.json` … `WF5.json`. Con el nombre anterior —`WF1 8-24-26 .json`— cada export estrenaba archivo y git veía un borrado más un alta en vez de una modificación: **se perdía justamente el diff que es el único motivo para versionar**.
+
+### Lo que git no resuelve
+
+**Git versiona el export, no el sistema que corre.** Un repositorio limpio mientras n8n tiene tres cambios sin exportar es *más* peligroso que no tener repositorio, porque parece autoritativo y desactiva la sospecha. La v36 no la habría evitado git: los JSON en disco estaban viejos igual, con repo o sin repo.
+
+El valor aparece **solo si el commit es el momento del export**, no un paso administrativo posterior. De ahí que el ritual de **Versionado** los ponga en el mismo paso y no en dos.
+
+### Ritual de cierre
+
+1. **Re-exportar de n8n** los workflows que se tocaron, sobrescribiendo `WORKFLOWS/WFn.json`. **Nombre estable siempre**, nunca con fecha: la fecha la aporta el commit.
+2. **Actualizar el plan**: changelog, tablero **Tablero** y **Hallazgos abiertos**, y la sección numerada que corresponda.
+3. **`git add -A && git commit`**, con el mismo texto que la fila del changelog.
+4. **`git status` tiene que quedar limpio.** Si no lo está, hay algo sin documentar — y eso es exactamente la señal que en la v36 llegó dos sesiones tarde.
+
+Para leer diffs del plan conviene `git diff --word-diff`: el documento tiene párrafos de una sola línea de hasta 5.000 caracteres, así que el diff por líneas marca el párrafo entero.
+
+### Qué queda fuera del repositorio
+
+- **Secretos.** Al 27/08/2026 **no hay ninguno en el repo**, verificado: los 5 JSON referencian credenciales por `id`+`nombre` y no contienen JWT, `sb_secret_*` ni `AIza*`. El `.gitignore` ya trae los patrones defensivos para cuando aparezca el firmware del ESP32.
+- **El volumen `n8n_storage`.** No es versionable y es hoy el **punto único de fallo del proyecto** — ver **B.13**.
+- **El esquema de Supabase.** Sigue sin versionarse en ningún lado salvo en prosa. Es el hueco conocido que queda abierto: 16.13, 16.33 y 16.38 son afirmaciones sobre el esquema que no se pueden verificar contra nada más que la base viva.
+
+---
+
+## Diagnóstico de tu Base de Datos Actual
+
+### Esquema Existente (10 tablas + 2 vistas ✅)
+
+| Tabla | PK | Columnas Clave | Datos |
+|-------|----|----------------|-------|
+| `usuario` | uuid | `id`, `nombre`, `notificaciones_hab` | Vacía |
+| `dispositivo` | uuid | `id`, `mac_address`, `version_firmware` | Vacía |
+| `especie_planta` | integer | `id`, `nombre_comun`, `nombre_cientifico` | ✅ Con datos |
+| `tipo_etapa` | integer | `id`, `nombre_etapa` | ✅ Con datos |
+| `etapas_especie` | integer | `id`, `especie_id`, `etapa_id`, `orden`, `duracion_estimada_dias` | ✅ Con datos |
+| `parametro_etapa` | integer | `id`, `etapa_especie_id`, `humedad_min/max`, `ph_min/max`, `ideal_n/p/k` | ✅ Con datos |
+| `tipos_metricas` | integer | `id`, `nombre`, `unidad` | Necesita seed |
+| `cultivo` | uuid | `id`, `usuario_id`, `especie_id`, `nombre_personalizado`, `entorno`, `fecha_inicio`, `active`, `dispositivo_id` | Vacía |
+| `lectura_sensores` | bigint | `id`, `dispositivo_id`, `metrica_id`, `valor`, `fecha_hora`, `cultivo_id` | Vacía |
+| `seguimiento_fenologico` | uuid | `id`, `cultivo_id`, `url_foto`, `diagnostico_ia`, `confianza_ia`, `fecha_registro`, `etapas_especie_id` | Vacía |
+
+### Vista `vista_conocimiento_experto` ✅ (Funciona con datos)
+
+```json
+[
+  {"planta":"Albahaca","etapa":"Vegetativo","orden":3,"dias_estimados":45,"humedad_min":60,"humedad_max":80,"ph_min":6,"ph_max":7,"ideal_n":40,"ideal_p":20,"ideal_k":20},
+  {"planta":"Tomate Cherry","etapa":"Germinación","orden":1,"dias_estimados":10,"humedad_min":80,"humedad_max":95,"ph_min":6,"ph_max":7,"ideal_n":10,"ideal_p":10,"ideal_k":10},
+  {"planta":"Tomate Cherry","etapa":"Plántula","orden":2,"dias_estimados":15,"humedad_min":70,"humedad_max":85,"ph_min":6,"ph_max":6.5,"ideal_n":20,"ideal_p":15,"ideal_k":15},
+  {"planta":"Tomate Cherry","etapa":"Vegetativo","orden":3,"dias_estimados":40,"humedad_min":60,"humedad_max":75,"ph_min":6,"ph_max":6.8,"ideal_n":50,"ideal_p":30,"ideal_k":30},
+  {"planta":"Tomate Cherry","etapa":"Floración","orden":4,"dias_estimados":20,"humedad_min":50,"humedad_max":65,"ph_min":6.2,"ph_max":6.8,"ideal_n":30,"ideal_p":50,"ideal_k":60}
+]
+```
+
+### Vista `vista_cultivos_activos` (Vacía — falta dispositivo + cultivo + campos adicionales)
+
+Columnas actuales: `cultivo_id`, `cultivo_activo`, `dispositivo_mac`, `especie_id`
+
+> [!WARNING]
+> **Problema:** Esta vista NO incluye el nombre de la planta (`planta`) ni la etapa actual (`etapa_actual`). Necesitamos ambos campos para filtrar `vista_conocimiento_experto`. Hay que recrear la vista y agregar una columna `etapa_actual_id` a la tabla `cultivo`.
+
+---
+
+<details>
+<summary><b>📜 Plan original paso a paso (Fases 1-11) — histórico, ya implementado en su totalidad. El estado real y las correcciones encontradas al construirlo están documentadas con más precisión en las Fases 12-16 más abajo. Click para expandir si necesitás el detalle original de configuración.</b></summary>
+
+## Fase 1 · Ajustes SQL en Supabase
+
+> [!IMPORTANT]
+> Ejecutá estos scripts **en orden** en el SQL Editor de Supabase (menú izquierdo → SQL Editor → New Query). Cada bloque es una query independiente.
+
+### 1.1 — Agregar columna `etapa_actual_id` a `cultivo`
+
+```sql
+-- Agregar columna para rastrear la etapa fenológica actual del cultivo y cuándo empezó
+ALTER TABLE public.cultivo 
+ADD COLUMN IF NOT EXISTS etapa_actual_id integer REFERENCES public.tipo_etapa(id),
+ADD COLUMN IF NOT EXISTS fecha_inicio_etapa timestamp with time zone DEFAULT now();
+
+COMMENT ON COLUMN public.cultivo.etapa_actual_id IS 'Etapa fenológica actual del cultivo (FK a tipo_etapa)';
+COMMENT ON COLUMN public.cultivo.fecha_inicio_etapa IS 'Fecha en la que el cultivo entró en su etapa actual';
+```
+
+### 1.2 — Recrear `vista_cultivos_activos` con campos adicionales
+
+```sql
+-- Recrear la vista incluyendo nombre de planta, etapa actual y control de tiempo
+CREATE OR REPLACE VIEW public.vista_cultivos_activos AS
+SELECT 
+  c.id AS cultivo_id,
+  c.active AS cultivo_activo,
+  d.id AS dispositivo_id,
+  d.mac_address AS dispositivo_mac,
+  c.especie_id,
+  ep.nombre_comun AS planta,
+  te.nombre_etapa AS etapa_actual,
+  ee.duracion_estimada_dias,
+  c.fecha_inicio_etapa,
+  c.usuario_id
+FROM public.cultivo c
+JOIN public.dispositivo d ON d.id = c.dispositivo_id
+JOIN public.especie_planta ep ON ep.id = c.especie_id
+LEFT JOIN public.tipo_etapa te ON te.id = c.etapa_actual_id
+LEFT JOIN public.etapas_especie ee ON ee.especie_id = c.especie_id AND ee.etapa_id = c.etapa_actual_id
+WHERE c.active = true;
+
+-- Permisos
+GRANT SELECT ON public.vista_cultivos_activos TO authenticated;
+GRANT SELECT ON public.vista_cultivos_activos TO service_role;
+GRANT SELECT ON public.vista_cultivos_activos TO anon;
+```
+
+### 1.3 — Poblar `tipos_metricas` (necesario para `lectura_sensores`)
+
+```sql
+-- Insertar métricas que mide el sensor 7-en-1
+INSERT INTO public.tipos_metricas (nombre, unidad) VALUES
+  ('Humedad', '%'),
+  ('Temperatura', '°C'),
+  ('pH', 'pH'),
+  ('Nitrógeno', 'mg/kg'),
+  ('Fósforo', 'mg/kg'),
+  ('Potasio', 'mg/kg'),
+  ('Conductividad', 'mS/cm')
+ON CONFLICT DO NOTHING;
+```
+
+### 1.4 — Crear función RPC `fn_registrar_telemetria`
+
+```sql
+-- Función que recibe el JSON plano y distribuye los valores
+-- en filas normalizadas de lectura_sensores
+CREATE OR REPLACE FUNCTION public.fn_registrar_telemetria(
+  p_cultivo_id UUID,
+  p_dispositivo_id UUID,
+  p_humedad DOUBLE PRECISION DEFAULT NULL,
+  p_ph DOUBLE PRECISION DEFAULT NULL,
+  p_n DOUBLE PRECISION DEFAULT NULL,
+  p_p DOUBLE PRECISION DEFAULT NULL,
+  p_k DOUBLE PRECISION DEFAULT NULL
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = 'public'
+AS $$
+BEGIN
+  INSERT INTO public.lectura_sensores (cultivo_id, dispositivo_id, metrica_id, valor)
+  SELECT p_cultivo_id, p_dispositivo_id, tm.id, v.valor
+  FROM (VALUES 
+    ('Humedad',    p_humedad),
+    ('pH',         p_ph),
+    ('Nitrógeno',  p_n),
+    ('Fósforo',    p_p),
+    ('Potasio',    p_k)
+  ) AS v(nombre, valor)
+  JOIN public.tipos_metricas tm ON tm.nombre = v.nombre
+  WHERE v.valor IS NOT NULL;
+END;
+$$;
+
+-- Permitir que n8n (service_role) y usuarios autenticados llamen la función
+GRANT EXECUTE ON FUNCTION public.fn_registrar_telemetria TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_registrar_telemetria TO authenticated;
+```
+
+### 1.5 — Datos Seed para Demo (Dispositivo + Usuario + Cultivo)
+
+> [!IMPORTANT]
+> **Antes de ejecutar esto**, necesitás un usuario en Supabase Auth. Ve a tu dashboard de Supabase → **Authentication** → **Users** → **Add User** → crea un usuario con email y contraseña. Después, ejecutá `SELECT id FROM auth.users LIMIT 1;` para obtener su UUID y reemplazá el placeholder en el SQL de abajo.
+
+```sql
+-- Paso A: Crear usuario en tabla pública (reemplazar el UUID)
+-- Primero obtené tu auth user id:  SELECT id FROM auth.users LIMIT 1;
+INSERT INTO public.usuario (id, nombre, notificaciones_hab) VALUES
+  ('REEMPLAZAR-CON-TU-AUTH-USER-UUID', 'Admin Demo', true);
+
+-- Paso B: Registrar dispositivo ESP32 de prueba
+INSERT INTO public.dispositivo (mac_address, version_firmware) VALUES
+  ('24:0A:C4:A1:B2:C3', 'v1.0.0');
+
+-- Paso C: Obtener IDs necesarios para crear el cultivo
+-- Ejecutá esto para ver los IDs:
+-- SELECT id FROM public.dispositivo WHERE mac_address = '24:0A:C4:A1:B2:C3';
+-- SELECT id FROM public.especie_planta WHERE nombre_comun = 'Tomate Cherry';
+-- SELECT id FROM public.tipo_etapa WHERE nombre_etapa = 'Vegetativo';
+-- SELECT id FROM public.usuario LIMIT 1;
+
+-- Paso D: Crear cultivo activo (reemplazar los UUIDs/IDs)
+INSERT INTO public.cultivo (
+  usuario_id, 
+  especie_id, 
+  dispositivo_id, 
+  nombre_personalizado, 
+  entorno, 
+  active,
+  etapa_actual_id,
+  fecha_inicio_etapa
+) VALUES (
+  (SELECT id FROM public.usuario LIMIT 1),
+  (SELECT id FROM public.especie_planta WHERE nombre_comun = 'Tomate Cherry'),
+  (SELECT id FROM public.dispositivo WHERE mac_address = '24:0A:C4:A1:B2:C3'),
+  'Tomate Cherry - Demo Tesis',
+  'indoor',
+  true,
+  (SELECT id FROM public.tipo_etapa WHERE nombre_etapa = 'Vegetativo'),
+  now() - interval '32 days' -- Simulamos que lleva 32 días en esta etapa para que la IA lo evalúe
+);
+```
+
+### 1.6 — Verificación Final de la BD
+
+Después de ejecutar todos los scripts, verificá que todo funcione:
+
+```sql
+-- Debe devolver 1 fila con planta='Tomate Cherry', etapa_actual='Vegetativo'
+SELECT * FROM public.vista_cultivos_activos;
+
+-- Debe devolver 1 fila con los umbrales del Vegetativo
+SELECT * FROM public.vista_conocimiento_experto 
+WHERE planta = 'Tomate Cherry' AND etapa = 'Vegetativo';
+
+-- Debe devolver al menos 5 métricas
+SELECT * FROM public.tipos_metricas;
+```
+
+**Pegame los resultados** de estas 3 queries para confirmar que todo está OK antes de pasar a n8n.
+
+---
+
+## Fase 2 · Bot de Telegram
+
+### 2.1 Crear el Bot (5 minutos)
+
+1. Abrí **Telegram** → buscá **@BotFather** (tilde azul de verificado)
+2. Enviá `/newbot`
+3. **Nombre visible:** `Sistema Experto Agrícola`
+4. **Username** (debe terminar en `bot`): `agro_experto_tesis_bot`
+5. BotFather responde con el **API Token**:
+   ```
+   7123456789:AAH1bGciOiJIUzI1NiIsInR5cCI6IkpXVC...
+   ```
+6. **Guardá ese token.**
+
+### 2.2 Obtener tu Chat ID
+
+1. Abrí tu bot en Telegram (buscalo por su username)
+2. Enviá cualquier mensaje, ej: `hola`
+3. En el navegador, abrí:
+   ```
+   https://api.telegram.org/bot<TU_TOKEN>/getUpdates
+   ```
+4. Buscá `"chat":{"id": XXXXXXXX}` → ese número es tu **chat_id**
+5. **Anotalo.**
+
+> [!TIP]
+> Si `"result":[]`, volvé a enviar un mensaje al bot y recargá la URL.
+
+---
+
+## Fase 3 · Credenciales en n8n
+
+Accedé a **http://localhost:5678**.
+
+### 3.1 Credencial Telegram
+
+1. Menú ☰ → **Credentials** → **Add Credential**
+2. Buscá **"Telegram"** → seleccioná **Telegram API**
+3. Pegá el **Access Token** del BotFather
+4. Nombre: `Telegram Bot Agrícola`
+5. **Save** — debe decir "Connection tested successfully"
+
+### 3.2 Credencial Supabase (ya la tenés ✅)
+
+Ya tenés configurada tu credencial Supabase en n8n con la **service_role key**. La vamos a usar en los nodos Supabase nativos (consultas a vistas). No necesitás crear nada nuevo.
+
+> [!NOTE]
+> **Enfoque híbrido:** Usamos tu credencial Supabase existente para los nodos de consulta (Resolver Cultivo y Conocimiento Experto). Solo el nodo de Persistencia usa HTTP Request porque el nodo Supabase nativo no soporta llamadas a funciones RPC.
+
+---
+
+## Fase 4 · Workflow n8n (Nodo por Nodo)
+
+### Arquitectura del Flujo
+
+```mermaid
+flowchart LR
+    A["🌐 Webhook\n(POST)"] --> B["🔍 Resolver Cultivo\n(Supabase)"]
+    B --> C["📚 Conocimiento Experto\n(Supabase)"]
+    C --> D["🧠 Motor de Inferencia\n(Code JS)"]
+    D --> E["💾 Persistir Lectura\n(HTTP Request RPC)"]
+    E --> F{"⚡ ¿Alerta?\n(IF)"}
+    F -->|estado ≠ OK| G["📱 Telegram"]
+    F -->|estado = OK| H["✅ No Op"]
+```
+
+### Resumen de Nodos por Tipo
+
+| Nodo | Tipo | ¿Por qué este tipo? |
+|------|------|---------------------|
+| Webhook | Webhook | Punto de entrada del pipeline |
+| Resolver Cultivo | **Supabase** | Consulta simple a vista — tu credencial existente |
+| Conocimiento Experto | **HTTP Request** | El nodo Supabase no filtra bien vistas — HTTP Request es más confiable |
+| Motor de Inferencia | Code (JS) | Lógica de reglas del sistema experto |
+| Persistir Lectura | **HTTP Request** | Única forma de llamar funciones RPC en n8n |
+| ¿Requiere Alerta? | IF | Bifurcación condicional |
+| Alerta Telegram | Telegram | Envío de notificación |
+
+**Para crear:** En n8n → **"+ Add workflow"** → Nombre: `Sistema Experto Agrícola`
+
+---
+
+### 4.1 — Nodo 1: Webhook
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Webhook |
+| **Nombre** | `Webhook` |
+| **HTTP Method** | POST |
+| **Path** | `telemetria` |
+
+**URLs resultantes:**
+- Test: `http://localhost:5678/webhook-test/telemetria`
+- Producción: `http://localhost:5678/webhook/telemetria`
+
+---
+
+### 4.2 — Nodo 2: Resolver Cultivo (Supabase)
+
+Consulta `vista_cultivos_activos` para resolver `cultivo_id` + `planta` + `etapa_actual` desde la MAC del ESP32.
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo de Nodo** | Supabase |
+| **Nombre** | `Resolver Cultivo` |
+| **Credential** | Tu credencial Supabase existente (service_role) |
+| **Resource** | Row |
+| **Operation** | Get Many |
+| **Table Name** | `vista_cultivos_activos` |
+
+> [!TIP]
+> Si `vista_cultivos_activos` no aparece en el dropdown de "Table Name", escribí el nombre manualmente. Las vistas a veces no se listan automáticamente pero funcionan igual.
+
+**Filters** (sección "Filters" → Add Filter):
+
+| Column | Condition | Value |
+|--------|-----------|-------|
+| `dispositivo_mac` | [String] Equal | `{{ $json.body.dispositivo_mac }}` |
+
+> [!NOTE]
+> Usamos `$json.body.dispositivo_mac` porque el Webhook de n8n anida el body del POST dentro de `$json.body`. Si al testear ves que los datos están directamente en `$json` (sin `.body`), usá `{{ $json.dispositivo_mac }}`. Podés verificarlo haciendo click en el nodo Webhook después de recibir una petición de prueba y mirando la pestaña **Output**.
+
+**Options adicionales:**
+- **Return All**: ❌ Desactivado (solo necesitamos 1 resultado)
+- **Limit**: `1`
+
+**Salida esperada** (1 item):
+```json
+{
+  "cultivo_id": "uuid-del-cultivo",
+  "cultivo_activo": true,
+  "dispositivo_id": "uuid-del-dispositivo",
+  "dispositivo_mac": "24:0A:C4:A1:B2:C3",
+  "especie_id": 1,
+  "planta": "Tomate Cherry",
+  "etapa_actual": "Vegetativo",
+  "usuario_id": "uuid-del-usuario"
+}
+```
+
+---
+
+### 4.3 — Nodo 3: Conocimiento Experto (HTTP Request)
+
+Consulta los umbrales ideales para la planta en su etapa actual.
+
+> [!WARNING]
+> Usamos HTTP Request en vez del nodo Supabase nativo porque este último **no aplica filtros correctamente sobre vistas** en algunas versiones de n8n.
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo de Nodo** | HTTP Request |
+| **Nombre** | `Conocimiento Experto` |
+| **Method** | GET |
+| **URL** | `https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/vista_conocimiento_experto` |
+| **Authentication** | None |
+
+**Send Query Parameters** (habilitar → Add Parameter → 3 parámetros):
+
+| Name | Value (modo Expression `{ }`) |
+|------|-------|
+| `select` | `*` |
+| `planta` | `{{ 'eq.' + $json.planta }}` |
+| `etapa` | `{{ 'eq.' + $json.etapa_actual }}` |
+
+> [!CAUTION]
+> **Fix crítico:** En n8n, los Query Parameters NO combinan bien texto fijo (`eq.`) + expresión (`{{ $json.campo }}`). La solución es meter TODO dentro de una sola expresión: `{{ 'eq.' + $json.campo }}`. Asegurate de que el campo Value esté en **modo Expression** (click en el ícono `{ }`).
+
+**Send Headers** (habilitar → Add Header → 2 headers):
+
+| Name | Value |
+|------|-------|
+| `apikey` | `<REDACTADO — ver 16.40>` |
+| `Authorization` | `Bearer <REDACTADO — ver 16.40>` |
+
+**Salida esperada** (1 item, fila plana con todos los umbrales):
+```json
+{
+  "planta": "Tomate Cherry",
+  "etapa": "Vegetativo",
+  "orden": 3,
+  "dias_estimados": 40,
+  "humedad_min": 60,
+  "humedad_max": 75,
+  "ph_min": 6,
+  "ph_max": 6.8,
+  "ideal_n": 50,
+  "ideal_p": 30,
+  "ideal_k": 30
+}
+```
+
+---
+
+### 4.4 — Nodo 4: Motor de Inferencia (Code — JavaScript)
+
+> [!IMPORTANT]
+> Este es el corazón del Sistema Experto. Configura el nodo así:
+> - **Tipo:** Code
+> - **Nombre:** `Motor de Inferencia`
+> - **Language:** JavaScript
+> - **Mode:** ⚠️ **Run Once for All Items** (desplegable en la parte superior del editor de código)
+
+**Código JavaScript completo** (copiar y pegar tal cual):
+
+```javascript
+// ============================================================
+// MOTOR DE INFERENCIA — SISTEMA EXPERTO AGRÍCOLA
+// Patrón: Comparación de telemetría real vs. umbrales ideales
+// Esquema: parametro_etapa denormalizado (1 fila plana por etapa)
+// ============================================================
+
+// 1. OBTENER DATOS DE NODOS ANTERIORES
+// Datos crudos del sensor (del Webhook)
+const webhookData = $('Webhook').first().json;
+// Manejar ambos formatos: $json.body.campo o $json.campo
+const sensor = webhookData.body || webhookData;
+
+// Foto en base64 (Fase 12.2): viene del ESP32-CAM (o del cURL de prueba) dentro del mismo
+// body del webhook. Si no se manda, queda null y WF2 simplemente no tendrá imagen.
+const fotoBase64 = sensor.foto_base64 || null;
+
+// Datos del cultivo activo (de vista_cultivos_activos)
+const cultivo = $('Resolver Cultivo').first().json;
+
+// Conocimiento experto: UNA fila plana con todos los umbrales
+const reglas = $('Conocimiento Experto').first().json;
+
+// 2. MOTOR DE REGLAS (INFERENCIA)
+let estadoGlobal = 'OK';
+const observaciones = [];
+const detalleMetricas = [];
+
+// Tolerancia para NPK (±30% del valor ideal)
+const NPK_TOLERANCIA = 0.30;
+
+// --- EVALUAR HUMEDAD (tiene min/max directos) ---
+if (sensor.humedad !== undefined && sensor.humedad !== null) {
+  let estadoH = 'OK';
+  if (sensor.humedad < reglas.humedad_min) {
+    estadoH = 'BAJO';
+    estadoGlobal = 'Sequía';
+    observaciones.push(
+      `🔴 SEQUÍA: Humedad del suelo = ${sensor.humedad}% está por debajo del mínimo (${reglas.humedad_min}%). ` +
+      `Déficit de ${(reglas.humedad_min - sensor.humedad).toFixed(1)}%.`
+    );
+  } else if (sensor.humedad > reglas.humedad_max) {
+    estadoH = 'ALTO';
+    if (estadoGlobal === 'OK') estadoGlobal = 'Exceso Hídrico';
+    observaciones.push(
+      `🟠 EXCESO HÍDRICO: Humedad = ${sensor.humedad}% supera el máximo (${reglas.humedad_max}%). ` +
+      `Excedente de ${(sensor.humedad - reglas.humedad_max).toFixed(1)}%.`
+    );
+  }
+  detalleMetricas.push({
+    metrica: 'Humedad Suelo', 
+    valor: sensor.humedad, 
+    rango: `${reglas.humedad_min}% - ${reglas.humedad_max}%`, 
+    estado: estadoH
+  });
+}
+
+// --- EVALUAR pH (tiene min/max directos) ---
+if (sensor.ph !== undefined && sensor.ph !== null) {
+  let estadoPH = 'OK';
+  if (sensor.ph < reglas.ph_min) {
+    estadoPH = 'BAJO';
+    if (estadoGlobal === 'OK') estadoGlobal = 'Estrés Químico';
+    observaciones.push(
+      `🟡 pH ÁCIDO: pH = ${sensor.ph} está por debajo del mínimo (${reglas.ph_min}). ` +
+      `Riesgo de bloqueo de nutrientes. Déficit de ${(reglas.ph_min - sensor.ph).toFixed(2)} unidades.`
+    );
+  } else if (sensor.ph > reglas.ph_max) {
+    estadoPH = 'ALTO';
+    if (estadoGlobal === 'OK') estadoGlobal = 'Estrés Químico';
+    observaciones.push(
+      `🟡 pH ALCALINO: pH = ${sensor.ph} supera el máximo (${reglas.ph_max}). ` +
+      `Riesgo de bloqueo de micronutrientes. Exceso de ${(sensor.ph - reglas.ph_max).toFixed(2)} unidades.`
+    );
+  }
+  detalleMetricas.push({
+    metrica: 'pH', 
+    valor: sensor.ph, 
+    rango: `${reglas.ph_min} - ${reglas.ph_max}`, 
+    estado: estadoPH
+  });
+}
+
+// --- EVALUAR NPK (usa valor ideal ± tolerancia) ---
+const npkChecks = [
+  { campo: 'n', ideal: reglas.ideal_n, nombre: 'Nitrógeno (N)' },
+  { campo: 'p', ideal: reglas.ideal_p, nombre: 'Fósforo (P)' },
+  { campo: 'k', ideal: reglas.ideal_k, nombre: 'Potasio (K)' }
+];
+
+for (const check of npkChecks) {
+  const valor = sensor[check.campo];
+  if (valor === undefined || valor === null || check.ideal === null) continue;
+  
+  const minNPK = check.ideal * (1 - NPK_TOLERANCIA);
+  const maxNPK = check.ideal * (1 + NPK_TOLERANCIA);
+  let estadoNPK = 'OK';
+  
+  if (valor < minNPK) {
+    estadoNPK = 'BAJO';
+    if (estadoGlobal === 'OK') estadoGlobal = 'Estrés Químico';
+    observaciones.push(
+      `🟡 DÉFICIT ${check.nombre}: ${valor} mg/kg por debajo del rango tolerable (${minNPK.toFixed(0)} - ${maxNPK.toFixed(0)} mg/kg). ` +
+      `Ideal: ${check.ideal} mg/kg.`
+    );
+  } else if (valor > maxNPK) {
+    estadoNPK = 'ALTO';
+    if (estadoGlobal === 'OK') estadoGlobal = 'Estrés Químico';
+    observaciones.push(
+      `🟠 EXCESO ${check.nombre}: ${valor} mg/kg supera el rango tolerable (${minNPK.toFixed(0)} - ${maxNPK.toFixed(0)} mg/kg). ` +
+      `Ideal: ${check.ideal} mg/kg.`
+    );
+  }
+  detalleMetricas.push({
+    metrica: check.nombre, 
+    valor: valor, 
+    rango: `${minNPK.toFixed(0)} - ${maxNPK.toFixed(0)} mg/kg (ideal: ${check.ideal})`, 
+    estado: estadoNPK
+  });
+}
+
+// 3. CLASIFICACIÓN COMPUESTA
+const haySequia = observaciones.some(o => o.includes('SEQUÍA'));
+const hayEstresQuimico = observaciones.some(o => 
+  o.includes('DÉFICIT') || o.includes('EXCESO') || o.includes('pH')
+);
+if (haySequia && hayEstresQuimico) {
+  estadoGlobal = 'Sequía + Estrés Químico';
+}
+
+// 4. SALIDA UNIFICADA
+return [{
+  json: {
+    // Identidad del cultivo
+    cultivo_id:       cultivo.cultivo_id,
+    dispositivo_id:   cultivo.dispositivo_id,
+    planta:           cultivo.planta,
+    etapa:            cultivo.etapa_actual,
+    mac_address:      sensor.dispositivo_mac,
+    etapas_especie_id: cultivo.etapas_especie_id,
+    foto_base64:      fotoBase64,
+    
+    // Valores crudos del sensor
+    humedad:  sensor.humedad,
+    ph:       sensor.ph,
+    n:        sensor.n,
+    p:        sensor.p,
+    k:        sensor.k,
+    
+    // Diagnóstico del sistema experto
+    estado:           estadoGlobal,
+    observaciones:    observaciones,
+    detalle_metricas: detalleMetricas,
+    total_alertas:    observaciones.length,
+    
+    // Umbrales usados (para trazabilidad)
+    umbrales: {
+      humedad: { min: reglas.humedad_min, max: reglas.humedad_max },
+      ph: { min: reglas.ph_min, max: reglas.ph_max },
+      n_ideal: reglas.ideal_n,
+      p_ideal: reglas.ideal_p,
+      k_ideal: reglas.ideal_k
+    },
+    
+    timestamp: new Date().toISOString()
+  }
+}];
+```
+
+---
+
+### 4.5 — Nodo 5: Persistir Lectura (HTTP Request → RPC)
+
+> [!NOTE]
+> Este nodo y "Conocimiento Experto" son los 2 nodos HTTP Request del workflow. "Conocimiento Experto" usa HTTP Request porque el nodo Supabase no filtra correctamente sobre vistas. "Persistir Lectura" lo usa porque el nodo Supabase no soporta llamadas a funciones RPC.
+
+Llama a `fn_registrar_telemetria` para insertar las 5 métricas en una transacción.
+
+**Configuración de Authentication:**
+- **Authentication**: `None` (la autenticación va en los Headers manuales)
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | HTTP Request |
+| **Nombre** | `Persistir Lectura` |
+| **Method** | POST |
+| **URL** | `https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_registrar_telemetria` |
+
+**Headers**:
+
+| Name | Value |
+|------|-------|
+| `apikey` | `<REDACTADO — ver 16.40>` |
+| `Authorization` | `Bearer <REDACTADO — ver 16.40>` |
+| `Content-Type` | `application/json` |
+| `Prefer` | `return=minimal` |
+
+**Body** (Send Body → JSON → habilitar modo Expression `{ }`):
+
+```json
+{
+  "p_cultivo_id":     "{{ $json.cultivo_id }}",
+  "p_dispositivo_id": "{{ $json.dispositivo_id }}",
+  "p_humedad":        {{ $json.humedad }},
+  "p_ph":             {{ $json.ph }},
+  "p_n":              {{ $json.n }},
+  "p_p":              {{ $json.p }},
+  "p_k":              {{ $json.k }}
+}
+```
+
+> [!NOTE]
+> Los UUIDs (cultivo_id, dispositivo_id) van entre comillas `""` porque son strings. Los valores numéricos van SIN comillas. Las expresiones `{{ }}` se resuelven dinámicamente.
+
+---
+
+### 4.6 — Nodo 6: ¿Requiere Alerta? (IF)
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | IF |
+| **Nombre** | `¿Requiere Alerta?` |
+
+**Configuración de la condición:**
+
+1. Click **"Add Condition"** → seleccioná **String**
+2. **Value 1** (izquierda): `{{ $('Motor de Inferencia').item.json.estado }}`
+3. **Operation**: `is not equal to`
+4. **Value 2** (derecha): `OK`
+
+**Conexiones:**
+- **True** → nodo Telegram
+- **False** → nodo No Operation (o dejarlo sin conectar)
+
+---
+
+### 4.7 — Nodo 7: Alerta Telegram
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Telegram |
+| **Nombre** | `Alerta Telegram` |
+| **Resource** | Message |
+| **Operation** | Send Message |
+| **Credential** | `Telegram Bot Agrícola` |
+| **Chat ID** | `<TU_CHAT_ID>` (número entero de la Fase 2.2) |
+| **Parse Mode** | HTML |
+
+**Text** (habilitar modo Expression `{ }`):
+
+```
+🚨 <b>ALERTA — SISTEMA EXPERTO AGRÍCOLA</b> 🚨
+
+📍 <b>Cultivo:</b> {{ $('Motor de Inferencia').item.json.planta }}
+🌱 <b>Etapa:</b> {{ $('Motor de Inferencia').item.json.etapa }}
+📡 <b>Dispositivo:</b> {{ $('Motor de Inferencia').item.json.mac_address }}
+
+━━━━━━━━━━━━━━━━━━━
+📊 <b>DIAGNÓSTICO:</b> {{ $('Motor de Inferencia').item.json.estado }}
+━━━━━━━━━━━━━━━━━━━
+
+🔬 <b>Observaciones:</b>
+{{ $('Motor de Inferencia').item.json.observaciones.join('\n') }}
+
+📈 <b>Valores Medidos:</b>
+💧 Humedad: {{ $('Motor de Inferencia').item.json.humedad }}%
+⚗️ pH: {{ $('Motor de Inferencia').item.json.ph }}
+🟢 N: {{ $('Motor de Inferencia').item.json.n }} mg/kg
+🔵 P: {{ $('Motor de Inferencia').item.json.p }} mg/kg
+🟡 K: {{ $('Motor de Inferencia').item.json.k }} mg/kg
+
+🕐 {{ $('Motor de Inferencia').item.json.timestamp }}
+```
+
+---
+
+### 4.8 — Conexiones (Resumen)
+
+```
+[Webhook] → [Resolver Cultivo] → [Conocimiento Experto] → [Motor de Inferencia] → [Persistir Lectura] → [¿Requiere Alerta?]
+ (nativo)     (Supabase)           (Supabase)               (Code JS)              (HTTP Request)          (IF)
+                                                                                                               │
+                                                                                                          ┌────┴────┐
+                                                                                                        TRUE     FALSE
+                                                                                                          │         │
+                                                                                                   [Alerta     [No Op]
+                                                                                                   Telegram]
+```
+
+> [!TIP]
+> **Tip de debugging:** Después de conectar todos los nodos, hacé click en el nodo Webhook → "Listen for Test Event" → ejecutá un cURL de prueba. Luego hacé click en cada nodo para ver su pestaña **Output** y verificar que los datos fluyen correctamente de nodo a nodo.
+
+---
+
+## Fase 5 · Pruebas con cURL
+
+### Preparación
+1. En n8n, abrí el workflow → click en nodo **Webhook** → **"Listen for Test Event"**
+2. Abrí **PowerShell**
+
+### 5.1 — Escenario OK ✅
+
+Todos los valores dentro de rango. **No dispara alerta.**
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":62.4,"ph":6.5,"n":45,"p":32,"k":28}'
+```
+
+**Verificar:**
+- n8n: flujo completa, IF toma rama FALSE
+- Supabase: `SELECT * FROM lectura_sensores ORDER BY fecha_hora DESC LIMIT 5;` → 5 filas nuevas
+- Telegram: NO llega mensaje
+
+### 5.2 — Escenario SEQUÍA 🔴
+
+Humedad = 25% (mínimo aceptable = 60%). **Dispara alerta.**
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":25.0,"ph":6.5,"n":45,"p":32,"k":28}'
+```
+
+**Verificar:**
+- n8n: IF toma rama TRUE
+- Telegram: llega `DIAGNÓSTICO: Sequía` con observación de déficit hídrico del 35%
+- Supabase: 5 filas nuevas
+
+### 5.3 — Escenario ESTRÉS QUÍMICO 🟡
+
+pH = 4.0 (mínimo aceptable = 6.0). **Dispara alerta.**
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":65.0,"ph":4.0,"n":45,"p":32,"k":28}'
+```
+
+**Verificar:**
+- n8n: IF toma rama TRUE
+- Telegram: llega `DIAGNÓSTICO: Estrés Químico` con observación de pH ácido
+- Supabase: 5 filas nuevas
+
+---
+
+## Fase 6 · Producción
+
+1. En n8n, activá el workflow con el **toggle** (esquina superior derecha → ON)
+2. URL de producción: `http://localhost:5678/webhook/telemetria`
+3. Actualizá los cURL para usar `/webhook/` (sin `-test`)
+4. Este endpoint es el que usará tu ESP32 real
+
+---
+
+## Fase 7 · Setup Google Gemini (Gratis)
+
+### 7.1 — Obtener API Key (5 minutos, sin tarjeta)
+
+1. Andá a [Google AI Studio](https://aistudio.google.com/apikey)
+2. Iniciá sesión con tu cuenta de Google
+3. Click en **"Create API Key"**
+4. Copiá la key generada (empieza con `AIza...`)
+5. **Guardala** — la vas a usar en los WF2, WF3 y WF4
+
+### 7.2 — Subir foto de prueba a Supabase Storage
+
+Para la simulación (sin ESP32-CAM real), necesitás una foto de un tomate cherry:
+
+1. Dashboard de Supabase → **Storage** (menú izquierdo)
+2. Click **"New Bucket"** → Nombre: `fotos-cultivos` → **Public** → Create
+3. Subí una foto de un tomate cherry (buscá una en Google Images)
+4. Click en la foto subida → copiá la **URL pública** (botón "Get URL")
+5. Esa URL la usás en los workflows de IA
+
+### 7.3 — Convertir imagen a Base64 (para Gemini Vision)
+
+Gemini necesita la imagen en base64. Ejecutá esto en PowerShell para convertir:
+
+```powershell
+# Descargar la imagen y convertir a base64
+$imageUrl = "URL_PUBLICA_DE_TU_FOTO_EN_SUPABASE"
+$imageBytes = (Invoke-WebRequest -Uri $imageUrl).Content
+$base64 = [Convert]::ToBase64String($imageBytes)
+$base64 | Set-Content -Path "D:\tesis\test\foto_demo_base64.txt"
+Write-Host "Base64 guardado. Longitud: $($base64.Length) caracteres"
+```
+
+> [!NOTE]
+> Guardá ese archivo `foto_demo_base64.txt`. Lo vas a usar como valor fijo en los nodos de IA durante la demo.
+
+---
+
+## Fase 8 · WF2 — Diagnóstico IA de Emergencia (Nodo por Nodo)
+
+> [!IMPORTANT]
+> **Patrón de producción:** El usuario recibe 2 mensajes en Telegram:
+> 1. ⚡ Alerta inmediata rule-based (<1 seg) — del WF1
+> 2. 🤖 Diagnóstico IA detallado (~5-10 seg después) — de este WF2
+>
+> Si Gemini cae, el usuario **igual recibió la primera alerta**. Esto es fault-tolerant design.
+
+### 8.0 — Modificar WF1: Agregar Trigger a WF2
+
+Antes de crear WF2, hay que modificar el WF1 para que dispare WF2 cuando hay alerta.
+
+**En WF1**, el nodo IF "¿Requiere Alerta?" ahora tiene **2 conexiones TRUE** (n8n permite múltiples salidas):
+
+1. Conexión TRUE existente → Alerta Telegram (ya la tenés)
+2. Conexión TRUE **nueva** → Nodo HTTP Request "Trigger WF2"
+
+**Nodo nuevo en WF1: Trigger WF2**
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | HTTP Request |
+| **Nombre** | `Trigger WF2 Diagnóstico IA` |
+| **Method** | POST |
+| **URL** | `http://localhost:5678/webhook/diagnostico-ia` |
+| **Authentication** | None |
+
+**Send Headers:**
+
+| Name | Value |
+|------|-------|
+| `Content-Type` | `application/json` |
+
+**Send Body → JSON (Expression):**
+
+```json
+={{ JSON.stringify($('Motor de Inferencia').item.json) }}
+```
+
+> [!NOTE]
+> Usamos `=` al principio para indicar que todo el body es una expresión. Esto reenvía toda la salida del Motor de Inferencia al WF2.
+
+**Conexiones actualizadas del IF en WF1:**
+
+```
+IF (¿Requiere Alerta?)
+  ├─ TRUE → Alerta Telegram (alerta inmediata, ya existente)
+  ├─ TRUE → Trigger WF2 Diagnóstico IA (nuevo)
+  └─ FALSE → No Op
+```
+
+### 8.1 — Crear Workflow 2 en n8n
+
+En n8n → **"+ Add workflow"** → Nombre: `WF2 - Diagnóstico IA Emergencia`
+
+### 8.2 — Nodo 1: Webhook
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Webhook |
+| **HTTP Method** | POST |
+| **Path** | `diagnostico-ia` |
+
+Recibe la salida completa del Motor de Inferencia del WF1.
+
+### 8.3 — Nodo 2: AI Vision Gemini (HTTP Request)
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | HTTP Request |
+| **Nombre** | `AI Vision Gemini` |
+| **Method** | POST |
+| **URL** | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=TU_API_KEY_GEMINI` |
+| **Authentication** | None |
+
+**Send Headers:**
+
+| Name | Value |
+|------|-------|
+| `Content-Type` | `application/json` |
+
+**Send Body → JSON (Expression):**
+
+> [!CAUTION]
+> Este body es largo. Copialo completo. El campo `text` contiene el prompt con expresiones n8n. El campo `data` contiene la foto en base64 (para la demo usá un valor fijo).
+
+```json
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\nCONTEXTO DEL CULTIVO:\n- Planta: {{ $json.body.planta }}\n- Etapa fenológica: {{ $json.body.etapa }}\n- Dispositivo: {{ $json.body.mac_address }}\n\nDATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n- Humedad del suelo: {{ $json.body.humedad }}%\n- pH: {{ $json.body.ph }}\n- Nitrógeno (N): {{ $json.body.n }} mg/kg\n- Fósforo (P): {{ $json.body.p }} mg/kg\n- Potasio (K): {{ $json.body.k }} mg/kg\n\nDIAGNÓSTICO DEL SISTEMA DE REGLAS:\n- Estado: {{ $json.body.estado }}\n- Observaciones: {{ $json.body.observaciones.join('. ') }}\n\nTAREA:\n1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n2. Correlacioná los signos visuales con los datos de sensores.\n3. Generá un plan de acción inmediato.\n\nRESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n{\"diagnostico_visual\": \"descripción de lo observado en la imagen\", \"diagnostico_tecnico\": \"correlación entre datos y signos visuales\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [], \"acciones_inmediatas\": [\"acción 1\", \"acción 2\"], \"recomendaciones_mediano_plazo\": [\"recomendación 1\"], \"explicacion_agricultor\": \"mensaje simple para el usuario\", \"confianza\": 0.85}"
+        },
+        {
+          "inline_data": {
+            "mime_type": "image/jpeg",
+            "data": "PEGAR_ACA_EL_BASE64_DE_LA_FOTO_DEMO"
+          }
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "temperature": 0.2,
+    "responseMimeType": "application/json"
+  }
+}
+```
+
+> [!TIP]
+> Para la demo: reemplazá `PEGAR_ACA_EL_BASE64_DE_LA_FOTO_DEMO` con el contenido del archivo `D:\tesis\test\foto_demo_base64.txt` que generaste en la Fase 7.3.
+> En producción: el base64 vendría del ESP32-CAM en el JSON del webhook.
+
+### 8.4 — Nodo 3: Parsear Respuesta IA (Code)
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Code |
+| **Nombre** | `Parsear Respuesta IA` |
+| **Language** | JavaScript |
+| **Mode** | Run Once for All Items |
+
+```javascript
+// Parsear la respuesta de Gemini y combinar con datos del cultivo
+const geminiResponse = $('AI Vision Gemini').first().json;
+const cultivoData = $('Webhook').first().json.body || $('Webhook').first().json;
+
+let diagnosis;
+try {
+  // Gemini con responseMimeType devuelve JSON en candidates[0].content.parts[0].text
+  const rawText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text
+    || JSON.stringify(geminiResponse);
+  
+  // Limpiar markdown si viene envuelto en ```json ... ```
+  const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  diagnosis = JSON.parse(cleaned);
+} catch (e) {
+  diagnosis = {
+    diagnostico_tecnico: "Error al parsear respuesta de IA: " + e.message,
+    severidad: "desconocida",
+    acciones_inmediatas: ["Revisar manualmente el cultivo"],
+    explicacion_agricultor: "El sistema de IA no pudo completar el análisis.",
+    confianza: 0
+  };
+}
+
+return [{
+  json: {
+    ...cultivoData,
+    diagnostico_ia: diagnosis
+  }
+}];
+```
+
+### 8.5 — Nodo 4: Persistir Diagnóstico (Supabase o HTTP Request)
+
+Guarda el diagnóstico de IA en la tabla `seguimiento_fenologico`.
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | HTTP Request |
+| **Nombre** | `Persistir Diagnóstico` |
+| **Method** | POST |
+| **URL** | `https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/seguimiento_fenologico` |
+
+**Headers:**
+
+| Name | Value |
+|------|-------|
+| `apikey` | tu service_role key |
+| `Authorization` | `Bearer` + tu service_role key |
+| `Content-Type` | `application/json` |
+| `Prefer` | `return=minimal` |
+
+**Body (Expression):**
+
+```json
+{
+  "cultivo_id": "{{ $json.cultivo_id }}",
+  "diagnostico_ia": {{ JSON.stringify($json.diagnostico_ia) }},
+  "confianza_ia": {{ $json.diagnostico_ia.confianza }},
+  "url_foto": "URL_PUBLICA_DE_TU_FOTO_EN_SUPABASE"
+}
+```
+
+### 8.6 — Nodo 5: Alerta Telegram IA
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Telegram |
+| **Nombre** | `Telegram Diagnóstico IA` |
+| **Resource** | Message |
+| **Operation** | Send Message |
+| **Credential** | `Telegram Bot Agrícola` |
+| **Chat ID** | `<TU_CHAT_ID>` |
+| **Parse Mode** | HTML |
+
+**Text (Expression):**
+
+```
+🤖 <b>DIAGNÓSTICO IA — SISTEMA EXPERTO</b>
+
+📍 <b>Cultivo:</b> {{ $json.planta }} ({{ $json.etapa }})
+⚠️ <b>Severidad:</b> {{ $json.diagnostico_ia.severidad }}
+
+🔬 <b>Diagnóstico Visual:</b>
+{{ $json.diagnostico_ia.diagnostico_visual }}
+
+📊 <b>Análisis Técnico:</b>
+{{ $json.diagnostico_ia.diagnostico_tecnico }}
+
+🚨 <b>Acciones Inmediatas:</b>
+{{ $json.diagnostico_ia.acciones_inmediatas.join('\n• ') }}
+
+💡 <b>Para el agricultor:</b>
+{{ $json.diagnostico_ia.explicacion_agricultor }}
+
+🎯 Confianza: {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%
+```
+
+### 8.7 — Conexiones WF2
+
+```
+[Webhook] → [AI Vision Gemini] → [Parsear Respuesta IA] → [Persistir Diagnóstico] → [Telegram Diagnóstico IA]
+```
+
+### 8.8 — Activar WF2
+
+**IMPORTANTE:** Activá el WF2 con el toggle ON antes de testear, porque WF1 lo llama vía webhook de producción (`/webhook/diagnostico-ia`, no `/webhook-test/`).
+
+### 8.9 — Testing WF2
+
+Ejecutá el cURL de sequía del WF1. Deberías recibir **2 mensajes** en Telegram:
+1. ⚡ Alerta inmediata (rule-based) — instantáneo
+2. 🤖 Diagnóstico IA — 5-10 segundos después
+
+---
+
+## Fase 9 · WF3 — Validación Fenológica (Nodo por Nodo)
+
+> [!IMPORTANT]
+> Este workflow implementa un **feedback loop**: la IA valida si la planta cambió de etapa fenológica y actualiza la BD automáticamente. Es un patrón de **self-healing systems**.
+
+### 9.1 — Crear Workflow 3
+
+En n8n → **"+ Add workflow"** → Nombre: `WF3 - Validación Fenológica`
+
+### 9.2 — Nodo 1: Schedule Trigger
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Schedule Trigger |
+| **Trigger Times** | Every Day |
+| **Hour** | 8 (8 AM) |
+
+### 9.3 — Nodo 2: Obtener Cultivos Activos (Supabase)
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Supabase |
+| **Table** | `vista_cultivos_activos` |
+| **Operation** | Get Many |
+| **Return All** | ✅ Activado |
+
+### 9.4 — Nodo 3: Calcular Días en Etapa (Code)
+
+Este nodo calcula cuántos días lleva el cultivo en la etapa actual y determina la siguiente etapa.
+
+```javascript
+const cultivos = $input.all();
+const resultados = [];
+
+// Mapa de etapas en orden
+const etapasOrdenadas = ['Germinación', 'Plántula', 'Vegetativo', 'Floración'];
+
+for (const item of cultivos) {
+  const cultivo = item.json;
+  const etapaActual = cultivo.etapa_actual;
+  const idxActual = etapasOrdenadas.indexOf(etapaActual);
+  
+  // 1. Cálculo de tiempo transcurrido en la etapa actual
+  const fechaInicioEtapa = new Date(cultivo.fecha_inicio_etapa);
+  const hoy = new Date();
+  const diffTiempo = Math.abs(hoy - fechaInicioEtapa);
+  const diasEnEtapa = Math.floor(diffTiempo / (1000 * 60 * 60 * 24));
+  
+  // 2. Ventana de evaluación (80% del tiempo máximo esperado)
+  const ventanaEvaluacion = cultivo.duracion_estimada_dias * 0.8;
+  
+  // 3. Solo procesar si: 
+  // - Hay una etapa siguiente
+  // - Ya entramos en la ventana de evaluación de días
+  if (idxActual >= 0 && idxActual < etapasOrdenadas.length - 1 && diasEnEtapa >= ventanaEvaluacion) {
+    resultados.push({
+      json: {
+        ...cultivo,
+        etapa_siguiente: etapasOrdenadas[idxActual + 1],
+        indice_etapa_actual: idxActual,
+        dias_en_etapa: diasEnEtapa
+      }
+    });
+  }
+}
+
+// Si no hay cultivos que evaluar hoy, devolver vacío
+if (resultados.length === 0) {
+  resultados.push({ json: { skip: true } });
+}
+
+return resultados;
+```
+
+### 9.5 — Nodo 4: IF ¿Hay cultivos para evaluar?
+
+| Condición | `{{ $json.skip }}` is not equal to `true` |
+
+### 9.6 — Nodo 5: AI Vision Fenológica (HTTP Request → Gemini)
+
+Misma configuración de HTTP Request que WF2 (POST a Gemini) pero con **prompt diferente:**
+
+**URL:** `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=TU_API_KEY_GEMINI`
+
+**Body (Expression):** Mismo formato que WF2 pero con este prompt:
+
+```
+Analizá la imagen del cultivo de {{ $json.planta }}.
+
+CONTEXTO TEMPORAL:
+- Etapa actual registrada: {{ $json.etapa_actual }}
+- Siguiente etapa esperada: {{ $json.etapa_siguiente }}
+
+TAREA:
+Identificá patrones visuales que indiquen si la planta ya pasó a la siguiente etapa fenológica:
+- Germinación → Plántula: aparición de hojas cotiledonares
+- Plántula → Vegetativo: desarrollo de hojas verdaderas (≥4 hojas)
+- Vegetativo → Floración: presencia de pimpollos o flores
+
+RESPONDÉ EXCLUSIVAMENTE en JSON:
+{"cambio_confirmado": true, "etapa_detectada": "nombre de la etapa observada", "evidencia_visual": "descripción de patrones morfológicos", "confianza": 0.90, "justificacion": "explicación técnica"}
+```
+
+### 9.7 — Nodo 6: Parsear y Decidir (Code)
+
+```javascript
+const geminiResponse = $('AI Vision Fenológica').first().json;
+const cultivoData = $('Calcular Días en Etapa').first().json;
+
+let diagnosis;
+try {
+  const rawText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  diagnosis = JSON.parse(cleaned);
+} catch (e) {
+  diagnosis = { cambio_confirmado: false, confianza: 0, justificacion: "Error de parseo" };
+}
+
+const debeActualizar = diagnosis.cambio_confirmado === true && diagnosis.confianza > 0.7;
+
+return [{
+  json: {
+    ...cultivoData,
+    diagnostico_fenologico: diagnosis,
+    debe_actualizar: debeActualizar,
+    nueva_etapa: debeActualizar ? cultivoData.etapa_siguiente : cultivoData.etapa_actual
+  }
+}];
+```
+
+### 9.8 — Nodo 7: IF ¿Cambió de etapa?
+
+| Condición | `{{ $json.debe_actualizar }}` is equal to `true` |
+
+### 9.9 — Nodo 8 (Rama TRUE): Actualizar Etapa (HTTP Request)
+
+Actualiza la etapa del cultivo en la BD.
+
+| Campo | Valor |
+|-------|-------|
+| **Method** | PATCH |
+| **URL** | `https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/cultivo` |
+
+**Query Parameters:**
+
+| Name | Value |
+|------|-------|
+| `id` | `{{ 'eq.' + $json.cultivo_id }}` |
+
+**Headers:** apikey + Authorization + Content-Type + `Prefer: return=minimal`
+
+**Body:**
+
+```json
+{
+  "etapa_actual_id": {{ $json.indice_etapa_actual + 2 }},
+  "fecha_inicio_etapa": "now()"
+}
+```
+
+> [!NOTE]
+> `indice_etapa_actual + 2` asume que los IDs de `tipo_etapa` son secuenciales (1=Germinación, 2=Plántula, 3=Vegetativo, 4=Floración). Verificá tus IDs con `SELECT * FROM tipo_etapa;` y ajustá si es necesario.
+
+### 9.10 — Nodo 9: Persistir en seguimiento_fenologico
+
+Mismo patrón que WF2 (HTTP Request POST a `seguimiento_fenologico`) con el diagnóstico fenológico.
+
+### 9.11 — Nodo 10: Telegram (Cambio de Etapa)
+
+```
+🌱 <b>ACTUALIZACIÓN FENOLÓGICA</b>
+
+📍 <b>Cultivo:</b> {{ $json.planta }}
+🔄 <b>Cambio:</b> {{ $json.etapa_actual }} → {{ $json.nueva_etapa }}
+
+🔬 <b>Evidencia visual:</b>
+{{ $json.diagnostico_fenologico.evidencia_visual }}
+
+📝 <b>Justificación:</b>
+{{ $json.diagnostico_fenologico.justificacion }}
+
+🎯 Confianza: {{ ($json.diagnostico_fenologico.confianza * 100).toFixed(0) }}%
+
+✅ Etapa actualizada automáticamente en el sistema.
+```
+
+### 9.12 — Conexiones WF3
+
+```
+[Schedule] → [Obtener Cultivos] → [Calcular Días] → [IF skip?]
+                                                        ├─ TRUE → [AI Vision] → [Parsear] → [IF cambió?]
+                                                        │                                        ├─ TRUE → [Update BD] → [Persistir] → [Telegram]
+                                                        │                                        └─ FALSE → [No Op]
+                                                        └─ FALSE → [No Op]
+```
+
+### 9.13 — Activar WF3
+
+Toggle ON. Se ejecutará diariamente a las 8 AM.
+
+---
+
+
+### 9.14 — Solución aplicada: `evaluacion_fenologica` + `fn_registrar_evaluacion_fenologica` (✅ aplicada y verificada 23/08/2026)
+
+Cierra **16.25**, **16.23**, **16.19** y **16.28** de raíz, **16.21** en su camino feliz, e implementa (sin probar todavía) la política de terminación de **16.27**. SQL versionado en `SQL/16.25_evaluacion_fenologica.sql`, `SQL/16.25_fix_contrato_uniforme.sql` y `SQL/16.25_test.sql`.
+
+#### El cambio de modelo, que es lo que hace posible todo lo demás
+
+El problema de 16.25 no se arreglaba moviendo un nodo de lugar. Se arregla cambiando **cuál es la unidad de trabajo que el sistema persiste**.
+
+Hasta el 23/08, WF3 persistía **transiciones**: `seguimiento_fenologico` recibía una fila solo cuando el cultivo cambiaba de etapa. Un sistema que solo registra los cambios **no tiene memoria de lo que miró**, y de esa única carencia salían tres síntomas que estaban catalogados como hallazgos independientes:
+
+- no podía saber si ya había evaluado una foto → 16.21 tuvo que inventar una columna `ultima_foto_evaluada_path` en `cultivo`, que es un parche: el lugar natural de ese dato es el registro de la evaluación, no la ficha del cultivo;
+- no podía contar los fracasos → 16.27, reintentos sin tope;
+- no podía acumular la evidencia que produce 16.20 → 16.28 y B.1.
+
+La tabla `evaluacion_fenologica` registra **cada vez que se miró una foto**, con resultado o sin él. `seguimiento_fenologico` queda intacta como **historia clínica** — solo transiciones reales, que es lo que le da sentido como línea de tiempo para el usuario y para la tesis. Separar el **registro de intentos** del **registro de hechos** es lo que convierte tres problemas en uno.
+
+#### La tabla de decisión
+
+| `resultado` | Inserta evaluación | Marca la foto | Avanza etapa | Fila en historia clínica |
+|---|:--:|:--:|:--:|:--:|
+| `avanza` | ✅ | ✅ | ✅ | ✅ |
+| `no_avanza` | ✅ | ✅ | — | — |
+| `etapa_no_coincide` | ✅ | ✅ | — | — |
+| `diagnostico_fallido` | ✅ | **❌ (reintenta)** | — | — |
+| `agotada` (interno, a los 3) | ✅ | ✅ | — | — |
+
+Las cuatro escrituras posibles ocurren dentro de **una sola llamada plpgsql**, o sea una transacción implícita. La marca de la foto ya no puede sobrevivir a un avance que no se escribió.
+
+#### Decisiones de diseño, con su fundamentación
+
+**Por qué la marca va adentro de la transacción y no en paralelo.** Es la elección entre **at-most-once y at-least-once delivery** aplicada a la unidad de trabajo "evaluar una foto". Marcar el trabajo como hecho *antes* de que su efecto esté comprometido da *at-most-once*: si algo falla en el medio, el trabajo se pierde y nadie lo reintenta. Marcarlo *después*, o dentro de la misma transacción, da *at-least-once*: en el peor caso se re-evalúa una vez. La elección la decide la **asimetría de costos** entre los dos modos de fallo, no la elegancia: el trabajo perdido es una decisión agronómica sobre umbrales de riego y nutrientes, y el trabajo duplicado es una llamada a Gemini. Es el mismo razonamiento por el que un consumidor de una cola hace el *ack* después de procesar, y un consumidor de Kafka commitea el offset al final.
+
+**Por qué `(cultivo_id, path_foto)` es la clave de idempotencia.** La entrada real del análisis no es el cultivo sino **la foto**: procesar dos veces la misma imagen es, por construcción, trabajo repetido sin información nueva. El índice único **parcial** —que excluye `diagnostico_fallido`— es lo que permite que los intentos se repitan (para poder contarlos) mientras las conclusiones no. Y el índice, no el `SELECT` previo de la función, es la garantía real: entre ese `SELECT` y el `INSERT` hay una ventana de carrera, y el índice la cierra fallando fuerte en vez de duplicando en silencio.
+
+**Por qué `RETURNS jsonb` y no `RETURNS TABLE` como `fn_registrar_riego`.** `RETURNS TABLE` es para conjuntos; PostgREST lo devuelve como array, y un array por ítem es una superficie de cardinalidad extra en un workflow que ya se quemó tres veces con eso (16.16, 16.17, 16.18). Un `jsonb` escalar llega a n8n como un objeto plano en `$json`, con un ítem de salida por ítem de entrada.
+
+**Cómo llegan los parámetros.** `Parsear y decidir` arma un objeto `rpc` cuyas claves se llaman **exactamente** como los parámetros de la función, y el nodo HTTP manda `{{ JSON.stringify($json.rpc) }}`. PostgREST usa cada clave de primer nivel del cuerpo como **nombre** de parámetro (enlace por nombre, no posicional), así que el orden no importa y los parámetros con `default` que no se envían toman su valor por defecto. La serialización va con `JSON.stringify` y **nunca concatenando texto**: `justificacion` es prosa que escribe Gemini y puede contener comillas, saltos de línea y barras invertidas. Construir JSON por concatenación es el mismo error que construir SQL por concatenación —mezclar datos con estructura—, y la inyección es solo su consecuencia más famosa.
+
+> ⚠️ **Contrato frágil entre sistemas.** Los nombres `p_*` son coincidencia literal de strings entre n8n y Postgres, con la misma fragilidad que `$('NodeName')` (13.3.2). Renombrar un parámetro de la función sin tocar el objeto `rpc` devuelve un `404` con *"Could not find the function in the schema cache"* — un error confuso, porque la función existe; lo que no existe es la firma con esos nombres de argumento.
+
+**Seguridad, replicando `fn_registrar_riego` (13.5.2, v30) y no `fn_registrar_telemetria` (B.9).** Sin `SECURITY DEFINER` —n8n llama con la Secret key (`service_role`), que ya pasa por encima del RLS— y con `REVOKE ALL FROM PUBLIC, anon, authenticated` explícito, porque Postgres otorga `EXECUTE` a `PUBLIC` por defecto. Verificado en `pg_proc`: `prosecdef = false`, `proacl = {postgres=X/postgres,service_role=X/postgres}`, `proconfig = {search_path=public}`.
+
+**La tabla es la primera del proyecto con las dos capas de permisos.** RLS activo sin políticas **más** `REVOKE ALL` explícito, así que `relacl` quedó en `{postgres, service_role}`: `anon` y `authenticated` **no aparecen**. Las 6 tablas de 13.1 siguen con `ALL` por las *default privileges* de Supabase y dependen únicamente de que el RLS las tape — es lo que 16.13 propone corregir, y ésta es la primera que lo aplica. Se usó `generated always as identity` en vez de `serial` a propósito: `serial` crea una secuencia que necesita `USAGE` por separado, un permiso que se olvida y que no se ve en el `relacl` de la tabla.
+
+**`Retry On Fail` apagado en `Registrar Evaluacion`, y el motivo es más fino de lo que parece.** La función *es* idempotente para los tres resultados concluyentes —un reintento devuelve `duplicado` y no escribe— así que la tentación es encenderlo. Pero **no** es idempotente para `diagnostico_fallido`: cada reintento suma una fila y consume presupuesto de intentos, de modo que un error de red haría que el sistema se auto-agote una foto sin haberla evaluado nunca. El criterio de v30 —los reintentos se habilitan según la idempotencia de la operación— se aplica acá con una vuelta de tuerca: **la operación es idempotente en el camino que no importa y no lo es justo en el que sí**.
+
+**Verificado también: `CREATE OR REPLACE FUNCTION` preserva los privilegios existentes**, no los resetea. Si los reseteara, cada corrección de la función reabriría el `EXECUTE` a `PUBLIC` sin que nadie lo notara. Se comprobó en `pg_proc` después del reemplazo en vez de asumirlo.
+
+#### Cambios en n8n (WF3)
+
+Topología nueva:
+
+```
+Parsear y decidir → Registrar Evaluacion (RPC) → Cambio de etapa? ─TRUE→ Notificar Cambio de Etapa → Generar URL Firmada → Mandar foto
+                                                                   └FALSE→ (nada)
+```
+
+- **`Parsear y decidir`** — agrega `resultado_evaluacion` (un único veredicto calculado en el productor: `diagnostico_fallido` › `avanza` › `etapa_no_coincide` › `no_avanza`, con `no_avanza` como default seguro) y el objeto `rpc`. El rango de diacríticos de la normalización de 16.20 se reescribió **escapado** (`/[̀-ͯ]/g`) en vez de con los caracteres literales: son combinantes, invisibles en un editor, y una copia/pega los puede alterar sin que se vea.
+- **`Registrar Evaluacion`** (HTTP, nuevo) — POST a `/rest/v1/rpc/fn_registrar_evaluacion_fenologica`, Header Auth con la Secret key, `jsonBody` = `={{ JSON.stringify($json.rpc) }}`, `retryOnFail: false`, `onError` en su default (Stop Workflow).
+- **`Cambio de etapa?`** — pasa a leer `={{ $json.avanzo }}`, el booleano que produce la base.
+- **`Notificar Cambio de Etapa`** — reapuntado entero a `$('Parsear y decidir').item.json.*`; antes leía `$json.diagnostico_ia` y `$json.confianza_ia`, que venían de la respuesta del INSERT de Supabase (mismo patrón que el bug de WF5 en v31).
+- **Desconectados** (no borrados todavía, ver punto 2 del cierre): `Diagnostico util?`, `Marcar Foto Evaluada`, `Actualizar etapa en cultivo`, `Persistir Seguimiento Fenologico`.
+
+> **Por qué `Diagnostico util?` se puede sacar sin perder la barrera.** La garantía que daba —*si el diagnóstico falló, no marques la foto y no evalúes el cambio*— no desapareció: dejó de ser **un cable** (por qué rama pasó el ítem) y pasó a ser **un valor** que viaja con el ítem y que la función hace cumplir. Un cable no se puede inspeccionar ni guardar; un valor sí, y por eso ahora se puede contar cuántas veces falló. Y la barrera quedó además más fuerte, porque **un IF se puede romper en silencio y una restricción de base no**: este proyecto ya tiene dos pruebas de eso (16.12, una condición tipada como string comparando un booleano; y 16.26, el `=` de más que hace que `notEmpty` sea siempre verdadero). Un `CHECK` no puede fallar así — si está mal escrito, el `INSERT` explota. Es la diferencia entre **ruteo** (control de flujo: degrada, puede estar equivocado sin avisar) y **aserción** (invariante: aborta, no puede estar equivocada en silencio), y se estaba usando lo primero para el trabajo de lo segundo. El fondo es que **la base es el único componente por el que todo camino pasa obligatoriamente**: una regla en n8n protege a los ítems que cruzan ese nodo, una regla en Postgres protege también a los caminos que todavía no se escribieron. Lo que sí se pierde es **legibilidad** —un IF en el canvas se ve, un ternario y un `plpgsql` no—, y esa pérdida se compensa con documentación (los comentarios del código, el `comment on function`, y esta tabla de decisión), no con técnica.
+
+#### Registro del test (23/08)
+
+Precondición (regla 5): el cultivo llevaba **11 días** en Floración contra una ventana de **16** (0.8 × 20), así que cualquier corrida se habría cortado en `Hay cultivos a evaluar?` y habría dado verde **sin ejercer un solo nodo nuevo**. Se retrasó `fecha_inicio_etapa` 17 días a propósito y se restauró al terminar.
+
+| Escenario | Resultado |
+|---|---|
+| **Corrida 1 — camino principal** | Gemini devolvió `etapa_detectada: "Fructificación"`, `cambio_confirmado: true`, `confianza: 0.98`. `Cambio de etapa?` fue por FALSE. 1 fila en `evaluacion_fenologica` con `resultado = 'etapa_no_coincide'`, origen 9 → destino 8, diagnóstico completo como objeto. `etapa_actual_id` **siguió en 4**. `ultima_foto_evaluada_path` = la foto. `seguimiento_fenologico` **siguió en 24**. Sin Telegram. |
+| **Corrida 2 — dedup capa 1** | Cortó en `Validacion de foto`, sin emitir ítems a `Descargar Foto`. 0 descargas, 0 llamadas a Gemini, 0 filas nuevas. |
+| **Llamada directa — dedup capa 2** | `{"ya_evaluada": true, "resultado": "duplicado", "evaluacion_id": 1}`, con un `p_resultado` **distinto** del guardado, sin escribir nada. |
+| **Guardas de precondición** | Las tres rechazadas correctamente (`resultado` inválido, `avanza` sin etapa destino, `path_foto` vacío), **sin escribir ninguna fila** — las excepciones abortan antes del primer `INSERT`. |
+| **Restauración** | Base devuelta a los valores exactos del snapshot previo: `fecha_inicio_etapa` original, `etapa_actual_id = 4`, `ultima_foto_evaluada_path = null`, 24 filas de seguimiento, 0 evaluaciones. |
+
+**El hallazgo más valioso del test fue involuntario.** Gemini devolvió `cambio_confirmado: true` con `confianza: 0.98` — con el código anterior al 20/08 eso daba `debe_actualizar = true` y **la planta se iba a Cosecha**, que es exactamente lo que ocurrió el 17/08 y quedó registrado en B.1. No se movió. No fue suerte: fue el cuarto término de 16.20 comparando `"fructificacion"` contra `"cosecha"`. O sea que el smoke test resultó ser, sin buscarlo, un **test de regresión sobre un bug que ya ocurrió en producción**, que vale bastante más que un caso sintético.
+
+#### Dos defectos encontrados durante la implementación, ambos en el borde del cambio
+
+1. **`Persistir Seguimiento Fenologico` quedó cableado** al recablear (`Cambio de etapa?` → él → `Notificar`). Habría escrito la fila de la historia clínica **dos veces** en un avance: una desde la transacción con el objeto `jsonb`, otra desde el nodo viejo con el string concatenado. Y sin ningún error, porque sus campos referencian `$('Parsear y decidir')`, que sigue existiendo. Detectado **auditando el JSON exportado antes de correr el test**.
+2. **La propia función rompía el contrato de salida uniforme.** El `RETURN` temprano de la rama "ya evaluada" devolvía 5 claves contra las 7 del camino normal: faltaban `seguimiento_id` e `intentos_fallidos`. Es la firma exacta del Bug 4 de 13.3.3, y en la rama menos transitada de todas —hoy inalcanzable desde WF3, porque `Validacion de foto` filtra antes. Corregido en `SQL/16.25_fix_contrato_uniforme.sql`, con `null` en vez de `0` para `intentos_fallidos`: `0` afirmaría "hubo cero fallos" cuando la verdad es "acá no se contó", y **un valor por defecto plausible es peor que un nulo honesto, porque el nulo se nota y el `0` se consume como si fuera un dato**.
+
+Los dos son **defectos de composición**, no de concepto: el borde de un cambio revisado con menos cuidado que su centro. De ahí la práctica que queda instalada — auditar el artefacto exportado antes de ejecutarlo. No reemplaza al test (los dos habrían aparecido en la verificación contra la base), pero **cambia el costo del diagnóstico**.
+
+#### Campaña de tests N=2, camino `avanza` y política de terminación (24/08) — todo verificado
+
+Escenario: se creó un **cultivo B de test en Vegetativo** (no en Floración) con dispositivo propio y foto distinta. La elección de etapa fue deliberada — Vegetativo→Floración es una pregunta distinta de Floración→Cosecha, así que los dos ítems llevan prompts distintos, esperan etapas destino distintas (`ee_id` 9 vs 8) y **pueden tomar ramas distintas** en `Cambio de etapa?`. Si los dos hicieran lo mismo, un cruce entre ellos sería indetectable (16.16). Dispositivo propio porque compartir el de A haría que `Resolver Cultivo` de WF1 —activo— devuelva dos filas para la misma MAC.
+
+**La verificación que impedía el falso verde.** `vista_cultivos_activos` tiene `JOIN dispositivo` (inner), así que un cultivo mal armado simplemente **no aparece** y N sigue siendo 1: el test de cardinalidad daría verde sin haberse ejecutado. Por eso el script exige confirmar **dos filas evaluables en la vista** antes de correr nada. Es la regla 5 aplicada un nivel más arriba: no alcanza con que el workflow llegue a los nodos, tienen que llegar los *datos* que hacen que el nodo se ejerza.
+
+| Escenario | Resultado |
+|---|---|
+| **Cardinalidad, N=2** | ✅ **2 filas**, una por cultivo, cada una con **su** `path_foto` y **su** par origen→destino (A: 9→8, B: 10→9), sin cruzarse. Evidencia extra: las confianzas difirieron (0.98 vs 0.99) **sobre la misma imagen**, o sea que hubo **dos inferencias independientes** y no una respuesta duplicada entre ítems — que es justo lo que un colapso de cardinalidad habría producido. |
+| **Dedup con N=2** | ✅ Segunda corrida: los dos filtrados en `Validacion de foto`, 0 filas nuevas. Con N=2 el test **puede fallar de una forma que con N=1 no existía**: una dedup que actuara globalmente en vez de por ítem habría dejado exactamente **una** fila nueva. |
+| **Camino `avanza`** (llamada directa a la RPC) | ✅ `avanzo: true`, y el `seguimiento_id` devuelto **es el `id` real de la fila** en `seguimiento_fenologico` — las dos escrituras enlazadas en la misma transacción. `etapa_actual_id` actualizado, `fecha_inicio_etapa` reseteada, foto marcada. Y **`jsonb_typeof(diagnostico_ia) = 'object'`** con `etapa_detectada = 'Floración'` legible por consulta: es el valor concreto que cierra 16.19 y 16.28. |
+| **Camino de fallo, corridas 1 y 2** | ✅ 2 filas `diagnostico_fallido` por corrida (4 en total, **2 por cultivo, contadas contra su propia foto**), `etapa_detectada` en `null`, confianza 0, y **las dos fotos SIN marcar**. La evidencia del avance queda recuperable, que es el punto. |
+| **Corrida 3 — terminación** | ✅ 2 filas `agotada` y **recién ahí** las fotos marcadas. |
+| **Corrida 4 — el bucle cortado** | ✅ Cortó en `Validacion de foto`, **0 filas nuevas**, `max(id)` y `max(fecha)` sin moverse. |
+| **Restauración** | ✅ Base devuelta exacta al snapshot previo: 1 cultivo, 1 dispositivo, 24 filas de seguimiento con su última del 20/08, 0 evaluaciones, `etapa_actual_id = 4`, foto sin marcar. `evento_riego` (8) y `lectura_sensores` (220) intactas. |
+
+**El camino `avanza` se probó por llamada directa y no vía Gemini, a propósito.** La respuesta del modelo no está bajo control del test, y **una aserción no puede depender de una dependencia no determinística**: si el test esperaba que Gemini dijera "Floración" y decía otra cosa, el resultado no distinguiría "la transacción está rota" de "el modelo contestó distinto". Gemini prueba la integración; la llamada directa prueba la transacción. Es la misma separación que 16.11 aplicó al sacarle a Gemini la decisión de `estado_optimo`.
+
+**Dos supuestos del diseño que el test convirtió en hechos.** Que `IA Vision Fenologica` con `onError: continueRegularOutput` **emite un ítem de error por cada ítem de entrada** —si emitiera uno solo, la corrida de fallo habría dejado una fila y no dos— y que el contador de intentos se lleva por `(cultivo_id, path_foto)` y no global — si fuera global, cada cultivo habría mostrado 4 fallidos en vez de 2.
+
+**Es el primer circuit breaker del proyecto que efectivamente abre.** El de `falla_riego_persistente` (13.3.1) sigue siendo código inalcanzable: los 8 `evento_riego` están todos en `pendiente` y nadie escribe nunca `insuficiente` (13.7.1). Éste abrió, se mantuvo abierto en la cuarta corrida, y la diferencia entre *tener un contador* y *tener un circuit breaker* es exactamente esa cuarta corrida.
+
+**Limitación conocida del test.** Las cuatro fotos del bucket son la **misma imagen** subida varias veces, así que un cruce de *diagnósticos* entre cultivos sería indetectable. Lo que quedó probado es la no-contaminación de `path_foto`, `cultivo_id` y la resolución del catálogo por ítem — el punto 3 de 16.16. Cerrar el hueco requiere una foto visualmente distinta.
+
+#### Lo que sigue sin probar
+
+- **Destino compartido en `Registrar Evaluacion`.** Quedó con `On Error: Stop Workflow`, así que un fallo de la RPC para un cultivo aborta la corrida y los siguientes no se escriben — la misma familia que 16.22, reintroducida en el nodo nuevo. Con N=1 el efecto es idéntico al de no tenerlo. Cuando haya varios cultivos, el ajuste es de dos toques: `onError: continueRegularOutput` en el nodo, y la condición de `Cambio de etapa?` a `={{ $json.avanzo === true }}` — que devuelve un booleano aunque el ítem sea de error, mientras `$json.avanzo` a secas devuelve `undefined` y `typeValidation: strict` lo rechaza. Es el **contrato de salida uniforme aplicado a la entrada de una condición**, y el mismo aprendizaje del punto 5 de 16.22.
+
+---
+
+
+---
+
+## Fase 10 · WF4 — Análisis Preventivo de Rutina (Nodo por Nodo)
+
+### 10.1 — Crear Workflow 4
+
+En n8n → **"+ Add workflow"** → Nombre: `WF4 - Análisis Preventivo`
+
+### 10.2 — Nodo 1: Schedule Trigger
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | Schedule Trigger |
+| **Trigger Times** | Every 6 Hours |
+
+### 10.3 — Nodo 2: Obtener Cultivos Activos (Supabase)
+
+Igual que WF3: Supabase → `vista_cultivos_activos` → Get Many → Return All.
+
+### 10.4 — Nodo 3: Obtener Últimas Lecturas + Conocimiento (Code)
+
+Este Code node hace las consultas y calcula promedios.
+
+```javascript
+const cultivos = $input.all();
+const results = [];
+
+for (const item of cultivos) {
+  const c = item.json;
+  
+  // Preparar datos para el prompt (en la demo, usar valores simulados)
+  // En producción, acá consultarías lectura_sensores y calcularías promedios
+  results.push({
+    json: {
+      ...c,
+      // Para la demo, estos valores pueden venir del último test que hiciste
+      humedad_promedio: 62,
+      ph_promedio: 6.5,
+      n_promedio: 45,
+      p_promedio: 32,
+      k_promedio: 28
+    }
+  });
+}
+
+return results;
+```
+
+> [!TIP]
+> Para una implementación completa en producción, este nodo haría un HTTP Request a Supabase para obtener las últimas lecturas y calcular promedios. Para la demo del miércoles, los valores hardcodeados son suficientes.
+
+### 10.5 — Nodo 4: Obtener Conocimiento Experto (HTTP Request)
+
+Mismo patrón que WF1 nodo 3: GET a `vista_conocimiento_experto` con filtros `planta` + `etapa`.
+
+### 10.6 — Nodo 5: AI Análisis Preventivo (HTTP Request → Gemini)
+
+**URL:** `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=TU_API_KEY_GEMINI`
+
+**Body:** Mismo formato Gemini pero **SIN imagen** (solo texto) y con este prompt:
+
+```json
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "Actuá como un experto en fisiología vegetal. Recibís datos de las últimas lecturas de un cultivo.\n\nCULTIVO: {{ $json.planta }} en fase {{ $json.etapa_actual }}\n\nVALORES ACTUALES:\n- Humedad: {{ $json.humedad_promedio }}%\n- pH: {{ $json.ph_promedio }}\n- N: {{ $json.n_promedio }} mg/kg\n- P: {{ $json.p_promedio }} mg/kg\n- K: {{ $json.k_promedio }} mg/kg\n\nVALORES IDEALES:\n- Humedad: {{ $json.humedad_min }}% - {{ $json.humedad_max }}%\n- pH: {{ $json.ph_min }} - {{ $json.ph_max }}\n- N ideal: {{ $json.ideal_n }}, P ideal: {{ $json.ideal_p }}, K ideal: {{ $json.ideal_k }} mg/kg\n\nTAREA: Compará los datos. Si hay desviación menor al 10%, generá recomendación de ajuste leve. Si están en rango, devolvé estado_optimo: true.\n\nRESPONDÉ EXCLUSIVAMENTE en JSON:\n{\"estado_optimo\": true, \"tendencia\": \"estable|mejorando|empeorando\", \"desviaciones_leves\": [], \"recomendaciones_preventivas\": [], \"mensaje_agricultor\": \"resumen simple\"}"
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "temperature": 0.2,
+    "responseMimeType": "application/json"
+  }
+}
+```
+
+> [!NOTE]
+> Este prompt NO incluye imagen — es solo análisis de datos numéricos. No necesita el campo `inline_data`.
+
+### 10.7 — Nodo 6: Parsear Respuesta (Code)
+
+```javascript
+const geminiResponse = $('AI Análisis Preventivo').first().json;
+const cultivoData = $('Obtener Últimas Lecturas + Conocimiento').first().json;
+
+let diagnosis;
+try {
+  const rawText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  diagnosis = JSON.parse(cleaned);
+} catch (e) {
+  diagnosis = { estado_optimo: true, tendencia: "desconocida", mensaje_agricultor: "Error al analizar" };
+}
+
+return [{
+  json: {
+    ...cultivoData,
+    diagnostico: diagnosis
+  }
+}];
+```
+
+### 10.8 — Nodo 7: IF ¿Hay recomendación?
+
+| Condición | `{{ $json.diagnostico.estado_optimo }}` is not equal to `true` |
+
+### 10.9 — Nodo 8 (Rama TRUE): Telegram Reporte Preventivo
+
+```
+📊 <b>REPORTE PREVENTIVO — ANÁLISIS RUTINA</b>
+
+🌱 <b>Cultivo:</b> {{ $json.planta }}
+🌀 <b>Etapa:</b> {{ $json.etapa_actual }}
+📈 <b>Tendencia:</b> {{ $json.diagnostico.tendencia }}
+
+⚠️ <b>Desviaciones detectadas:</b>
+{{ $json.diagnostico.desviaciones_leves.join('\n• ') }}
+
+💡 <b>Recomendaciones:</b>
+{{ $json.diagnostico.recomendaciones_preventivas.join('\n• ') }}
+
+👨‍🌾 {{ $json.diagnostico.mensaje_agricultor }}
+```
+
+### 10.10 — Conexiones WF4
+
+```
+[Schedule 6hs] → [Obtener Cultivos] → [Lecturas + Conocimiento] → [Conocimiento Experto] → [AI Gemini] → [Parsear] → [IF recomendación?]
+                                                                                                                              ├─ TRUE → [Telegram]
+                                                                                                                              └─ FALSE → [No Op]
+```
+
+### 10.11 — Activar WF4
+
+Toggle ON. Se ejecutará cada 6 horas automáticamente.
+
+---
+
+## Fase 11 · Testing Integral
+
+### Test WF1 (Pipeline Core)
+
+Los mismos 3 escenarios de la Fase 5 (ya los tenés).
+
+### Test WF2 (Diagnóstico IA)
+
+Ejecutá el cURL de Sequía → deberías recibir **2 mensajes** en Telegram:
+1. Alerta inmediata rule-based
+2. Diagnóstico IA de Gemini (5-10 seg después)
+
+Verificá en Supabase:
+```sql
+SELECT * FROM seguimiento_fenologico ORDER BY fecha_registro DESC LIMIT 1;
+```
+
+### Test WF3 (Validación Fenológica)
+
+Para testear sin esperar al schedule:
+1. En el WF3, click en el nodo Schedule → **"Execute Node"** manualmente
+2. Verificá que la IA analice la foto y responda TRUE/FALSE
+3. Si responde TRUE, verificá que la etapa se actualizó:
+```sql
+SELECT c.id, te.nombre_etapa FROM cultivo c JOIN tipo_etapa te ON te.id = c.etapa_actual_id;
+```
+
+### Test WF4 (Análisis Preventivo)
+
+Ejecutá manualmente el Schedule del WF4 y verificá que llegue un reporte a Telegram (si hay desviaciones) o que pase por la rama "Sin novedad".
+
+---
+
+## Fase 12 · Migración de Demo a Producción (Eliminar Hardcodes)
+
+> [!IMPORTANT]
+> Esta sección lista **todo lo que quedó hardcodeado o estático para la presentación de tesis** y necesita ser reemplazado por una solución dinámica y real. Están ordenados por prioridad de impacto.
+
+---
+
+### 12.1 — 🔴 WF4 Nodo 10.4: Valores de sensores hardcodeados
+
+**Ubicación:** Fase 10, Nodo 3 — `Obtener Últimas Lecturas + Conocimiento` (Code)
+
+**Problema:** Los promedios de humedad, pH, N, P, K están escritos como números fijos (`humedad_promedio: 62`, etc.) en vez de calcularse desde la base de datos real.
+
+**Solución:** Crear una vista SQL en Supabase que calcule los promedios de las últimas 6 horas automáticamente, y luego consultarla desde n8n.
+
+**Paso 1 — Crear vista en Supabase (SQL Editor):**
+
+```sql
+CREATE OR REPLACE VIEW public.vista_promedios_recientes AS
+SELECT
+  ls.cultivo_id,
+  ls.dispositivo_id,
+  ROUND(AVG(CASE WHEN tm.nombre = 'Humedad' THEN ls.valor END)::numeric, 1) AS humedad_promedio,
+  ROUND(AVG(CASE WHEN tm.nombre = 'pH' THEN ls.valor END)::numeric, 2) AS ph_promedio,
+  ROUND(AVG(CASE WHEN tm.nombre = 'Nitrógeno' THEN ls.valor END)::numeric, 0) AS n_promedio,
+  ROUND(AVG(CASE WHEN tm.nombre = 'Fósforo' THEN ls.valor END)::numeric, 0) AS p_promedio,
+  ROUND(AVG(CASE WHEN tm.nombre = 'Potasio' THEN ls.valor END)::numeric, 0) AS k_promedio,
+  COUNT(DISTINCT ls.id) AS total_lecturas
+FROM public.lectura_sensores ls
+JOIN public.tipos_metricas tm ON tm.id = ls.metrica_id
+WHERE ls.fecha_hora >= now() - interval '6 hours'
+GROUP BY ls.cultivo_id, ls.dispositivo_id;
+
+GRANT SELECT ON public.vista_promedios_recientes TO service_role;
+GRANT SELECT ON public.vista_promedios_recientes TO authenticated;
+```
+
+**Paso 2 — Reemplazar el Code node 10.4 por un nodo HTTP Request:**
+
+| Campo | Valor |
+|-------|-------|
+| **Tipo** | HTTP Request |
+| **Method** | GET |
+| **URL** | `https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/vista_promedios_recientes` |
+
+**Query Parameters:**
+
+| Name | Value |
+|------|-------|
+| `select` | `*` |
+| `cultivo_id` | `{{ 'eq.' + $json.cultivo_id }}` |
+
+**Headers:** Los mismos de siempre (apikey + Authorization).
+
+**Paso 3 — Agregar un nodo Code DESPUÉS del HTTP Request** para fusionar los datos del cultivo con los promedios:
+
+```javascript
+const cultivo = $('Obtener Cultivos Activos').first().json;
+const promedios = $input.first().json;
+
+// Si no hay lecturas recientes, no tiene sentido analizar
+if (!promedios || !promedios.humedad_promedio) {
+  return [{ json: { skip: true } }];
+}
+
+return [{
+  json: {
+    ...cultivo,
+    humedad_promedio: promedios.humedad_promedio,
+    ph_promedio: promedios.ph_promedio,
+    n_promedio: promedios.n_promedio,
+    p_promedio: promedios.p_promedio,
+    k_promedio: promedios.k_promedio,
+    total_lecturas: promedios.total_lecturas
+  }
+}];
+```
+
+> [!TIP]
+> Con esta vista, si el ESP32 no mandó datos en las últimas 6 horas, la vista devuelve vacío y el Code node devuelve `skip: true`. Podés agregar un IF después (igual que en WF3) para que no llame a Gemini al pedo.
+
+---
+
+### 12.2 — 🔴 Pipeline de Foto Real por Cultivo (rediseñado 27/07/2026)
+
+**Ubicación:** WF1 (nodos nuevos), WF2 (`AI Vision Gemini`, `Persistir Diagnotico - Url estatica`), WF3 (`AI Vision Fenologica`, `Persistir Seguimiento Fenologico`, `Mandar foto`)
+
+**Historial de este punto:** el diseño original (v8) solo resolvía que el `foto_base64` viajara de WF1 a WF2 para el diagnóstico de emergencia, pero dejaba la persistencia (`url_foto`) como una foto de demo fija. Un diseño intermedio (pensado para WF3) proponía que el ESP32 subiera la foto a Storage siempre con el mismo nombre (`MAC_ultima.jpg`), pisando la anterior — eso funcionaba, pero tenía dos problemas de fondo detectados en conversación con el usuario: (a) asumía el bucket público (descartado en 16.5 por privacidad — las fotos muestran el espacio de cultivo/predio del usuario, información sensible si el sistema llega a tener más de un cliente), y (b) al pisar siempre el mismo archivo, se perdía el historial de fotos por etapa, que es una funcionalidad que se quiere ofrecer al usuario final (poder revisar cómo fue evolucionando la planta en cada etapa una vez terminado el ciclo).
+
+**Diseño definitivo — cada foto es única y permanente, nunca se pisa:**
+
+- Cada foto que llega se sube a Storage con un path único: `{cultivo_id}/{timestamp}.jpg`. Nunca se sobrescribe.
+- `cultivo.ultima_foto_path` (columna nueva, agregada 27/07/2026) guarda el path de la foto más reciente de ESE cultivo — se actualiza en cada foto nueva que llega, pero no borra las anteriores, solo mueve el puntero.
+- `seguimiento_fenologico.path_foto` (ya existía, antes se llamaba `url_foto` — ver 16.5) guarda, en cada fila, el path de la foto que correspondía a ESE evento puntual (diagnóstico de emergencia o chequeo de etapa). Como la tabla ya identifica `cultivo_id` + `etapas_especie_id` + fecha, consultarla por cultivo ordenada por fecha da automáticamente el álbum histórico de la planta por etapa — no hace falta ninguna tabla nueva para eso.
+- `vista_cultivos_activos` (`CREATE OR REPLACE VIEW`, aplicado 27/07/2026) ahora expone `ultima_foto_path` junto con el resto de los datos del cultivo. Esto es clave para que no haya forma de confundir la foto de un cultivo con la de otro: el path viaja pegado a la fila del cultivo desde el origen (igual que `especie_id` o `etapa_actual`), nunca se busca por separado "la foto más reciente entre todas". Con dos o más dispositivos, cada uno tiene su propio `cultivo_id` → su propia carpeta en Storage → su propio puntero, sin punto de cruce posible.
+- El bucket permanece **privado** (16.5). Para lectura desde n8n (server-side, con la Secret key) no hace falta URL firmada — un `GET` autenticado con header `apikey` alcanza. Solo Telegram, que descarga la foto desde afuera sin ninguna de nuestras credenciales, necesita una URL firmada de muy corta duración generada al momento (ver 16.5, pasos 3-4).
+
+**WF1 — nodos nuevos, entre `Motor de Inferencia` y `fn_registrar_telemetria`:**
+
+1. **IF "¿Hay Foto Nueva?"** — condición: `{{ $json.foto_base64 }}` no está vacío. (El ESP32 no tiene por qué mandar foto en cada lectura — sigue siendo opcional, como ya contempla el Motor de Inferencia con `sensor.foto_base64 || null`.)
+2. **Rama verdadera → Code "Preparar Foto Binaria":**
+   ```javascript
+   const fotoBase64 = $json.foto_base64;
+   const cultivoId = $json.cultivo_id;
+   const timestamp = Date.now();
+   const path = `${cultivoId}/${timestamp}.jpg`;
+
+   return [{
+     json: { ...$json, path_foto_evento: path },
+     binary: {
+       data: {
+         data: fotoBase64,
+         mimeType: 'image/jpeg',
+         fileName: `${timestamp}.jpg`
+       }
+     }
+   }];
+   ```
+3. **HTTP Request "Subir Foto a Storage":**
+   - Method: `POST`
+   - URL: `=https://xypqsthwquegftcnoqyi.supabase.co/storage/v1/object/fotos-cultivos/{{ $json.path_foto_evento }}`
+   - Send Body → Body Content Type: **Binary Data** (usa la propiedad `data` que armó el Code node anterior)
+   - Headers: `apikey` con la credencial Header Auth de **Secret key** (subir un archivo es una escritura, no alcanza con Publishable)
+4. **Supabase Update "Actualizar Última Foto Cultivo":**
+   - Tabla: `cultivo`
+   - Filtro: `id = eq {{ $json.cultivo_id }}`
+   - Campo: `ultima_foto_path = {{ $json.path_foto_evento }}`
+   - Credencial: la nativa con Secret key (misma que usa `fn_registrar_telemetria` hoy)
+5. **Ambas ramas del IF (con foto y sin foto) se conectan al mismo nodo siguiente** (`fn_registrar_telemetria`) — no hace falta un nodo Merge explícito, alcanza con conectar las dos salidas al mismo input.
+
+> [!CAUTION]
+> **Ajuste necesario en `Trigger a WF2`:** hoy ese nodo arma el body con `JSON.stringify($('Motor de Inferencia').item.json)` — una referencia fija al nodo Motor de Inferencia, que ya no tiene `path_foto_evento` porque ese campo se agrega *después*, en el Code node del paso 2. Cambiar la expresión para que use el item actual en ese punto del flujo en vez de la referencia vieja: `JSON.stringify($json)`. Como el Code node del paso 2 hace `{ ...$json, path_foto_evento: path }`, todos los campos originales de Motor de Inferencia se preservan igual, solo que ahora también viaja `path_foto_evento` cuando corresponde.
+
+**WF2 — cambios:**
+- `AI Vision Gemini`: sin cambios, ya usa `{{ $json.body.foto_base64 }}` correctamente.
+- `Persistir Diagnotico - Url estatica`, campo `path_foto`: `={{ $json.body.path_foto_evento }}` (la foto ya se subió en WF1, acá solo se guarda la referencia — no hay que subirla dos veces).
+
+**WF3 — cambios:**
+- `Obtener Cultivos Activos`: sin cambios de nodo — como la vista ya expone `ultima_foto_path`, el dato llega solo.
+- Verificar que `Calcular Dias en Etapa` (Code) no descarte el campo al armar su `return` (debe hacer spread del item original, ej. `{ ...item.json, diasEnEtapa, ... }`, no reconstruir el objeto a mano).
+- **Nodo nuevo, antes de `AI Vision Fenologica`: IF "¿Tiene Foto Reciente?"** — condición: `{{ $json.ultima_foto_path }}` no está vacío. Si un cultivo todavía no tiene ninguna foto (recién creado), no tiene sentido pedirle a Gemini que analice nada — se salta la evaluación fenológica de esa vuelta para ese cultivo.
+- **Nodo nuevo: HTTP Request "Descargar Foto"** (rama verdadera):
+  - Method: `GET`
+  - URL: `=https://xypqsthwquegftcnoqyi.supabase.co/storage/v1/object/fotos-cultivos/{{ $json.ultima_foto_path }}`
+  - Response Format: **File (Binary)**
+  - Headers: `apikey` con la credencial Secret (lectura server-side de bucket privado, no hace falta firmar)
+- **Nodo nuevo: Code "Convertir a Base64"** (igual al ya documentado antes):
+  ```javascript
+  const binaryData = $input.first().binary.data;
+  const base64 = binaryData.data;
+  return [{ json: { ...$input.first().json, foto_base64: base64 } }];
+  ```
+- `AI Vision Fenologica`: reemplazar el base64 hardcodeado por `{{ $json.foto_base64 }}`.
+- `Persistir Seguimiento Fenologico`, campo `path_foto`: `={{ $json.ultima_foto_path }}` (es la misma foto que ya está en Storage, no se sube de nuevo).
+- `Mandar foto`: ver 16.5 pasos 3-4 (generar URL firmada al vuelo justo antes de este nodo).
+
+Todo esto se puede probar hoy con el simulador PowerShell (13.6), mandando el campo `foto_base64` en el POST de telemetría — y si se usan 2-3 fotos de demo distintas en llamadas sucesivas, se puede simular a la planta "cambiando" de una etapa a otra para la demo de la tesis.
+
+#### 12.2.1 — Estado real de la implementación en n8n (27/07/2026) — GUÍA DE CONTINUIDAD
+
+> [!IMPORTANT]
+> Esta subsección existe para que cualquier chat nuevo (o vos mismo más adelante) pueda retomar exactamente donde quedó, sin perder el hilo. Se armó junto con el usuario, nodo por nodo, en n8n real — algunas cosas cambiaron respecto al diseño original de 12.2 de más arriba, a raíz de errores reales encontrados al probarlo. **Esta subsección manda por sobre el diseño teórico de más arriba si hay alguna diferencia.**
+
+**Lo que ya está armado y funcionando en WF1**, entre `Motor de Inferencia` y `fn_registrar_telemetria`:
+
+1. **IF `¿Hay Foto Nueva?`** — condición tipo **Boolean**, `{{ !!$json.foto_base64 }}` Equal `true`. (Importante: **no** se puede usar tipo String con "is not empty" — con un base64 de foto real, de varias decenas de KB, n8n devuelve un objeto envoltorio `{value: "..."}` en vez del string plano cuando se evalúa como condición String, y tira error "expecting a string". El truco de resolver la verdad adentro de la expresión con `!!` antes de que llegue a la condición esquiva ese problema.)
+2. **Code `Preparar Foto Binaria`** — arma `path_foto_evento = "{cultivo_id}/{timestamp}.jpg"` y el binario para subir.
+3. **HTTP Request `Subir Foto a Storage`** — Body Content Type **"n8n Binary File"** (Input Data Field Name: `data`), header `apikey` con credencial **Secret**. ✅ Confirmado funcionando — sube el archivo a la carpeta correcta del bucket.
+4. **Supabase Update `Actualizar Última Foto Cultivo`** — tabla `cultivo`, filtro `id equals {{ $('Preparar Foto Binaria').first().json.cultivo_id }}`, campo `ultima_foto_path = {{ $('Preparar Foto Binaria').first().json.path_foto_evento }}`. **Usar `.first()`, no `.item`** — con `.item` el *paired item tracking* de n8n se corta cuando hay 2-3 nodos HTTP Request en el medio (el nodo Storage "rompe" la cadena porque genera un item nuevo a partir de la respuesta de la API), y falla silenciosamente. `.first()` no depende de esa cadena.
+5. **Code `Consolidar Datos`** (nodo agregado durante la implementación real, no estaba en el diseño original de más arriba) — punto de convergencia único de las dos ramas del IF, antes de `fn_registrar_telemetria`. Necesario porque `fn_registrar_telemetria` tiene `Prefer: return=minimal`, así que cualquier nodo después de él (como `Trigger a WF2`) se queda sin datos si depende de `$json` plano en vez de referencias con nombre:
+   ```javascript
+   const motor = $('Motor de Inferencia').first().json;
+
+   let pathFotoEvento = null;
+   try {
+     pathFotoEvento = $('Preparar Foto Binaria').first().json.path_foto_evento || null;
+   } catch (e) {
+     pathFotoEvento = null; // rama sin foto, es esperable
+   }
+
+   return [{ json: { ...motor, path_foto_evento: pathFotoEvento } }];
+   ```
+   Las dos ramas del IF (con foto y sin foto) se conectan a este nodo, y de acá sale un solo camino hacia `fn_registrar_telemetria`.
+
+**Cambios en nodos ya existentes:**
+- **`fn_registrar_telemetria`**: sin cambios en su `jsonBody` (sigue usando `$json.humedad`, etc.) — funciona porque ahora `$json` en ese punto viene de `Consolidar Datos`.
+- **`Trigger a WF2`**: el body cambia a `={{ JSON.stringify($('Consolidar Datos').first().json) }}` (no `$('Motor de Inferencia')` como decía el diseño original, ni `$json` plano — ninguna de las dos alcanza).
+- **Credencial `WF1-WF2 Interno`**: además de crearla (16.2), hay que revisar su **"Allowed HTTP Request Domains"** → Specific Domains → `localhost` (sin esto, tira "This credential is configured to prevent use within an HTTP Request node", porque las credenciales genéricas también tienen esta restricción, no solo las nativas de Supabase).
+
+**WF2, nodo `Persistir Diagnotico - Url estatica`:** campo renombrado de `url_foto` a `path_foto` (ver 16.5), valor `={{ $json.body.path_foto_evento }}`.
+
+**WF2, nodo `IA Vision Gemini` — bug real encontrado y corregido:** el body original tenía `"data": "{{ $json.body.foto_base64}}"` (con `{{ }}` de más, adentro de un `{{ }}` que ya envolvía todo el bloque) — eso hacía que se mandara el texto literal en vez del valor real. Se corrigió a `"data": $json.body.foto_base64` (sin comillas ni `{{ }}`, referencia JS directa). El body completo corregido está más abajo en 16.5-adjacent — buscar el nodo real en n8n para ver el estado actual.
+
+**✅ Confirmado funcionando de punta a punta (27/07/2026)** con un valor de prueba chico (`foto_base64: "test123"`, no una foto real): sube a Storage, actualiza `cultivo.ultima_foto_path`, persiste la lectura, dispara WF2, WF2 arma el request a Gemini correctamente (Gemini lo rechaza solo porque "test123" no es una imagen real — error esperado, no un bug).
+
+**✅ Resuelto (28/07/2026) — `foto_base64` envuelto en objeto:** confirmado que el problema era real y ya estaba mal desde el propio Webhook de WF1, antes de cualquier nodo nuestro: con la foto real (~90KB) `foto_base64` llegaba envuelto en `{"value": "<base64...>"}` en vez de como string plano. No hizo falta el test de bisección — la evidencia directa alcanzó para confirmarlo. Se resuelve **una sola vez, en el punto de origen** (`Motor de Inferencia`, donde se extrae `sensor.foto_base64`), en vez de parchear cada consumidor por separado:
+```javascript
+let fotoBase64Raw = sensor.foto_base64 || null;
+let fotoBase64 = (fotoBase64Raw && typeof fotoBase64Raw === 'object' && 'value' in fotoBase64Raw)
+  ? fotoBase64Raw.value
+  : fotoBase64Raw;
+if (fotoBase64) fotoBase64 = fotoBase64.trim();
+```
+El `.trim()` fue necesario por un segundo bug relacionado (ver abajo). Importante: el unwrap **tiene que** hacerse acá y no (solo) en `Preparar Foto Binaria`, porque `foto_base64` también viaja sin pasar por ese nodo cuando va hacia WF2 vía `Consolidar Datos` → `Trigger a WF2`.
+
+**✅ Resuelto (28/07/2026) — `path_foto_evento` llegaba `null` a `IA Vision Gemini`:** causa raíz encontrada por lectura directa del JSON exportado de WF1, sin necesidad de correr los 4 pasos de diagnóstico: el nodo `Consolidar datos` (Code) referenciaba `$('Preparar Foto Binaria')` con **B mayúscula**, pero el nodo real se llama `Preparar Foto binaria` con **b minúscula**. `$('NodeName')` en n8n hace match exacto de string — como no coincidía, la expresión tiraba error **siempre** (no solo en la rama sin foto), y el `try/catch` existente lo tragaba en silencio, dejando `pathFotoEvento = null` en el 100% de los casos. Fix: corregir la capitalización en la referencia dentro de `Consolidar datos`. Lección para el resto del proyecto: los nombres de nodo con mayúsculas/minúsculas mezcladas son frágiles para referenciar por string — considerar unificar convención en una futura limpieza.
+
+**✅ Resuelto (28/07/2026) — Gemini rechazaba la foto real con "Base64 decoding failed":** una vez arreglados los dos bugs de arriba, apareció un tercer problema, más simple: el archivo de test `foto_demo_base64.txt` (generado con `Set-Content` en la Fase 7.3) tenía un `\r\n` final que `Get-Content -Raw` preservaba. Ese salto de línea viajaba pegado al final del string base64 (`.../9k=\r\n`) y el decoder estricto de Gemini lo rechazaba por no ser base64 puro. Se resolvió con el mismo `.trim()` agregado en el punto de unwrap de `Motor de Inferencia` (ver arriba) — cubre tanto este caso de test como cualquier espacio/salto de línea que pueda venir del ESP32-CAM real en producción.
+
+**✅ Confirmado funcionando de punta a punta con foto real (28/07/2026):** WF1 sube la foto real a Storage, actualiza `cultivo.ultima_foto_path`, persiste la lectura, dispara WF2, y `IA Vision Gemini` devuelve un diagnóstico real de la imagen (no un error de base64 inválido). El pipeline de foto real WF1→WF2 queda cerrado.
+
+#### 12.2.2 — WF3: pipeline de foto real + URL firmada (28/07/2026) — CERRADO
+
+Se armaron los nodos nuevos siguiendo el mismo diseño de 12.2 (`¿Tiene Foto Reciente?` → `Descargar Foto` → conversión a base64 → `IA Vision Fenologica` con `foto_base64`, y `path_foto` en `Persistir Seguimiento Fenologico`), pero aparecieron 3 bugs reales más, específicos de WF3, no cubiertos por el trabajo de WF1/WF2:
+
+1. **`filesystem-v2` en vez de base64 real, al leer el binario en un Code node.** `Descargar Foto` (HTTP Request, Response Format: File) guarda el archivo en `binary.data`, pero en esta versión de n8n los binarios no se guardan enteros en memoria — se guardan en disco, y `binary.data.data` queda como una **referencia** al archivo (`filesystem-v2`), no el base64 real. Un Code node no puede resolver esa referencia leyendo la propiedad directamente (confirmado como comportamiento conocido de n8n, no bug propio). **Fix:** insertar el nodo nativo `Extract from File` (operación **"Move file to base 64 string"**, Input Binary Field `data`, Destination Key `foto_base64`) entre `Descargar Foto` y el Code de limpieza — ese nodo sí sabe resolver la referencia. El Code `Convertir a Base64` se simplifica a solo desenvolver `{value: ...}` + `.trim()` + mezclar con los datos del cultivo vía `$('Hay cultivos a evaluar?').first().json` (mismo patrón defensivo que WF1, por las dudas).
+2. **`encodeURIComponent()` de más en `Generar URL Firmada`, rompiendo el path.** El diseño original de 16.5 codificaba todo `ultima_foto_path` (`{cultivo_id}/{timestamp}.jpg`) con `encodeURIComponent`, incluyendo la barra `/`, que queda como `%2F`. Supabase toma ese string como un segmento opaco y lo graba **tal cual, todavía codificado**, dentro del claim `url` del JWT firmado — confirmado decodificando el token real (`"url":"fotos-cultivos/UUID%2Ftimestamp.jpg"`). Como el path codificado no coincide con la ubicación real del archivo (que tiene una barra de verdad), la URL firmada apunta a un objeto inexistente. **Fix:** sacar el `encodeURIComponent` — el path solo tiene caracteres ya seguros para URL (UUID, dígitos, guiones, punto, barra), no hace falta codificarlo, igual que `Subir Foto a Storage` en WF1 que nunca lo usó.
+3. **Token de la URL firmada vencido durante el testeo manual.** `expiresIn: 60` alcanza de sobra en producción (el workflow corre todo seguido, sin pausas humanas entre nodos), pero al testear nodo por nodo a mano con pausas para revisar outputs, el token vence antes de llegar a `Mandar foto` (confirmado con el error real de Supabase al abrir la URL: `"exp" claim timestamp check failed`). Se subió a 300 temporalmente para destrabar el testeo — **pendiente bajarlo de nuevo a 60-120s antes de dar por cerrada la fase**, no es necesario dejarlo alto en producción.
+
+**✅ Confirmado funcionando de punta a punta (28/07/2026):** WF3 evalúa el cultivo, descarga la foto real, Gemini confirma el cambio de etapa, se actualiza `cultivo.etapa_actual_id`, se persiste en `seguimiento_fenologico` con `path_foto`, se genera la URL firmada, y la foto llega a Telegram. Pipeline de foto real (12.2) cerrado en los 3 workflows.
+
+**Próximos pasos, en orden:**
+1. ✅ **Hecho — confirmado en el export del 18/08:** `expiresIn` de `Generar URL Firmada` está de vuelta en **60**. ~~Bajarlo de 300 a un valor corto de producción (60-120s).~~
+2. Fase 16 pendiente: deshabilitar legacy keys de Supabase, rotar key de Gemini, y la limpieza menor de 16.9.
+
+---
+
+#### 12.2.3 — Auditoría 11/08: la cadena de `path_foto` estaba rota en los tres workflows
+
+**Origen:** al aplicar el fix del Bug 2 de 13.3.2 (`Preparar Foto binaria` en `Consolidar datos`), se verificó el resultado **contra la base**, no contra el output del nodo — y ahí apareció que arreglar WF1 no alcanzaba: la trazabilidad de la foto se rompía en tres lugares distintos, uno por workflow. Los tres son variantes del mismo problema: **el path viaja bien, pero cada consumidor lo lee o lo escribe mal**.
+
+**Evidencia real (`seguimiento_fenologico`, 11/08):**
+
+| `fecha_registro` | `path_foto` | Origen |
+|---|---|---|
+| 05/08 19:22 | `=a1327127-…/1785952853744.jpg` | WF3 — con `=` literal adelante |
+| 28/07 21:10 | `=a1327127-…/1785263818439.jpg` | WF3 — con `=` literal adelante |
+| resto de las filas | `null` | WF2 |
+
+**Bug A (WF1) — `Consolidar datos`:** referencia rota por mayúscula (`Preparar Foto Binaria`). Documentado en 13.3.2 como Bug 2, **✅ corregido y verificado en vivo el 11/08** — el nodo ahora devuelve `path_foto_evento` con un path real.
+
+**Bug B (WF2) — `Persistir Diagnotico` lee un nivel de más:** el campo `path_foto` está como `{{ $json.body.path_foto_evento }}`, pero en ese punto de la cadena `$json` viene de `Parsear Respuesta IA`, que ya desenvolvió el body (`return [{ json: { ...cultivoData, diagnostico_ia: diagnosis } }]`, donde `cultivoData` **es** el body). No existe ninguna clave `body` ahí, así que la expresión resuelve a `null` — y lo hace **en silencio**, sin romper el nodo. Efecto: aún con el Bug A corregido, WF2 seguiría grabando `path_foto: null`. Fix: `={{ $json.path_foto_evento }}`.
+
+**Bug C (WF3) — `Persistir Seguimiento Fenologico` con doble `=`:** el valor del campo es `"=={{ $('Parsear y decidir').first().json.ultima_foto_path }}"`. En n8n, el primer `=` es el marcador interno que indica "este campo es una expresión"; el segundo es un carácter literal más, que se concatena al resultado. Por eso las dos filas de arriba tienen el path prefijado con `=` — un path que **no existe** en Storage, así que cualquier intento futuro de descargar esa foto o firmarle una URL falla. Fix: dejar un solo `=`.
+
+**Fundamentación teórica — por qué los tres pasaron desapercibidos.** Los tres bugs comparten una propiedad: **fallan sin fallar**. Ninguno lanza un error, ninguno detiene un workflow, y los tres producen una salida sintácticamente válida (`null`, o un string que *parece* un path). Es la definición de un **error silencioso de datos** (*silent data corruption*), y su costo característico no es la caída sino la **latencia de detección**: el Bug C vivió dos semanas escribiendo datos corruptos en producción, y solo apareció al mirar la tabla de destino, no al mirar el workflow. La lección de método —ya insinuada en 13.3.3 y ahora confirmada con evidencia— es que en un pipeline de datos **verificar el output del nodo no es verificar el resultado**: el nodo puede reportar éxito y aun así haber escrito basura. La verificación tiene que cerrarse contra el **estado final persistido**, que es lo único que un consumidor futuro va a leer. Es el mismo principio por el que en testing se distingue una aserción sobre el valor de retorno de una aserción sobre el efecto observable (*state verification* vs. *behaviour verification*, Fowler): acá lo único que importa es el estado.
+
+**Segunda observación, de tipos:** el Bug C es además un caso de **stringly-typed data** — un identificador con estructura (un path de Storage) transportado como string plano, sin ningún punto del sistema que valide su forma antes de persistirlo. Un `CHECK` sobre `path_foto` (que no empiece con `=`, o que matchee `^[0-9a-f-]{36}/\d+\.jpg$`) habría convertido dos semanas de corrupción silenciosa en un error en el primer INSERT. Queda anotado en el backlog (B.6) en vez de aplicarse ahora, porque un `CHECK` mal calibrado hoy rompería la escritura por una razón distinta de la que se quiere prevenir.
+
+### 12.4 — 🟡 Seed Data de Demo (Fase 1.5)
+
+**Ubicación:** Fase 1.5 — Datos Seed
+
+**Problema:** La MAC address `24:0A:C4:A1:B2:C3` es inventada, el usuario se llama "Admin Demo", y el cultivo dice "Demo Tesis". En producción, estos datos serían creados por una interfaz de usuario (app web o móvil) y no a mano.
+
+**Solución:** Cuando la app de usuario esté lista, estos datos se crean automáticamente al registrar un cultivo. Por ahora, simplemente reemplazar la MAC address por la **MAC real de tu ESP32** cuando la tengas:
+
+```sql
+-- Averiguar la MAC real de tu ESP32 (se imprime en el Serial Monitor al arrancar)
+UPDATE public.dispositivo SET mac_address = 'TU:MAC:REAL:ACA' WHERE mac_address = '24:0A:C4:A1:B2:C3';
+```
+
+---
+
+### 12.5 — ✅ Nodo 9.9: ID de etapa hardcodeado con `+ 2` (resuelto de raíz, 05/08/2026)
+
+**Ubicación:** WF3, nodos `Calcular Dias en Etapa`, `Actualizar etapa en cultivo`, (ex) `Obtener etapa nueva`.
+
+**Problema original:** `indice_etapa_actual + 2` asumía que los IDs de `tipo_etapa` son exactamente 1, 2, 3, 4 (mapeados 1 a 1 contra un array hardcodeado en JS) y nunca cambian. Estaba duplicado en **dos** nodos (`Actualizar etapa en cultivo` y `Obtener etapa nueva`), no solo uno.
+
+**Cómo se encontró en la práctica (no en abstracto):** al testear WF3 el 05/08, se descubrió que el array hardcodeado `etapasOrdenadas = ['Germinación', 'Plántula', 'Vegetativo', 'Floración']` ni siquiera incluía la 5ta etapa real (`Cosecha`) — cualquier cultivo en Floración (última posición del array) nunca podía evaluarse para transición, sin importar cuántos días pasaran. Un bug de completitud, no solo de fragilidad ante cambios futuros.
+
+**Solución implementada (reemplaza la propuesta original de este documento, que solo atacaba el `+2` y no el array):** eliminado el array hardcodeado por completo. Nodo nuevo `Obtener Orden Etapas` (HTTP Request → PostgREST, `etapas_especie?select=id,especie_id,etapa_id,orden,tipo_etapa(nombre_etapa)`, embedding nativo vía la FK `etapa_id→tipo_etapa.id`) trae el catálogo completo de etapas de todas las especies en un solo call. `Calcular Dias en Etapa` reescrito para filtrar por `especie_id` del cultivo y ordenar por `orden` en JS, en vez de buscar en un array fijo — mismo patrón que `parametro_etapa` en WF4 (16.11): la estructura vive en la base, no en el código. El nodo emite `etapa_siguiente_id` (id real de `tipo_etapa`) y `etapa_siguiente_etapas_especie_id` (id real de `etapas_especie`, para `seguimiento_fenologico`), eliminando los dos `+2` de una vez. `Actualizar etapa en cultivo` ahora usa `{{ $json.etapa_siguiente_id }}` directo. El nodo `Obtener etapa nueva` (que hacía un round-trip extra para lo mismo) se eliminó — `Persistir Seguimiento Fenologico` ahora lee `{{ $('Parsear y decidir').item.json.etapa_siguiente_etapas_especie_id }}` directo, sin consulta adicional.
+
+**Detalle de seguridad encontrado en el camino:** `etapas_especie` y `tipo_etapa` tienen RLS activado sin ninguna política — con la Publishable key, `Obtener Orden Etapas` devolvía 0 filas en silencio (200 OK vacío, no error). Mismo caso ya documentado en 16.10 para `Obtener etapa nueva`. El nodo usa Secret key, no Publishable — excepción justificada y ya eran doctrina, no deuda nueva.
+
+**Verificado en vivo (05/08/2026):** con `fecha_inicio_etapa` forzada a 17 días atrás, el flujo llegó correctamente hasta `IA Vision Fenologica`, que analizó una foto real y devolvió un diagnóstico coherente (ver 16.9-adyacente / backlog: encontró "Fructificación", etapa no catalogada — hallazgo de dominio separado, no de este bug).
+
+**Estado:** ✅ Resuelto de raíz. Reemplaza la fila 12.5 de "Resumen de Hardcodes" abajo.
+
+---
+
+### 12.6 — Decisión de diseño: Claim Check para la foto en WF2 (diferido a después de 13.4)
+
+**Pregunta que lo originó (11/08):** ¿es necesario que `foto_base64` siga viajando hasta `Consolidar datos`?
+
+**Respuesta hoy: sí, es obligatorio.** `IA Vision Gemini` (WF2) lee la imagen de `$json.body.foto_base64`, o sea del body que `Trigger a WF2` arma con el item de `Consolidar datos`. Sacar ese campo dejaría a WF2 sin imagen que analizar.
+
+**Por qué conviene cambiarlo igual.** Una foto de celular en base64 pesa ~2 MB, y hoy recorre `Webhook → Motor de Inferencia → rama de foto → Consolidar datos → POST a WF2 → nodos de WF2`. n8n **persiste los datos de entrada/salida de cada nodo** en su base de ejecuciones, así que una sola telemetría con foto puede dejar 15-20 MB de datos de ejecución repartidos entre los dos workflows. Con un dispositivo es invisible; con decenas de clientes mandando fotos a diario, el crecimiento de la base de n8n y los picos de memoria por ejecución se vuelven el primer límite del sistema — y no por un bug, sino por diseño. Es un costo de infraestructura que escala linealmente con el número de clientes, o sea que pega justo donde el producto tiene que ser barato para ser vendible.
+
+**El rediseño — patrón Claim Check.** El patrón (Hohpe & Woolf, *Enterprise Integration Patterns*, 2003) resuelve exactamente esto: cuando un mensaje tiene que llevar un payload grande a través de varios pasos de un pipeline, se guarda el payload en un almacén externo y por el pipeline viaja únicamente una **referencia** (el "ticket" o *claim check*) que el consumidor final canjea cuando efectivamente lo necesita. Es, en términos más generales, pasar **por referencia en vez de por valor** en un sistema de mensajería. El proyecto ya tiene las dos piezas: el almacén es Supabase Storage (la foto ya se sube ahí antes de `Consolidar datos`), y el ticket es `path_foto_evento` (funcionando desde el fix de 12.2.3). Solo falta que WF2 lo canjee.
+
+**Precedente interno:** WF3 ya funciona así — no recibe la foto, la descarga por path con `Descargar Foto` → `Extract from File` → `Convertir a Base64` (12.2.2). El cambio en WF2 es replicar esos 3 nodos y sacar `foto_base64` del objeto que emite `Consolidar datos`.
+
+**Trade-off aceptado:** +1 round trip contra Storage y algo de latencia por diagnóstico de emergencia, a cambio de sacar megabytes de todos los nodos intermedios y de la base de ejecuciones. Como los diagnósticos de emergencia son eventos raros por definición, la latencia extra es irrelevante y el ahorro es permanente. Riesgo nuevo: WF2 pasa a depender de que la subida a Storage haya salido bien — hoy eso está garantizado por el orden del grafo (`Subir Foto a Storage` corre antes que `Consolidar datos`), pero conviene que el `Descargar Foto` de WF2 tenga manejo de error explícito, no un `catch` genérico (misma lección de 13.3.2).
+
+**Estado:** decisión tomada el 11/08, **implementación diferida a después de 13.4** — a propósito, para no mezclar dos refactors en la misma tanda de testeo y poder atribuir cualquier regresión a un solo cambio.
+
+### Resumen de Hardcodes
+
+| # | Ubicación | Severidad | Qué está hardcodeado | Estado |
+|---|-----------|-----------|----------------------|--------|
+| 12.1 | WF4 Nodo 10.4 | 🔴 Alta | Promedios de sensores fijos | ✅ Completado |
+| 12.2 | WF1/WF2/WF3 | 🔴 Alta | Foto Base64 pegada a mano | ✅ Completado (28/07 — ver 12.2.1 y 12.2.2) |
+| 12.3 | WF2/WF3 | 🟡 Media | URL de foto estática | ✅ Completado — resuelto como parte de 12.2 (path dinámico + URL firmada al vuelo, ver 16.5) |
+| 12.4 | Fase 1.5 | 🟡 Media | MAC y datos de demo | ❌ Pendiente (bloqueado por ESP32 físico) |
+| 12.5 | WF3, `Calcular Dias en Etapa` + `Actualizar etapa en cultivo` | 🟡 Media | Array de etapas + cálculo de ID con `+ 2` (x2) | ✅ Resuelto de raíz (05/08/2026) |
+
+> [!NOTE]
+> **Estado 05/08 (sesión 2):** Fase 11 cerrada, 12.5 resuelto, Gemini confirmado en los 3 workflows. Lo único pendiente de esta lista es 12.4 (bloqueado por hardware) y los 2 ítems cosméticos de 16.9. Próximo paso: **Fase 13 (Riego Automático)**, con alcance a definir (ver Estado Actual arriba y backlog al final).
+
+---
+
+## Fase 13 · Riego Automático — Control de Humedad en Loop Cerrado
+
+> [!IMPORTANT]
+> **Estado: 🟡 13.1 (esquema SQL) aplicado y verificado en Supabase (06/08/2026).** El resto (13.2 en adelante: vista ampliada, WF5, contrato ESP32) sigue sin implementar. Hoy el sistema es puramente diagnóstico: detecta "Sequía" y **avisa por Telegram**, pero no acciona nada físicamente. Esta fase agrega el actuador (bomba/electroválvula) y la lógica de cuándo prender, cuándo parar, y cuándo volver a chequear que la humedad se haya estabilizado.
+
+### 13.0 — Decisión Arquitectónica
+
+| Pregunta | Decisión | Razón |
+|----------|----------|-------|
+| ¿Riego inline en WF1 o workflow separado? | **WF5 separado**, disparado por WF1 igual que WF2 | Mismo patrón de fault isolation ya usado: si el control de riego falla, la alerta y el diagnóstico IA igual llegan |
+| ¿Cómo le "avisás" al ESP32 que abra la bomba? | **Cola de comandos** (`comando_dispositivo`) que el ESP32 consulta (poll) en cada ciclo, no push directo de n8n al ESP32 | El ESP32 hoy es *cliente* HTTP (manda telemetría), no servidor. Exponerlo como servidor requiere IP fija/puerto abierto — fragil en una red doméstica. Con polling, el ESP32 sigue siendo solo cliente. |
+| ¿Cómo se decide **cuánto** regar? | Fórmula basada en **volumen de la maceta** + déficit de humedad, no un tiempo fijo | Una maceta de 5L y una de 20L necesitan pulsos de riego completamente distintos para el mismo % de déficit |
+| ¿Cómo se decide **cuándo parar** un pulso? | Duración calculada de antemano (open-loop) + **tope de seguridad fijo** en segundos | El ESP32 no tiene forma de "ver" la humedad en tiempo real mientras riega sin una segunda lectura; se calcula la dosis y se corta, nunca se deja corriendo indefinidamente |
+| ¿Cuándo se vuelve a chequear que la humedad subió? | Se espera un **tiempo de absorción** (default 15 min) y se fuerza una lectura extra fuera del ciclo normal | Medir humedad inmediatamente después de regar da una lectura de superficie engañosa; el agua tarda en redistribuirse en el sustrato |
+| ¿Qué pasa si riega y riega y no sube la humedad? | **Cooldown + contador de intentos fallidos** → si se supera el máximo, se corta el loop y se escala a alerta de "Falla de Riego" | Evita vaciar el tanque o inundar la maceta por un sensor roto, una bomba sin agua, o una fuga |
+
+### 13.1 — ✅ Ajustes de Esquema SQL en Supabase (aplicado y verificado 06/08/2026)
+
+> [!NOTE]
+> Versión final aplicada — difiere del borrador original en 3 puntos, decididos en sesión antes de tocar la base: (1) RLS explícito desde el origen en las 6 tablas (no queda para después); (2) sin `GRANT` a `authenticated` en las tablas sensibles (`comando_dispositivo`, `evento_riego`) porque hoy nada en el sistema usa ese rol; (3) tope físico de 30s también como `CHECK` en la base, no solo en el código de n8n (defensa en profundidad). Aplicado vía migración `fase13_riego_automatico_esquema` y verificado con `list_tables` + `get_advisors` (security): las 6 tablas existen, RLS activo en todas, `comando_dispositivo`/`evento_riego` quedan "RLS enabled, no policy" — mismo patrón intencional que `etapas_especie`/`tipo_etapa` — sin alertas de seguridad nuevas.
+
+**a) Catálogo de tamaños de maceta:**
+
+```sql
+CREATE TABLE IF NOT EXISTS public.tipo_maceta (
+  id serial PRIMARY KEY,
+  nombre text NOT NULL,
+  volumen_litros numeric NOT NULL,
+  diametro_cm numeric,
+  altura_cm numeric
+);
+COMMENT ON TABLE public.tipo_maceta IS 'Catálogo de tamaños estándar de maceta, usado para recomendación y para calcular dosis de riego';
+
+ALTER TABLE public.tipo_maceta ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Lectura pública del catálogo para usuarios" ON public.tipo_maceta
+  FOR SELECT TO authenticated USING (true);
+GRANT SELECT ON public.tipo_maceta TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.tipo_maceta TO service_role;
+
+INSERT INTO public.tipo_maceta (nombre, volumen_litros, diametro_cm, altura_cm) VALUES
+  ('Chica',        5,  20, 18),
+  ('Mediana',     10,  26, 24),
+  ('Grande',      20,  32, 30),
+  ('Extra Grande',35,  40, 35)
+ON CONFLICT DO NOTHING;
+```
+
+**b) Recomendación de maceta por especie y etapa** (el sistema radicular crece — la maceta ideal en Germinación no es la misma que en Floración):
+
+```sql
+CREATE TABLE IF NOT EXISTS public.maceta_recomendada_especie (
+  id serial PRIMARY KEY,
+  especie_id integer NOT NULL REFERENCES public.especie_planta(id),
+  etapa_id integer REFERENCES public.tipo_etapa(id),
+  volumen_min_litros numeric NOT NULL,
+  volumen_max_litros numeric NOT NULL,
+  notas text
+);
+COMMENT ON TABLE public.maceta_recomendada_especie IS 'Volumen de maceta recomendado por especie y etapa fenológica';
+
+ALTER TABLE public.maceta_recomendada_especie ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Lectura pública del catálogo para usuarios" ON public.maceta_recomendada_especie
+  FOR SELECT TO authenticated USING (true);
+GRANT SELECT ON public.maceta_recomendada_especie TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.maceta_recomendada_especie TO service_role;
+
+-- Seed para Tomate Cherry (ajustar con datos reales de agronomía)
+INSERT INTO public.maceta_recomendada_especie (especie_id, etapa_id, volumen_min_litros, volumen_max_litros, notas) VALUES
+  ((SELECT id FROM especie_planta WHERE nombre_comun='Tomate Cherry'), (SELECT id FROM tipo_etapa WHERE nombre_etapa='Germinación'), 0.5, 1,  'Almácigo/semillero'),
+  ((SELECT id FROM especie_planta WHERE nombre_comun='Tomate Cherry'), (SELECT id FROM tipo_etapa WHERE nombre_etapa='Plántula'),    2,   5,  'Trasplante a maceta chica'),
+  ((SELECT id FROM especie_planta WHERE nombre_comun='Tomate Cherry'), (SELECT id FROM tipo_etapa WHERE nombre_etapa='Vegetativo'),  10,  20, 'Maceta mediana-grande, raíz en expansión'),
+  ((SELECT id FROM especie_planta WHERE nombre_comun='Tomate Cherry'), (SELECT id FROM tipo_etapa WHERE nombre_etapa='Floración'),   20,  35, 'Maceta grande, máxima demanda hídrica y radicular');
+```
+
+**c) Vincular el cultivo a su maceta real:**
+
+```sql
+ALTER TABLE public.cultivo
+ADD COLUMN IF NOT EXISTS tipo_maceta_id integer REFERENCES public.tipo_maceta(id),
+ADD COLUMN IF NOT EXISTS volumen_maceta_litros numeric;
+
+COMMENT ON COLUMN public.cultivo.volumen_maceta_litros IS 'Volumen real de la maceta en uso (litros). Se puede copiar de tipo_maceta o cargar a mano si la maceta es no estándar.';
+```
+
+**d) Capacidad de riego del dispositivo:**
+
+```sql
+ALTER TABLE public.dispositivo
+ADD COLUMN IF NOT EXISTS tiene_actuador_riego boolean DEFAULT false,
+ADD COLUMN IF NOT EXISTS caudal_bomba_ml_s numeric;
+
+COMMENT ON COLUMN public.dispositivo.caudal_bomba_ml_s IS 'Caudal de la bomba/electroválvula en ml/segundo. Se mide una vez con una probeta al instalar el hardware.';
+```
+
+**e) Cola de comandos para el ESP32 (patrón polling):**
+
+```sql
+CREATE TABLE IF NOT EXISTS public.comando_dispositivo (
+  id bigserial PRIMARY KEY,
+  dispositivo_id uuid NOT NULL REFERENCES public.dispositivo(id),
+  tipo_comando text NOT NULL CHECK (tipo_comando IN ('ACTIVAR_RIEGO')),
+  duracion_segundos integer CHECK (duracion_segundos > 0 AND duracion_segundos <= 30),
+  estado text NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','entregado','ejecutado','error')),
+  creado_en timestamptz DEFAULT now(),
+  entregado_en timestamptz,
+  ejecutado_en timestamptz
+);
+COMMENT ON TABLE public.comando_dispositivo IS 'Cola que el ESP32 consulta en cada ciclo de telemetría. Sin políticas de anon/authenticated a propósito: solo accesible con Secret key hasta definir la estrategia de auth del dispositivo real (decisión pendiente, ver Estado Actual).';
+
+ALTER TABLE public.comando_dispositivo ENABLE ROW LEVEL SECURITY;
+-- Sin políticas para anon/authenticated: deny-all salvo Secret key, a propósito.
+GRANT SELECT, INSERT, UPDATE ON public.comando_dispositivo TO service_role;
+```
+
+> [!NOTE]
+> `CHECK (duracion_segundos > 0 AND duracion_segundos <= 30)` es nuevo respecto al diseño original: replica en la base el mismo tope de seguridad que ya vive en el Code node de WF5 (`MAX_DURACION_RIEGO_SEG`), para que la cota física (nunca inundar la maceta) no dependa únicamente de que el código de n8n se ejecute correctamente.
+
+**f) Historial de eventos de riego (cierra el loop: humedad antes/después):**
+
+```sql
+CREATE TABLE IF NOT EXISTS public.evento_riego (
+  id bigserial PRIMARY KEY,
+  cultivo_id uuid NOT NULL REFERENCES public.cultivo(id),
+  dispositivo_id uuid NOT NULL REFERENCES public.dispositivo(id),
+  comando_id bigint REFERENCES public.comando_dispositivo(id),
+  disparado_por text NOT NULL DEFAULT 'automatico' CHECK (disparado_por IN ('automatico','manual')),
+  humedad_inicial numeric,
+  humedad_objetivo numeric,
+  dosis_ml numeric,
+  duracion_segundos integer,
+  fecha_inicio timestamptz DEFAULT now(),
+  fecha_recheck timestamptz,
+  humedad_recheck numeric,
+  resultado text CHECK (resultado IN ('exitoso','insuficiente','pendiente','fallo_sistema')) DEFAULT 'pendiente'
+);
+COMMENT ON TABLE public.evento_riego IS 'Un registro por pulso de riego, con humedad antes/después para poder auditar y para que el motor de reglas detecte fallas de riego persistentes. Mismo criterio de acceso que comando_dispositivo: solo Secret key por ahora.';
+
+ALTER TABLE public.evento_riego ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE ON public.evento_riego TO service_role;
+```
+
+**g) Vista de cooldown (último riego por cultivo):**
+
+```sql
+CREATE OR REPLACE VIEW public.vista_ultimo_riego AS
+SELECT DISTINCT ON (cultivo_id)
+  cultivo_id, fecha_inicio, resultado, humedad_inicial, humedad_objetivo, duracion_segundos
+FROM public.evento_riego
+ORDER BY cultivo_id, fecha_inicio DESC;
+
+GRANT SELECT ON public.vista_ultimo_riego TO service_role;
+```
+
+> [!NOTE]
+> `vista_ultimo_riego` aparece en el advisor de seguridad de Supabase como `SECURITY DEFINER` (nivel ERROR) — es el comportamiento estándar de cualquier vista en Postgres (corre con los permisos de quien la creó, no de quien pregunta, igual que `vista_conocimiento_experto`/`vista_promedios_recientes`/`vista_cultivos_activos`, ya documentado en 16.6). No es una alerta nueva ni un error de esta implementación: como el `GRANT` de esta vista es solo para `service_role`, no hay ningún rol de menor privilegio que pueda aprovecharse de eso.
+
+### 13.2 — ✅ Ampliar `vista_cultivos_activos` (aplicado y verificado 06/08/2026)
+
+Necesita exponer `volumen_maceta_litros`, `mantenimiento_hasta` (de `cultivo`) y `caudal_bomba_ml_s` / `tiene_actuador_riego` (de `dispositivo`) para que el Motor de Inferencia (WF1) los tenga disponibles sin queries extra.
+
+> [!WARNING]
+> **Drift real encontrado al aplicar (06/08/2026):** el primer intento de este SQL falló (`cannot change name of view column "etapas_especie_id" to "duracion_estimada_dias"`) porque la vista viva ya tenía `etapas_especie_id` (agregada en 12.5) y `ultima_foto_path` (agregada en 12.2) — columnas que el borrador de esta sección, escrito sin recotejar contra el estado real, no contemplaba. `CREATE OR REPLACE VIEW` no permite renombrar ni reordenar columnas existentes, solo agregar nuevas al final. Se corrigió trayendo la definición real con `pg_get_viewdef` antes de reescribir el SQL (regla 3). Se revisaron además `vista_promedios_recientes` y `vista_conocimiento_experto` por el mismo motivo — las dos coinciden exactas con lo documentado, sin drift. Práctica adoptada de acá en más: antes de cualquier `CREATE OR REPLACE VIEW` sobre algo que ya existe en vivo, traer la definición real primero.
+
+SQL final aplicado (columnas 1-12 en el mismo nombre/orden que ya tenía la vista viva; 13-16 son las nuevas de Fase 13):
+
+```sql
+CREATE OR REPLACE VIEW public.vista_cultivos_activos AS
+SELECT 
+  c.id AS cultivo_id,
+  c.active AS cultivo_activo,
+  d.id AS dispositivo_id,
+  d.mac_address AS dispositivo_mac,
+  c.especie_id,
+  ep.nombre_comun AS planta,
+  te.nombre_etapa AS etapa_actual,
+  ee.id AS etapas_especie_id,
+  ee.duracion_estimada_dias,
+  c.fecha_inicio_etapa,
+  c.usuario_id,
+  c.ultima_foto_path,
+  c.volumen_maceta_litros,
+  c.mantenimiento_hasta,
+  d.tiene_actuador_riego,
+  d.caudal_bomba_ml_s
+FROM cultivo c
+  JOIN dispositivo d ON d.id = c.dispositivo_id
+  JOIN especie_planta ep ON ep.id = c.especie_id
+  LEFT JOIN tipo_etapa te ON te.id = c.etapa_actual_id
+  LEFT JOIN etapas_especie ee ON ee.especie_id = c.especie_id AND ee.etapa_id = c.etapa_actual_id
+WHERE c.active = true;
+
+GRANT SELECT ON public.vista_cultivos_activos TO authenticated, service_role, anon;
+```
+
+Verificado con `information_schema.columns`: las 16 columnas quedaron en orden, las 12 originales sin tocar y las 4 nuevas al final.
+
+### 13.3 — Modificar Motor de Inferencia (WF1, Nodo 4.4)
+
+Cuatro cambios sobre el código existente (Fase 4.4) — los últimos dos son nuevos, agregados el 06/08/2026 al pensar qué pasa cuando el sensor queda mal conectado (durante o después de un trasplante a una maceta nueva, 13.1b/13.12). Ver 13.3.1 para la fundamentación teórica de estos dos.
+
+1. Pasar `volumen_maceta_litros`, `tiene_actuador_riego` y `caudal_bomba_ml_s` en el JSON de salida (vienen de `cultivo`, que ya está disponible en el nodo).
+2. Detectar **falla de riego persistente**: si hay un `evento_riego` reciente para este cultivo con `resultado = 'insuficiente'` repetido, escalar el estado a algo distinto de simple "Sequía" para que el agricultor sepa que el sistema automático no está resolviendo el problema solo. El mensaje ahora suma explícitamente al sensor como posible causa (antes solo mencionaba tanque/bomba/fuga).
+3. **Modo mantenimiento (13.12):** si `cultivo.mantenimiento_hasta` es una fecha futura, la lectura se guarda igual (no se pierde el dato) pero no se genera ninguna alerta ni se dispara ninguna rama automática — se corta en el IF de 13.4.
+4. **Chequeo de plausibilidad — lectura sospechosa:** si humedad, pH, N, P y K llegan **todos en 0 al mismo tiempo**, se trata como sensor probablemente desconectado, no como una emergencia real de las cinco variables a la vez (algo prácticamente imposible con un sensor funcionando). Va **antes** que el resto de la evaluación, al principio del nodo — si se detecta, corta con un `return` inmediato, sin llegar a evaluar humedad/pH/NPK con datos que no son reales.
+
+**Insertar al principio del nodo**, apenas se obtiene `sensor`/`cultivo`/`reglas` (antes de "2. MOTOR DE REGLAS" del código original de Fase 4.4):
+
+```javascript
+// --- Chequeo de plausibilidad: sensor posiblemente desconectado (ver 13.3.1) ---
+const valoresCriticos = [sensor.humedad, sensor.ph, sensor.n, sensor.p, sensor.k];
+const lecturaSospechosa = valoresCriticos.every(v => v === 0);
+
+if (lecturaSospechosa) {
+  return [{
+    json: {
+      cultivo_id: cultivo.cultivo_id,
+      dispositivo_id: cultivo.dispositivo_id,
+      planta: cultivo.planta,
+      etapa: cultivo.etapa_actual,
+      mac_address: sensor.dispositivo_mac,
+      humedad: sensor.humedad, ph: sensor.ph, n: sensor.n, p: sensor.p, k: sensor.k,
+      estado: 'Lectura Sospechosa - Revisar Sensor',
+      observaciones: [
+        `⚠️ LECTURA SOSPECHOSA: humedad, pH, N, P y K llegaron todos en 0 al mismo tiempo — prácticamente imposible con un sensor funcionando normal. ` +
+        `Probablemente está desconectado o mal insertado en el sustrato (frecuente después de un trasplante). No se disparó ninguna acción automática con este dato.`
+      ],
+      detalle_metricas: [],
+      total_alertas: 1,
+      lectura_sospechosa: true,
+      timestamp: new Date().toISOString()
+    }
+  }];
+}
+```
+
+Y, **antes del `return` final** (si la lectura no fue sospechosa, sigue el flujo normal):
+
+> [!WARNING]
+> **Corrección (06/08/2026):** la primera versión de esta línea era `cultivo.mantenimiento_hasta && new Date(...) > new Date()`, sin el `!!`. Con `mantenimiento_hasta` en `NULL` (el caso normal, cultivo no pausado), esa expresión no da `false` — da `null`, porque `&&` devuelve el operando que cortó la evaluación, no un booleano forzado. Es el mismo patrón de bug que 16.12 (`Hay cultivos a evaluar?` en WF3): un IF de n8n con `typeValidation: strict` comparando contra `true`/`false` reales rompe si le llega `null` en vez de un booleano de verdad. Se agrega el `!!` acá, antes de armar el IF de 13.4 alrededor de este campo, para no repetir el mismo bug una tercera vez.
+
+```javascript
+// --- Modo mantenimiento: cultivo en pausa (trasplante, manipulación física, ver 13.12) ---
+const enMantenimiento = !!(cultivo.mantenimiento_hasta && new Date(cultivo.mantenimiento_hasta) > new Date());
+
+// --- Verificar si el riego automático ya lo intentó y no funcionó ---
+// (requiere un nodo previo "Obtener Ultimo Riego" sobre vista_ultimo_riego — ya existe en WF1, ver 13.3.2)
+const ultimoRiego = $('Obtener Ultimo Riego').first()?.json;
+let fallaRiegoPersistente = false;
+if (!enMantenimiento && ultimoRiego && ultimoRiego.resultado === 'insuficiente' && estadoGlobal.includes('Sequía')) {
+  fallaRiegoPersistente = true;
+  estadoGlobal = 'Falla de Riego - Revisar Sistema';
+  observaciones.push(
+    `🆘 El riego automático se activó y la humedad sigue baja. Revisar: ¿hay agua en el tanque?, ` +
+    `¿la bomba/electroválvula funciona?, ¿hay una fuga o el sustrato no retiene agua?, ` +
+    `¿el sensor quedó bien enterrado (frecuente después de un trasplante)?`
+  );
+}
+```
+
+Y agregar `volumen_maceta_litros`, `caudal_bomba_ml_s`, `tiene_actuador_riego`, `falla_riego_persistente: fallaRiegoPersistente`, `en_mantenimiento: enMantenimiento`, `lectura_sospechosa: false` al objeto de salida.
+
+> [!NOTE]
+> Este nodo "Obtener Ultimo Riego" (sin tilde — nombre real confirmado en el JSON exportado, ver 13.3.2) ya está creado y cableado **entre** "Conocimiento Experto" (4.3) y "Motor de Inferencia" (4.4): Supabase → Get Many → tabla `vista_ultimo_riego` → filtro `cultivo_id` = el resuelto en el Nodo 2 → Limit 1.
+
+### 13.3.1 — Fundamentación teórica: detección de fallos de sensor vs. fallos de proceso
+
+**El problema de fondo:** un sistema de control automático que actúa sobre lo que mide (acá: riega según lo que dice el sensor de humedad) tiene que resolver un problema clásico de la ingeniería de control antes de poder confiar en sus propias acciones: **distinguir un fallo del proceso real de un fallo del instrumento que lo mide.** Una sequía real y un sensor desconectado pueden producir la misma señal (humedad baja), pero requieren respuestas completamente distintas — una necesita agua, la otra necesita que alguien revise el cableado. Actuar sobre la segunda como si fuera la primera no soluciona nada y puede generar daño (agua desperdiciada, bomba funcionando en vacío, sustrato encharcado si eventualmente el sensor "vuelve" a leer bien mientras la maceta ya está sobrehidratada por los intentos previos).
+
+**Marco teórico — Fault Detection and Isolation (FDI):** esta distinción es el objeto de estudio de un área establecida de la ingeniería de control y la automatización industrial, la detección y aislamiento de fallos (*Fault Detection and Isolation*), cuyo principio básico es que ningún dato de sensor debería alimentar directamente la lógica de decisión sin pasar antes por una capa de verificación de plausibilidad. El chequeo implementado acá (`lecturaSospechosa`) es una instancia simple de esa idea: en vez de un modelo estadístico complejo, usa un argumento de plausibilidad física directo — que cinco variables medidas por sensores independientes (humedad, pH, N, P, K) caigan **exactamente** en el mismo valor extremo **al mismo tiempo** es enormemente más probable que sea un fallo común a todos ellos (el sensor combinado desconectado o sin alimentación) que cinco fenómenos agronómicos independientes coincidiendo por azar.
+
+**Por qué el chequeo va *antes* de la inferencia, no después:** esto refuerza el mismo argumento de diseño que ya sostiene 16.11 — el motor de inferencia (`parametro_etapa` → reglas fijas) es determinístico y confiable *dado un dato de entrada confiable*; no tiene forma de saber por sí mismo si ese dato de entrada es real. Separar "¿es un dato válido?" de "¿qué dice ese dato?" en dos pasos distintos (primero plausibilidad, después inferencia) es una aplicación directa del principio de **validación de entradas** en ingeniería de software — nunca confiar ciegamente en un dato externo antes de operar sobre él — combinado con el principio de **fallo explícito por sobre fallo silencioso** (*fail loud, not silent*): es preferible que el sistema diga abiertamente "esta lectura no tiene sentido" a que la procese como si fuera válida y actúe en consecuencia.
+
+**Relación con el patrón *Circuit Breaker* (Falla de Riego, 13.3/13.7):** el mecanismo de "Falla de Riego" ya presente en el diseño —cortar los reintentos automáticos de riego después de un fallo repetido, en vez de reintentar indefinidamente— es la misma familia de solución que el patrón *Circuit Breaker*, bien documentado en ingeniería de software de sistemas distribuidos (Nygard, *Release It!*, 2007; popularizado en arquitecturas de microservicios). La idea central es idéntica en ambos dominios (software distribuido y control físico): después de un número acotado de fallos, un sistema automático debería "abrir el circuito" y dejar de intentar la acción por sí solo, escalando a un humano en vez de insistir y potencialmente agravar el daño con cada reintento fallido.
+
+**Relación con el patrón *lease* (modo mantenimiento, 13.12):** que `mantenimiento_hasta` se autoexpire en vez de depender de una acción manual de "reanudar" es una aplicación del patrón de **lease** (arrendamiento con vencimiento), usado extensamente en sistemas distribuidos para evitar que un recurso quede bloqueado indefinidamente si quien lo tomó se olvida de liberarlo (ej. locks distribuidos en ZooKeeper, arrendamiento de direcciones DHCP). Acá el "recurso" es el control automático del cultivo: se le concede una pausa por tiempo acotado, y el estado por defecto (monitoreo activo) se restaura solo si nadie renueva explícitamente la pausa — nunca depende de que una persona se acuerde de revertir un cambio manual.
+
+### 13.3.2 — Auditoría 11/08: 2 bugs reales encontrados en el JSON exportado de WF1 (sin corregir todavía)
+
+**Origen:** antes de implementar 13.4, se comparó el WF1 real (JSON re-exportado hoy) contra el código documentado en 13.3, en vez de asumir que lo pegado en n8n coincide con el plan (regla 3 de la sesión). El código real de `Motor de Inferencia` coincide con 13.3 casi exactamente — pero dos referencias a otros nodos por nombre están rotas.
+
+**Bug 1 — 🔴 crítico — `Obtener Último Riego` vs. `Obtener Ultimo Riego`:**
+
+La línea 13.3 (y el código real) tiene `const ultimoRiego = $('Obtener Último Riego').first()?.json;`. El nodo real en WF1 se llama `Obtener Ultimo Riego`, **sin tilde**. En n8n, `$('nombre')` resuelve por coincidencia exacta de string — no hay tolerancia a acentos, es una referencia por nombre literal, no un identificador validado en tiempo de diseño. Como esta línea no está envuelta en `try/catch` (a diferencia del caso del Bug 2, más abajo), la resolución fallida corta la ejecución del nodo con un error, y como este nodo es el corazón del pipeline, **corta todo WF1** — ninguna lectura se guarda, ninguna alerta se dispara, para cualquier telemetría que no sea "Lectura Sospechosa" (esa rama hace `return` antes de llegar a esta línea). WF1 está `active: true` en producción hoy.
+
+**Fix (una línea, para pegar en el nodo `Motor de Inferencia`):**
+```javascript
+const ultimoRiego = $('Obtener Ultimo Riego').first()?.json;
+```
+
+**Bug 2 — 🟡 silencioso — `Preparar Foto Binaria` vs. `Preparar Foto binaria`:**
+
+El nodo `Consolidar datos` tiene `pathFotoEvento = $('Preparar Foto Binaria').first().json.path_foto_evento || null;` dentro de un `try/catch` cuyo comentario asume que el `catch` solo se dispara "porque esta rama no corrió (no había foto)". El nodo real se llama `Preparar Foto binaria` (b minúscula) — la referencia nunca resuelve, así que el `catch` se dispara **siempre**, haya foto o no, y `pathFotoEvento` es siempre `null`. Es exactamente el mismo bug que 12.2.1 (v12, 28/07) documentó como corregido — en algún momento entre entonces y ahora volvió a aparecer (no se investigó cuándo ni por qué; puede haber sido un nodo recreado o un `Ctrl+Z` de un editor). Efecto real confirmado: `Trigger a WF2` manda `$('Consolidar datos').item.json` como body, y `Persistir Diagnostico` (WF2) graba `path_foto: {{ $json.body.path_foto_evento }}` en `seguimiento_fenologico` — hoy siempre `null` para diagnósticos de emergencia. La foto en sí **no se pierde** (Storage y `cultivo.ultima_foto_path` los actualiza `Actualizar Ultima Foto Cultivo`, que sí referencia bien `Preparar Foto binaria`) — lo que se pierde es la trazabilidad de qué foto corresponde a qué diagnóstico de WF2 específicamente.
+
+**Fix (una línea, para pegar en el nodo `Consolidar datos`):**
+```javascript
+pathFotoEvento = $('Preparar Foto binaria').first().json.path_foto_evento || null;
+```
+
+**Fundamentación teórica:** ambos bugs son la misma familia de problema — referenciar un nodo por **nombre libre en texto** (un *magic string*) en vez de por un identificador validado en tiempo de diseño. n8n no ofrece refactor-seguro (renombrar un nodo no actualiza automáticamente las referencias `$('...')` en otros nodos), así que esta forma de acoplamiento es inherentemente fría ante *typos* y ediciones futuras — un caso concreto de **acoplamiento implícito por convención de nombre** en vez de por contrato verificable, el mismo riesgo estructural que ya motivó 12.2.1. Los dos bugs también ilustran la diferencia práctica entre **fail-fast y fail-silent** como estrategias de manejo de errores: el Bug 1 (sin `try/catch`) falla ruidosamente y es imposible no notarlo — el sistema completo se cae, lo cual es disruptivo pero autoevidente; el Bug 2 (con `try/catch` demasiado amplio, que traga cualquier excepción sin distinguir "no corrió esta rama" de "la referencia está rota") falla en silencio y puede pasar meses sin que nadie lo note, porque el síntoma (un campo `null` que nadie mira activamente) no genera ninguna alerta. La lección de diseño para el resto del proyecto: un `try/catch` alrededor de una referencia por nombre debería, como mínimo, distinguir explícitamente entre "la rama no corrió" (caso esperado) y "la referencia no resolvió" (bug), en vez de tratar cualquier excepción igual — por ejemplo, chequeando primero si el nodo de origen tiene datos antes de intentar leerlo, en vez de confiar en que un `catch` genérico solo va a capturar el caso esperado.
+
+### 13.3.3 — Auditoría 11/08 (segunda pasada): 2 bugs más, encontrados cruzando el JSON contra el estado vivo de Supabase
+
+**Origen:** la auditoría de 13.3.2 comparó el JSON exportado contra el **documento**. Esta segunda pasada comparó el JSON contra el **estado real de la base** (qué datos existen hoy) y contra la **semántica de ejecución de n8n** (qué pasa cuando un nodo no devuelve nada). Los dos bugs de abajo son invisibles leyendo solo el código, porque ninguno es un error de sintaxis ni de nombre: son supuestos implícitos sobre el entorno que no se cumplen.
+
+De paso se verificó automáticamente **toda** referencia `$('...')` de los 4 workflows exportados contra los nombres reales de nodo de cada uno: WF2, WF3 y WF4 están limpios (0 referencias rotas). El drift por *magic string* sigue confinado a WF1, exactamente los 2 casos de 13.3.2.
+
+**Bug 3 — 🔴 crítico y silencioso — `Obtener Ultimo Riego` corta WF1 cuando no hay riegos previos:**
+
+El nodo `Obtener Ultimo Riego` (Supabase → Get Many sobre `vista_ultimo_riego`, filtro `cultivo_id`, Limit 1) **no tiene activado `alwaysOutputData`** — se verificó en el JSON: el único nodo de WF1 que lo tiene es `Conocimiento Experto`. Y el estado real de la base hoy es:
+
+| Objeto | Filas |
+|---|---|
+| `evento_riego` | 0 |
+| `vista_ultimo_riego` (`SELECT DISTINCT ON (cultivo_id) … FROM evento_riego`) | 0 |
+| `comando_dispositivo` | 0 |
+
+Es decir: para el único cultivo activo, ese nodo devuelve **0 ítems**, y va a seguir devolviendo 0 ítems hasta que el sistema riegue por primera vez — o sea, hasta después de que WF5 exista y funcione, que es justamente lo que este nodo bloquea. En n8n, un nodo que emite 0 ítems no propaga nada: los nodos siguientes **no se ejecutan**, la rama termina ahí, y la ejecución queda marcada como **exitosa, sin error**. Como `Obtener Ultimo Riego` está cableado entre `Conocimiento Experto` y `Motor de Inferencia`, esto corta WF1 entero *antes* del motor: no se guarda la lectura, no se manda alerta, no se dispara nada — y en la lista de ejecuciones se ve verde.
+
+Consecuencia práctica: **aún aplicando el fix del Bug 1, WF1 sigue sin funcionar.** El Bug 1 falla ruidoso (error visible en la ejecución); el Bug 3 lo reemplaza por un fallo silencioso, que es peor. Los dos hay que aplicarlos juntos.
+
+**Fix (2 partes, ambas necesarias):**
+
+1. En el nodo `Obtener Ultimo Riego` → Settings → activar **Always Output Data**. Con eso, cuando la query no trae filas el nodo emite un ítem vacío (`{}`) en vez de nada, y la cadena sigue.
+2. En `Motor de Inferencia`, hacer defensiva la lectura, para que un `{}` (o un nodo que no corrió) no rompa nada — reemplaza también el fix del Bug 1:
+
+```javascript
+// --- Verificar si el riego automático ya lo intentó y no funcionó ---
+// (requiere "Always Output Data" activado en el nodo Obtener Ultimo Riego — ver 13.3.3)
+let ultimoRiego = null;
+try {
+  ultimoRiego = $('Obtener Ultimo Riego').first()?.json ?? null;
+} catch (e) {
+  ultimoRiego = null; // el nodo no corrió en esta ejecución
+}
+```
+
+**Bug 4 — 🔴 rompe 13.4 apenas se construya — contrato de salida no uniforme en `Motor de Inferencia`:**
+
+El nodo tiene dos caminos de salida: el `return` temprano de `Lectura Sospechosa` (13.3, punto 4) y el `return` final. **No devuelven la misma forma de objeto.** El temprano no incluye `en_mantenimiento`, `tiene_actuador_riego`, `volumen_maceta_litros`, `caudal_bomba_ml_s`, `falla_riego_persistente` ni `umbrales`.
+
+Los 3 IF nuevos de 13.4 leen justamente esos campos (`en_mantenimiento` en el IF 1, `tiene_actuador_riego` en el IF 3) con `typeValidation: strict`. Con el campo ausente, el IF recibe `undefined` contra un booleano y **tira error de tipo** — o sea, WF1 se rompería exactamente en el escenario que el chequeo de plausibilidad existe para manejar con elegancia (sensor desconectado tras un trasplante). Es la **tercera aparición** del mismo patrón: 16.12 (string vs boolean), v23 (`null` por `&&` sin `!!`), y ahora campo directamente ausente. Las tres veces el síntoma fue el mismo IF estricto rompiendo con un valor que no es un booleano real.
+
+**Fix — mover el cálculo de `enMantenimiento` arriba de todo y completar el objeto de la rama sospechosa.** En `Motor de Inferencia`, la línea de `enMantenimiento` pasa a estar **antes** del chequeo de plausibilidad (junto a `const reglas = …`), se borra de donde está hoy, y el `return` temprano suma los campos faltantes:
+
+```javascript
+// --- Modo mantenimiento: se calcula ANTES que nada, para que ambos caminos de salida
+//     del nodo devuelvan el mismo contrato de campos (ver 13.3.3) ---
+const enMantenimiento = !!(cultivo.mantenimiento_hasta && new Date(cultivo.mantenimiento_hasta) > new Date());
+```
+
+Y dentro del `return` de `lecturaSospechosa`, agregar:
+
+```javascript
+      volumen_maceta_litros: cultivo.volumen_maceta_litros,
+      caudal_bomba_ml_s: cultivo.caudal_bomba_ml_s,
+      tiene_actuador_riego: !!cultivo.tiene_actuador_riego,
+      falla_riego_persistente: false,
+      en_mantenimiento: enMantenimiento,
+      umbrales: {
+        humedad: { min: reglas.humedad_min, max: reglas.humedad_max },
+        ph: { min: reglas.ph_min, max: reglas.ph_max },
+        n_ideal: reglas.ideal_n, p_ideal: reglas.ideal_p, k_ideal: reglas.ideal_k
+      },
+```
+
+> [!NOTE]
+> El `!!` en `tiene_actuador_riego` no hace falta hoy (viene de una columna con `DEFAULT false` vía `JOIN`, ver la nota de 13.4) pero se agrega igual **solo en este camino**, porque es barato y porque la rama sospechosa es la que menos se ejecuta y por lo tanto la que menos se testea — el costo de un `!!` de más es cero, el de un `undefined` que llega a un IF estricto es WF1 caído.
+
+**Fundamentación teórica — dos conceptos distintos, una misma raíz:**
+
+**(a) Bug 3 — modelo de *dataflow* vs. modelo de control de flujo.** n8n no ejecuta un programa imperativo: ejecuta un **grafo de flujo de datos** (*dataflow graph*), donde cada nodo se dispara al recibir ítems por su arista de entrada y produce ítems por la de salida. En ese modelo, una arista sin ítems no es un error — es simplemente **ausencia de trabajo**, y el nodo destino no se activa. Un programador que lee el workflow como si fuera código imperativo (`a(); b(); c();`) espera que `b()` devolviendo "nada" siga permitiendo ejecutar `c()`, porque en control de flujo el paso de ejecución es independiente del dato. En dataflow, dato y control **son la misma cosa**: sin dato no hay control. `alwaysOutputData` es la herramienta que n8n da para reconciliar los dos modelos, y su efecto es materializar el vacío como un valor — una aplicación directa del **Null Object Pattern** (Woolf, *Pattern Languages of Program Design 3*, 1997): en vez de representar "no hay nada" con la ausencia del objeto (que obliga a cada consumidor a tener un camino especial, o directamente lo mata), se representa con un objeto real de la misma forma pero neutro. Convierte una **función parcial** (definida solo cuando hay riegos previos) en una **función total** (definida siempre).
+
+**(b) Bug 4 — postcondición uniforme y *design by contract*.** Un nodo con dos `return` que devuelven esquemas distintos viola la idea de **contrato** de Meyer (*Object-Oriented Software Construction*, 1988): la postcondición de una rutina debe valer en **todos** sus caminos de salida, no solo en el principal. Si no vale, el contrato deja de ser verificable y todo consumidor tiene que defenderse por su cuenta contra una forma que el productor no garantiza — que es exactamente lo que los IF de n8n **no pueden** hacer, porque son declarativos y con validación estricta de tipos. Dicho en términos de tipos: los dos caminos deberían devolver el mismo tipo de registro, y el que no lo hace introduce en la práctica un **tipo unión no declarado** que nadie aguas abajo sabe que existe. La regla de diseño que queda para el resto del proyecto: **todo `return` temprano de un Code node de n8n debe emitir el conjunto completo de campos que emite el `return` final** — aunque sea con valores neutros — porque los nodos que lo consumen son declarativos y no tienen forma de preguntar "¿este campo existe?" antes de evaluar.
+
+**(c) Lo que comparten:** ambos son **supuestos implícitos sobre el entorno**, no errores de lógica. El Bug 3 asume "siempre va a haber un último riego"; el Bug 4 asume "todos los caminos pasan por el `return` de abajo". Ninguno se ve leyendo el código aislado, y ninguno lo detecta una revisión que compare el JSON contra el documento — solo aparecen al cruzar el código contra el **estado real de los datos** y contra la **semántica real del motor de ejecución**. Es el argumento empírico a favor de la regla 3 de la sesión, extendida: verificar contra lo vivo no es solo "confirmar que el nodo está", es confirmar **con qué datos va a correr**.
+
+### 13.4 — Modificar WF1: Nueva Rama "Trigger WF5"
+
+> [!WARNING]
+> **Reescrito 11/08/2026 tras auditar la topología real de WF1** (ver 13.3.2 y v25). La versión anterior insertaba el IF de mantenimiento inmediatamente después de `Motor de Inferencia` — pero en el WF1 real, `Motor de Inferencia` no persiste nada: la lectura recién se guarda más adelante, en `fn_registrar_telemetria` (después de la rama de foto y `Consolidar datos`). Cortar ahí, como decía la versión vieja, habría saltado el guardado de la lectura, contradiciendo el propio texto de 13.12 ("la lectura ya quedó guardada"). El punto de corte correcto es **después de `fn_registrar_telemetria`**, en el mismo punto donde hoy arranca `Requiere Alerta?`. También se corrigieron las expresiones: apuntan explícitamente a `$('Motor de Inferencia').item.json.*` en vez de `$json.*`, porque en ese punto de la cadena `$json` es la respuesta del RPC `fn_registrar_telemetria`, no los campos de Motor de Inferencia — mismo patrón que ya usan `Requiere Alerta?` y `Alerta Telegram` en el nodo real. Además, el nombre real del nodo existente es `Requiere Alerta?`, sin el `¿` inicial que tenía el diseño original — cosmético, pero hay que referenciarlo tal cual está en n8n.
+
+**Estado real de partida (confirmado en el JSON re-exportado del 11/08):** el nodo `Obtener Ultimo Riego` que pedía esta sección **ya existe y está cableado**, entre `Conocimiento Experto` y `Motor de Inferencia`. No hace falta crearlo — solo falta el fix del Bug 1 de 13.3.2 (la referencia con tilde en el código) para que efectivamente funcione. La topología real hoy, de punta a punta:
+
+```
+Webhook → Resolver Cultivo → Conocimiento Experto → Obtener Ultimo Riego → Motor de Inferencia
+  → Hay foto nueva? ─┬─ TRUE  → Preparar Foto binaria → Subir Foto a Storage → Actualizar Ultima Foto Cultivo ─┐
+                      └─ FALSE ──────────────────────────────────────────────────────────────────────────────┼→ Consolidar datos → fn_registrar_telemetria → Requiere Alerta?
+                                                                                                                                                                    ├─ TRUE → Alerta Telegram (existente)
+                                                                                                                                                                    └─ TRUE → Trigger a WF2 (existente)
+```
+
+Igual patrón que el Trigger a WF2 (Fase 8.0), con 3 nodos IF nuevos (ninguno reemplaza a `Requiere Alerta?`, se le agregan alrededor, insertados **entre `fn_registrar_telemetria` y `Requiere Alerta?`**).
+
+**Nodo nuevo 1 — IF "¿En Mantenimiento?"** — se inserta **entre `fn_registrar_telemetria` y `Requiere Alerta?`** (recablear la salida de `fn_registrar_telemetria`, que hoy va directo a `Requiere Alerta?`, para que pase primero por acá):
+- Condición: Boolean — `{{ $('Motor de Inferencia').item.json.en_mantenimiento }}` **is true**.
+- TRUE → No Op (no se genera ninguna alerta ni acción; la lectura ya quedó guardada por `fn_registrar_telemetria`, que corrió antes que este IF).
+- FALSE → `Requiere Alerta?` (existente, sin tocarlo — recablear su input desde acá en vez de desde `fn_registrar_telemetria` directo).
+
+**`Requiere Alerta?` (existente, no se modifica):** su salida TRUE hoy dispara `Alerta Telegram` y `Trigger a WF2` directo. Se deja `Alerta Telegram` conectada igual que siempre (dispara con cualquier estado que no sea "OK", incluyendo "Lectura Sospechosa" y "Falla de Riego" — el agricultor se tiene que enterar de los dos). `Trigger a WF2` se desconecta de acá y se reconecta desde el nodo nuevo 2, para poder filtrarlo.
+
+**Nodo nuevo 2 — IF "¿Dispara WF2?"** — recibe la salida TRUE de `Requiere Alerta?` (en paralelo con `Alerta Telegram`). **Dos condiciones, combinator AND:**
+- Condición 2 (agregada 11/08, ver 13.4.3): Boolean — `{{ $('Motor de Inferencia').item.json.tiene_foto }}` **is true**. Sin foto, `IA Vision Gemini` recibiría `"data": null` y fallaría siempre; el agricultor igual recibe `Alerta Telegram`, que es lo que importa.
+- Condición 1: Boolean — `{{ $('Motor de Inferencia').item.json.lectura_sospechosa }}` **is false**. (Corregido 11/08, ver 13.4.2: la versión anterior comparaba el string `estado` contra `'Lectura Sospechosa - Revisar Sensor'`; el booleano ya existe en la salida del motor y no depende de la redacción del mensaje.)
+- TRUE → `Trigger a WF2` (el HTTP Request que ya existía, solo se recablea el origen; sigue mandando `{{ JSON.stringify($('Consolidar datos').item.json) }}` como body, sin cambios ahí).
+- FALSE → sin conectar (no tiene sentido gastar cuota de Gemini analizando una lectura que ya se sabe inválida). Ver 13.4.1: los No Op de las ramas FALSE se eliminaron del diseño por innecesarios.
+
+**Nodo nuevo 3 — IF "¿Dispara WF5?"** — también recibe la salida TRUE de `Requiere Alerta?`. **Reescrito 11/08 (ver 13.4.2)** — la versión anterior rutea sobre el string `estado`, lo que hacía que una regla de seguridad dependiera de la redacción de un mensaje:
+- Condición 1: Boolean — `{{ $('Motor de Inferencia').item.json.hay_sequia }}` **is true**.
+- Combinator: **AND**
+- Condición 2: Boolean — `{{ $('Motor de Inferencia').item.json.falla_riego_persistente }}` **is false**.
+- Combinator: **AND**
+- Condición 3: Boolean — `{{ $('Motor de Inferencia').item.json.tiene_actuador_riego }}` **is true**.
+- TRUE → `Trigger WF5 Control de Riego` (HTTP Request nuevo, ver abajo).
+- FALSE → sin conectar (ver 13.4.1).
+
+> [!WARNING]
+> **Nota original, conservada como ejemplo de razonamiento peligroso (ver 13.4.2):** *"No hace falta excluir explícitamente `'Falla de Riego - Revisar Sistema'` de esta condición — ese string no contiene el substring `'Sequía'`, así que ya queda afuera solo."* Es cierto, pero convierte una **regla de seguridad** (dejar de regar cuando el riego está fallando) en un **efecto lateral de cómo está redactado un mensaje para el usuario**. Por eso la condición pasa a ser explícita con `falla_riego_persistente is false`. Tampoco hace falta filtrar `tiene_actuador_riego` con `!!`: viene directo de una columna Postgres con `DEFAULT false` a través de un `JOIN` (no `LEFT JOIN`), así que siempre llega como booleano real, nunca `null` — a diferencia de `en_mantenimiento`, que sí necesitó la corrección `!!` por estar calculado con `&&` en JavaScript.
+
+**Nodo nuevo 4 — HTTP Request "Trigger WF5 Control de Riego":**
+- Method: POST
+- URL: `http://localhost:5678/webhook/control-riego` (o `webhook-test` mientras se prueba manualmente, mismo criterio que el resto del proyecto)
+- **Autenticación:** *Generic Credential Type* → *Header Auth* → credencial **`n8n Interno`** (renombrada el 11/08 desde `WF1-WF2 Interno`, que ya no describía su alcance: protege también WF1→WF5 y cualquier llamada interna futura entre workflows). La misma credencial debe configurarse en el **Webhook de WF5** (Authentication → Header Auth); si se pone en un solo extremo, WF5 rechaza el pedido con 403 y el fallo solo se ve entrando a las ejecuciones. **Decisión (11/08):** una única credencial compartida para las llamadas internas, en vez de una por canal (`WF1-WF5`, `WF1-WF6`…). Una credencial por canal reduce el radio de impacto cuando cada canal tiene un perfil de riesgo o un operador distinto; acá los workflows viven en la misma instancia de n8n, con el mismo dueño y el mismo alcance, así que multiplicar secretos multiplicaría el trabajo de rotación sin reducir ningún riesgo real — quien pueda leer una credencial ya está dentro de n8n y puede leer todas. Se revisa si n8n pasa a ser multi-usuario o si algún workflow se expone fuera de localhost.
+- Body: `{{ JSON.stringify($('Consolidar datos').item.json) }}` — **no** `Motor de Inferencia` como decía la versión anterior: `Trigger a WF2` real usa `Consolidar datos` (Motor de Inferencia + `path_foto_evento` ya resuelto), y conviene que ambos triggers lean del mismo nodo "fuente única" en vez de que cada uno arme su propio snapshot de los datos — WF5 no necesita la foto, pero tomar el objeto ya consolidado evita mantener dos rutas de armado de payload que puedan divergir con el tiempo.
+
+```
+fn_registrar_telemetria
+  → IF "¿En Mantenimiento?"
+      ├─ TRUE  → No Op
+      └─ FALSE → IF "Requiere Alerta?" (existente)
+                   ├─ TRUE → Alerta Telegram (existente, sin cambios)
+                   ├─ TRUE → IF "¿Dispara WF2?"
+                   │           ├─ TRUE → Trigger a WF2 (existente, recableado)
+                   │           └─ FALSE → No Op
+                   ├─ TRUE → IF "¿Dispara WF5?"
+                   │           ├─ TRUE → Trigger WF5 Control de Riego (nuevo)
+                   │           └─ FALSE → No Op
+                   └─ FALSE → (nada — hoy la salida FALSE de "Requiere Alerta?" no está conectada a nada, se deja igual)
+```
+
+> [!NOTE]
+> **Único actuador físico: el agua.** NPK y pH nunca se inyectan solos — el sistema no tiene (ni va a tener, ver Fase 15) bombas dosificadoras de nutrientes. Cuando hay déficit de NPK o pH, el sistema calcula una **recomendación** y se la manda al agricultor por Telegram; la aplicación la hace la persona a mano.
+
+> [!IMPORTANT]
+> **Orden de aplicación recomendado:** primero los 2 fixes de 13.3.2 (sin ellos, WF1 sigue roto y no tiene sentido agregar nodos nuevos sobre un pipeline que no corre), recién después estos 4 nodos de 13.4.
+
+### 13.4.1 — Fundamentación teórica: por qué `¿En Mantenimiento?` y `Requiere Alerta?` son dos nodos y no una condición compuesta
+
+**La pregunta (11/08):** los dos IF podrían fusionarse en uno solo con combinator AND (`estado != 'OK'` **AND** `en_mantenimiento is false`). Técnicamente es equivalente **hoy**. Se decide mantenerlos separados por tres razones, la segunda de ellas ya concreta dentro del propio plan.
+
+**1. Son decisiones de tipo distinto.** `Requiere Alerta?` es una decisión de **diagnóstico** sobre el dato ("¿hay algo mal en esta lectura?"). `¿En Mantenimiento?` es una decisión de **política** sobre el estado del sistema ("¿está autorizado actuar en este momento?"). Fusionarlas colapsa dos estados semánticamente distintos —"no hay nada que reportar" y "hay algo que reportar pero no corresponde actuar"— en un mismo `false`, que es exactamente la información que se necesita para diagnosticar por qué el sistema no avisó de algo. Con nodos separados, la vista de ejecuciones de n8n muestra cuál de los dos cortó, sin instrumentación adicional.
+
+**2. Tienen alcance distinto, y la diferencia ya está comprometida en el diseño.** El modo mantenimiento debe suprimir **todas** las acciones automáticas (alerta, WF2, WF5); `Requiere Alerta?` solo gobierna las ramas de alerta. La salida FALSE de `Requiere Alerta?` —hoy sin conectar— es donde 13.7.1 prevé colgar `Cerrar Loop de Riego`, porque el recheck de un riego corre justamente cuando la humedad **ya volvió al rango** (estado `OK`, sin alerta). Si los dos IF se fusionaran, esa salida FALSE pasaría a significar "no hay alerta **o** está en mantenimiento", y el recheck se ejecutaría en pleno trasplante — habría que volver a separar lo fusionado, o duplicar la condición de mantenimiento dentro del nodo nuevo, que es el escenario que este diseño busca evitar.
+
+**3. Una regla de negocio, un punto de cambio.** Si el modo mantenimiento se enriquece (por ejemplo, respetando también `usuario.notificaciones_hab`), el cambio afecta a un nodo identificable. Dentro de una condición compuesta, esa regla queda enterrada en un nodo que además decide otra cosa, y toda rama futura corre el riesgo de olvidar aplicarla.
+
+**Los conceptos con nombre.** El IF de mantenimiento es un **guard clause** (cláusula de guarda): un corte temprano que se evalúa antes de entrar en la lógica principal, el mismo patrón que el chequeo de plausibilidad de 13.3.1 pero materializado como nodo en vez de como `return` anticipado. En términos de arquitectura es además un **Policy Enforcement Point**: un único lugar donde se resuelve una decisión de autorización, deliberadamente aislado de la lógica de negocio que protege. El anti-patrón simétrico —diseminar la política dentro de cada regla de negocio— es la causa habitual de que una política termine aplicándose de forma inconsistente entre ramas, y es un riesgo que crece con cada workflow nuevo que se agregue al sistema.
+
+**Criterio general adoptado para el resto del proyecto:** *separar cuando las razones de cambio son distintas, no cuando las condiciones son distintas* — que es la formulación operativa del **Principio de Responsabilidad Única** aplicado a nodos de orquestación en vez de a clases. Dos condiciones que van a cambiar siempre juntas pueden convivir en un mismo nodo sin costo.
+
+**Corrección de alcance en la misma revisión (evitar sobre-modularización):** los 3 nodos No Op del diseño original de 13.4 no aportan nada funcional — en n8n una salida sin conectar simplemente termina la rama, tal como ya ocurre hoy con la salida FALSE de `Requiere Alerta?`. Se conserva **un solo** No Op, el de la rama TRUE de `¿En Mantenimiento?`, donde cumple una función real de **documentación ejecutable**: le indica a un lector futuro que esa rama termina ahí a propósito y no por un cableado incompleto. Las otras dos salidas FALSE quedan sin conectar. El diseño pasa de 7 nodos nuevos a 5.
+
+### 13.4.2 — Decisión de diseño: rutear por booleanos de dominio, no por el string de presentación (`estado`)
+
+**La pregunta que lo originó (11/08):** ¿conviene reemplazar la cadena de IF por un `Switch` (case) dentro de `Requiere Alerta?`
+
+**Respuesta corta a la pregunta literal:** IF encadenados y `Switch` son **el mismo patrón** — *Content-Based Router* (Hohpe & Woolf, *Enterprise Integration Patterns*): un punto del flujo que inspecciona el contenido del mensaje y decide su destino. La diferencia no es de comportamiento sino de **expresión de la tabla de ruteo**: el `Switch` la muestra completa y enumerada en un solo nodo (con salida por defecto, que hace visible cualquier caso no contemplado, en la línea de una **tabla de transición** de máquina de estados), mientras que la cadena de IF la deja distribuida en varias condiciones booleanas que el lector tiene que recomponer mentalmente.
+
+**Por qué el `Switch` no conviene *hoy* en este punto concreto:** `estado` es un string **compuesto** (`'Sequía + Estrés Químico'`), así que un `Switch` por igualdad exacta requeriría un caso por combinación posible — explosión combinatoria; y con reglas de tipo *contains*, dos casos matchean a la vez y el resultado pasa a depender de la precedencia entre reglas. Además, el modo mantenimiento no entra en esa tabla de ninguna forma sensata, porque es una dimensión **ortogonal** al diagnóstico (13.4.1). Con 3 ramas, el `Switch` no compra legibilidad suficiente para justificar rehacer lo ya diseñado. **Criterio de migración registrado:** cuando las Fases 14/15 sumen ramas y la tabla de ruteo deje de entrar de un vistazo, migrar a `Switch` — sobre los booleanos, no sobre `estado`.
+
+**El problema real que la pregunta destapó.** Tanto el IF como el `Switch` estarían ruteando sobre `estado`, que es un **string de presentación**: se arma con tildes, con palabras elegidas para que un agricultor las entienda, y cambia cada vez que se mejora la redacción de una alerta. Mientras tanto, `Motor de Inferencia` **ya calcula** internamente los hechos que importan (`haySequia`, `hayEstresQuimico`, `fallaRiegoPersistente`, `lecturaSospechosa`) y luego los descarta, aplastándolos en ese texto. Rutear sobre el texto es reconstruir por *parsing* una información que el productor tenía estructurada y tiró.
+
+**El caso concreto y peligroso.** El diseño original de 13.4 justificaba no excluir `'Falla de Riego - Revisar Sistema'` del IF de WF5 argumentando que ese string no contiene el substring `'Sequía'`. Es verdad — y es exactamente el problema: **la garantía de que el sistema deja de regar cuando el riego está fallando quedaba dependiendo de cómo está redactado un mensaje para el usuario.** Si alguien mejora ese texto a `'Falla de Riego - Sequía persistente'`, el circuit breaker de 13.3.1 se desactiva en silencio y el sistema vuelve a regar una maceta que ya demostró no absorber agua. Nadie va a asociar un cambio de redacción con encharcar un cultivo, y el fallo aparecería semanas después, en campo, en casa de un cliente.
+
+**Fundamentación teórica.** Es un caso de **Primitive Obsession** / dato *stringly-typed*: representar un estado con estructura interna (varias condiciones ortogonales: hay sequía, hay estrés químico, el dato es válido, el actuador falló) como un único string libre. La consecuencia estructural es una **violación de la separación entre modelo de dominio y capa de presentación**: `estado` pertenece a la presentación (es lo que se le muestra a una persona), y por lo tanto es —correctamente— volátil; las decisiones de control pertenecen al dominio y deben leer del modelo, no de la vista. Es la misma familia de acoplamiento frágil que 13.3.2 documentó para los nombres de nodo (*magic strings*), trasladada de los identificadores a los datos: en ambos casos, un contrato real depende de una coincidencia literal de texto que ninguna herramienta valida y que cualquiera puede romper con una edición razonable hecha por un motivo no relacionado. La regla que queda: **las decisiones de ruteo leen booleanos de dominio; los strings son para las personas.**
+
+**Cambio concreto en `Motor de Inferencia` (además de exponerlos, dejar de derivarlos por parsing):**
+
+Hoy la sección 3 calcula los flags parseando las observaciones —`observaciones.some(o => o.includes('SEQUÍA'))`—, o sea que el problema existe ya **dentro** del propio nodo, un nivel más abajo. Se corrige marcando los flags en el punto donde cada condición se detecta:
+
+```javascript
+// junto a la declaración de estadoGlobal
+let estadoGlobal = 'OK';
+let haySequiaFlag = false;
+let hayEstresQuimicoFlag = false;
+```
+
+`haySequiaFlag = true;` se setea en el bloque de humedad, junto a `estadoGlobal = 'Sequía';`. `hayEstresQuimicoFlag = true;` se setea en cada rama de pH y de NPK que hoy asigna `'Estrés Químico'` (incluidas las de exceso, que hoy también entran en esa categoría). La sección 3 deja de parsear texto:
+
+```javascript
+// 3. CLASIFICACIÓN COMPUESTA
+if (haySequiaFlag && hayEstresQuimicoFlag) {
+  estadoGlobal = 'Sequía + Estrés Químico';
+}
+```
+
+Y **ambos** `return` del nodo (por el contrato uniforme de 13.3.3) suman:
+
+```javascript
+    hay_sequia: haySequiaFlag,
+    hay_estres_quimico: hayEstresQuimicoFlag,
+```
+
+En la rama de `Lectura Sospechosa` los dos van en `false`: no se evaluó nada, y el discriminador de ese caso es `lectura_sospechosa: true` (mismo criterio que `falla_riego_persistente`, ver la discusión de valores neutros vs. "no evaluado" en 13.3.3).
+
+**Bug latente encontrado al hacer el cambio (evidencia empírica del argumento).** La línea que derivaba el flag por parsing era:
+
+```javascript
+const hayEstresQuimico = observaciones.some(o =>
+  o.includes('DÉFICIT') || o.includes('EXCESO') || o.includes('pH')
+);
+```
+
+El mensaje de exceso de humedad empieza con `🟠 EXCESO HÍDRICO:` — contiene el substring `'EXCESO'`, así que **un exceso hídrico venía contando como estrés químico**. Hoy no produce ningún síntoma visible, porque el único consumidor del flag es la clasificación compuesta (`haySequia && hayEstresQuimico`) y sequía y exceso hídrico son mutuamente excluyentes por construcción. Pero era un dato incorrecto esperando un segundo consumidor — y el segundo consumidor iba a ser justamente uno de los IF de 13.4. Es exactamente el modo de fallo que 13.4.2 describe: un acoplamiento por texto que nadie ve hasta que alguien lo usa para decidir algo. Con los flags marcados en el punto de detección, el problema desaparece por construcción: el bloque de exceso hídrico simplemente no setea `hayEstresQuimicoFlag`.
+
+**Estado de los tres IF de 13.4 después de este cambio — ninguno rutea sobre texto:**
+
+| Nodo | Condición | Origen del dato |
+|---|---|---|
+| `¿En Mantenimiento?` | `en_mantenimiento` is true | booleano ya existente |
+| `¿Dispara WF2?` | `lectura_sospechosa` is false | booleano ya existente (no requiere tocar el código) |
+| `¿Dispara WF5?` | `hay_sequia` is true AND `falla_riego_persistente` is false AND `tiene_actuador_riego` is true | los dos primeros nuevos/existentes, el tercero de la vista |
+
+`estado` queda donde corresponde: en el mensaje de Telegram y en la trazabilidad, sin ninguna decisión colgando de su redacción.
+
+**Decisión sobre la estructura de nodos:** se **mantiene la cadena de IF** (no se migra a `Switch`), por lo argumentado arriba y en 13.4.1.
+
+### 13.4.3 — 🔴 WF2 falla siempre ante una alerta sin foto (hallazgo 11/08)
+
+**Origen:** al testear 13.4 en vivo, el usuario preguntó por qué WF2 y WF5 se disparan sobre la misma lectura y si eso es correcto en producción. Que se disparen los dos **es** el comportamiento buscado —son ortogonales: WF5 actúa sobre el problema (riega), WF2 lo explica (analiza la foto y traduce el diagnóstico al agricultor)—, pero revisar el caso destapó un fallo que hoy está enmascarado por la forma de testear.
+
+**El bug.** `IA Vision Gemini` (WF2) arma el body con `"inline_data": { "mime_type": "image/jpeg", "data": $json.body.foto_base64 }`, sin ninguna condición previa que verifique que haya foto. Todos los tests del proyecto mandaron `foto_base64` (viene del archivo `foto_demo_base64.txt`), así que el caso nunca se ejerció. En producción, en cambio, el ESP32 va a mandar telemetría en cada ciclo y foto **solo ocasionalmente** — la cámara consume energía, la luz ambiente no siempre sirve, y la transmisión de la imagen pesa. La primera alerta sin foto le manda `"data": null` a Gemini, que responde 400, y WF2 muere sin generar diagnóstico ni persistir nada. WF1 sobrevive porque `Trigger a WF2` tiene `onError: continueRegularOutput`, así que **el fallo es invisible desde el pipeline principal**: la única señal es una ejecución fallida de WF2 que nadie mira.
+
+**Fix (consistente con la regla de 13.4.2):** no chequear el payload desde el IF, sino exponer el hecho como booleano de dominio en el productor. En `Motor de Inferencia`, en **ambos** `return`:
+
+```javascript
+    tiene_foto: !!fotoBase64,
+```
+
+Y `¿Dispara WF2?` pasa a tener dos condiciones con AND: `lectura_sospechosa is false` **AND** `tiene_foto is true`.
+
+**Por qué el booleano y no `foto_base64 is not empty` directo en el IF:** primero, por coherencia con 13.4.2 (las decisiones de ruteo leen hechos, no payloads); segundo, porque `foto_base64` llega como `null` cuando no hay foto, y un operador de string contra `null` bajo `typeValidation: strict` es precisamente el patrón de bug que ya apareció tres veces en el proyecto (16.12, v23, 13.3.3); y tercero, porque el operador de "no vacío" sobre un string de 2 MB obliga a arrastrar el valor completo hasta la condición, cuando lo único que se necesita saber es si existe.
+
+**Fundamentación teórica — sesgo del caso feliz en los datos de prueba.** El bug no es de lógica sino de **cobertura**: la suite de pruebas manuales del proyecto siempre ejerció la misma rama porque el dato de test se construyó una vez, en la Fase 7.3, con foto incluida, y se reusó desde entonces en todos los escenarios. Cuando el mismo *fixture* alimenta todos los casos, la variabilidad real del entorno queda fuera del alcance de las pruebas por construcción, y el sistema aparenta una robustez que no tiene. Es una manifestación concreta del principio de que **un test solo puede fallar por las razones que el test contempla**: la ausencia de foto no era un caso considerado, así que ninguna corrida podía revelarlo. La contramedida barata para el resto del proyecto no es más tests, sino **variar deliberadamente el fixture**: mantener al menos un escenario de telemetría sin foto en `test/`, junto a los de sequía/pH/óptimo que ya existen.
+
+### 13.5 — WF5: Control de Riego (Nodo por Nodo)
+
+```
+[Webhook /control-riego] → [Obtener Ultimo Riego] → [Verificar Cooldown] → [IF ¿cooldown activo?]
+                                                                                ├─ TRUE  → [No Op] (todavía esperando absorción)
+                                                                                └─ FALSE → [Calcular Dosis] → [Registrar Riego (RPC atómico)] → [Telegram Aviso]
+```
+
+> [!NOTE]
+> **7 nodos, no 8.** El diseño original tenía dos nodos de inserción separados (`Insertar Comando` y `Insertar Evento Riego`); se unificaron en una sola llamada al RPC `fn_registrar_riego` el 11/08, por atomicidad — ver 13.5.2.
+
+> [!IMPORTANT]
+> **Especificación refinada el 11/08 durante la construcción.** Los nodos 1, 2, 5, 6 y 7 llevan detalles que la versión original de esta sección no tenía y sin los cuales WF5 no funciona: `Always Output Data` en el nodo 2, credenciales explícitas, el header `Prefer` del nodo 6, los `throw` fail-safe del nodo 5, y los bodies exactos verificados contra el esquema real de las tablas.
+
+**Nodo 1 — Webhook:** Path `control-riego`, Method POST, **Authentication → Header Auth → credencial `n8n Interno`** (la misma que usa `Trigger WF5 Control de Riego` en WF1; si falta en cualquiera de los dos extremos, WF5 responde 403 y el fallo solo se ve entrando a las ejecuciones). Ver 13.5.1 para el resto de los settings y su justificación.
+
+**Nodo 2 — Obtener Ultimo Riego** (Supabase Get Many sobre `vista_ultimo_riego`, filtro `cultivo_id` = `{{ $json.body.cultivo_id }}`, Limit 1, credencial `Supabase account`). Dos cosas obligatorias:
+- **Nombrarlo sin tilde** ("Obtener Ultimo Riego"), igual que el homónimo de WF1 — evita repetir la trampa de acento que causó el Bug 1 de 13.3.2 si en algún momento se copia/pega código entre workflows.
+- **Activar `Always Output Data`** en Settings. `evento_riego` está vacía hasta el primer riego de cada cultivo, así que este nodo devuelve 0 filas y —por la semántica de dataflow de n8n (13.3.3)— cortaría WF5 entero en silencio, marcando la ejecución como exitosa. Es literalmente el mismo nodo, sobre la misma vista, con la misma trampa que costó medio día en WF1: el hecho de que el bug reaparezca en el workflow siguiente confirma que no era un descuido puntual sino una característica del motor que hay que compensar en cada consulta que pueda no traer filas.
+
+**Nodo 3 — Verificar Cooldown (Code):**
+
+```javascript
+const TIEMPO_ABSORCION_MIN = 15; // minutos de espera tras un riego antes de reintentar
+
+const ultimoRiego = $input.first().json;
+const ahora = new Date();
+
+if (ultimoRiego && ultimoRiego.fecha_inicio) {
+  const minutosDesdeUltimo = (ahora - new Date(ultimoRiego.fecha_inicio)) / 60000;
+  if (minutosDesdeUltimo < TIEMPO_ABSORCION_MIN) {
+    return [{ json: { cooldown_activo: true } }];
+  }
+}
+return [{ json: { cooldown_activo: false } }];
+```
+
+**Nodo 4 — IF:** `{{ $json.cooldown_activo }}` is equal to `true` → TRUE va a No Op, FALSE continúa.
+
+**Nodo 5 — Calcular Dosis (Code):**
+
+```javascript
+const FACTOR_RETENCION_HIDRICA = 0.25; // % del volumen de maceta que efectivamente retiene agua disponible (ajustable según sustrato)
+const MAX_DURACION_RIEGO_SEG = 30;     // tope de seguridad — nunca más de 30s por pulso
+const MIN_DURACION_RIEGO_SEG = 3;      // pulso mínimo con sentido físico
+
+const w = $('Webhook').first().json;
+const cultivo = w.body || w;
+
+// Fail-safe: sin umbrales no hay dosis segura posible. Preferimos no regar a regar a ciegas.
+const rangoHumedad = (cultivo.umbrales || {}).humedad || {};
+if (rangoHumedad.min == null || rangoHumedad.max == null) {
+  throw new Error('No llegaron los umbrales de humedad — se aborta el riego en vez de usar un default.');
+}
+
+const volumenLitros   = cultivo.volumen_maceta_litros || 10; // default conservador si no está cargado
+const caudal          = cultivo.caudal_bomba_ml_s || 50;
+const humedadActual   = cultivo.humedad;
+const humedadObjetivo = (rangoHumedad.min + rangoHumedad.max) / 2; // apunta al centro del rango ideal
+
+const deficitPct = humedadObjetivo - humedadActual;
+if (deficitPct <= 0) {
+  throw new Error(`Llegó a WF5 sin déficit real (humedad ${humedadActual}% vs objetivo ${humedadObjetivo}%). Revisar el ruteo de WF1.`);
+}
+
+const dosisMl = volumenLitros * 1000 * FACTOR_RETENCION_HIDRICA * (deficitPct / 100);
+
+let duracionSeg = Math.round(dosisMl / caudal);
+duracionSeg = Math.min(Math.max(duracionSeg, MIN_DURACION_RIEGO_SEG), MAX_DURACION_RIEGO_SEG);
+
+return [{
+  json: {
+    cultivo_id:        cultivo.cultivo_id,
+    dispositivo_id:    cultivo.dispositivo_id,
+    planta:            cultivo.planta,
+    humedad:           humedadActual,
+    humedad_objetivo:  humedadObjetivo,
+    dosis_ml:          Math.round(dosisMl),
+    duracion_segundos: duracionSeg,
+    dosis_recortada:   (dosisMl / caudal) > MAX_DURACION_RIEGO_SEG
+  }
+}];
+```
+
+> [!NOTE]
+> `FACTOR_RETENCION_HIDRICA = 0.25` es una simplificación de la diferencia entre capacidad de campo y punto de marchitez de un sustrato genérico de maceta. Es un valor calibrable — se puede ajustar comparando la humedad antes/después de un riego real registrado en `evento_riego`.
+
+> [!IMPORTANT]
+> **Los dos `throw` son decisiones de seguridad, no defensividad genérica** (agregados 11/08). Ante datos incompletos o un estado que no debería existir, **no regar** es siempre menos dañino que regar con un valor por defecto: el costo de omitir un riego se corrige en la lectura siguiente, el de regar mal no se corrige. Es la aplicación del principio de **fail-safe** al único actuador físico del sistema — ante la duda, el estado seguro es la inacción — y contrasta a propósito con el `|| 10` / `|| 50` de las líneas de abajo: ahí un default es aceptable porque solo cambia *cuánta* agua, mientras que sin umbrales no se puede saber siquiera *si* corresponde regar. El `throw` además deja el error visible en la ejecución, en vez de convertirlo en agua dentro de una maceta.
+>
+> El campo `dosis_recortada` expone si el tope de 30s recortó la dosis calculada — dato de trazabilidad para el marco teórico y para detectar cultivos cuya maceta es demasiado grande para el caudal de su bomba.
+
+**Nodo 6 — `Registrar Riego`** (HTTP Request POST al RPC). **Reemplaza a los dos nodos de inserción del diseño original** (`Insertar Comando` + `Insertar Evento Riego`) por una única llamada atómica — ver 13.5.2 para la justificación completa y la definición de la función.
+
+| Campo | Valor |
+|---|---|
+| Method | POST |
+| URL | `https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_registrar_riego` |
+| Authentication | Generic → Header Auth → **`Sup S`** (Secret key = `service_role`, el único rol con `EXECUTE` sobre la función) |
+| Headers | `Content-Type: application/json` |
+| Retry On Fail | **apagado** (ver 13.5.2: la operación no es idempotente) |
+| On Error | default (Stop Workflow) |
+
+```json
+{
+  "p_cultivo_id": "{{ $json.cultivo_id }}",
+  "p_dispositivo_id": "{{ $json.dispositivo_id }}",
+  "p_duracion_segundos": {{ $json.duracion_segundos }},
+  "p_humedad_inicial": {{ $json.humedad }},
+  "p_humedad_objetivo": {{ $json.humedad_objetivo }},
+  "p_dosis_ml": {{ $json.dosis_ml }}
+}
+```
+
+Respuesta: `[{ "comando_id": 1, "evento_id": 1 }]`. Ningún campo con `DEFAULT` se manda desde n8n (`estado`, `resultado`, `disparado_por`) — los pone la base.
+
+**Nodo 7 — Telegram Aviso Riego** (credencial `Telegram bot Agricola`, Parse Mode HTML):
+
+```
+💧 <b>RIEGO AUTOMÁTICO INICIADO</b>
+
+📍 <b>Cultivo:</b> {{ $('Calcular Dosis').item.json.planta }}
+💧 <b>Humedad:</b> {{ $('Calcular Dosis').item.json.humedad }}% → objetivo {{ $('Calcular Dosis').item.json.humedad_objetivo }}%
+⏱️ <b>Pulso:</b> {{ $('Calcular Dosis').item.json.duracion_segundos }}s (~{{ $('Calcular Dosis').item.json.dosis_ml }}ml)
+
+Se re-chequeará la humedad en ~15 min.
+```
+
+Las referencias apuntan explícitamente a `$('Calcular Dosis')` en vez de `$json`, porque en este punto de la cadena `$json` es la respuesta del insert en `evento_riego`, no los datos del riego — mismo patrón que ya usan `Alerta Telegram` y los IF de 13.4 en WF1.
+
+### 13.5.1 — Settings del Webhook de WF5 y por qué quedan en su default
+
+**Respond: `Immediately`** (default). WF5 le responde 200 a WF1 apenas recibe el pedido, sin esperar a calcular la dosis ni a insertar el comando. Es lo buscado: `Trigger WF5 Control de Riego` dispara y WF1 continúa. Con "When Last Node Finishes", WF1 quedaría bloqueado durante toda la ejecución de WF5 y cualquier error de riego se propagaría hacia arriba, acoplando el pipeline de telemetría al de actuación sin ninguna necesidad. Es **desacoplamiento temporal**: el emisor no depende de la disponibilidad ni de la latencia del receptor, que es la propiedad que justifica usar mensajería asincrónica entre workflows en lugar de llamadas sincrónicas. El mismo criterio ya rige `Trigger a WF2` (Fase 8.0) y el webhook de telemetría de la Fase 5, donde el ESP32 publica y se desentiende.
+
+**IP(s) Whitelist: `127.0.0.1`** (opcional, recomendado). A diferencia del webhook de telemetría —que por definición recibe pedidos desde afuera—, `control-riego` **solo** es invocado por WF1, desde la misma instancia de n8n. Restringirlo a loopback agrega una segunda barrera independiente de la credencial: aunque `n8n Interno` se filtrara, nadie podría disparar un riego desde fuera del equipo. Es el principio de **mínimo privilegio** de 16.13 aplicado a la superficie de red en lugar de a los permisos de base, y un ejemplo de **defensa en profundidad**: la credencial y el origen de red fallan de forma independiente.
+
+**Lo que WF5 recibe y no usa:** el body es el objeto completo de `Consolidar datos`, con los ~2 MB de `foto_base64` que WF5 no toca en ningún nodo. Es el mismo costo descrito en 12.6; cuando se implemente el Claim Check, WF5 se beneficia sin necesidad de modificarlo.
+
+### 13.5.2 — Settings de los nodos HTTP de escritura, y el dual-write sin atomicidad entre ellos
+
+**Pregunta que lo originó (11/08):** ¿los nodos `Insertar Comando` e `Insertar Evento Riego` necesitan `Always Output Data`, como `Obtener Ultimo Riego`?
+
+**No, y la distinción es conceptual.** `Always Output Data` resuelve el caso de un nodo que devuelve **cero ítems legítimamente** —una consulta que no encuentra filas— porque en el modelo de dataflow de n8n eso detiene la rama sin marcar error (13.3.3). Un HTTP POST no tiene ese modo: o produce un ítem (aunque el body venga vacío, que n8n materializa como `{}`) o falla con error. **"Cero ítems" y "error" son estados distintos**, y `Always Output Data` solo cubre el primero. La regla práctica: se activa en nodos de **consulta** que pueden no encontrar nada, no en nodos de **escritura**.
+
+**`Retry On Fail` → apagado en `Insertar Comando`.** Un reintento de un INSERT **no es idempotente**: si la escritura entró pero la respuesta se perdió, el reintento crea un segundo `ACTIVAR_RIEGO` y el dispositivo riega dos veces. Es el problema clásico de la entrega *at-least-once*: reintentar es seguro cuando la operación es idempotente y peligroso cuando tiene efecto físico acumulativo. Contrasta a propósito con `Trigger a WF2`, que **sí** tiene `retryOnFail` porque su peor caso es un diagnóstico duplicado. **Criterio general para el proyecto: los reintentos automáticos se habilitan según la idempotencia de la operación, no según su importancia.**
+
+**`On Error` → default (`Stop Workflow`) en ambos.** Si el comando no se creó, `Insertar Evento Riego` no debe correr: un `evento_riego` sin comando real sería un registro de un riego que nunca ocurrió, y envenenaría tanto el cooldown (13.5, nodo 3) como el circuit breaker (13.3), haciéndole creer al sistema que ya regó. Acá el fallo ruidoso es estrictamente preferible al parcial.
+
+**El agujero real: dual-write sin atomicidad.** Queda una ventana entre los dos nodos: si `Insertar Comando` tiene éxito y `Insertar Evento Riego` falla, queda un comando que el ESP32 **va a ejecutar** sin ningún registro de que existió. Sin fila en `evento_riego` no hay cooldown, así que la lectura siguiente dispara otro riego sobre una maceta recién regada — y sin registro tampoco hay recheck (13.7.1) ni circuit breaker posible. Son dos escrituras que deben ocurrir juntas o no ocurrir, y hoy nada lo garantiza.
+
+**Fundamentación teórica.** Es el problema de **atomicidad entre dos operaciones que no comparten transacción** (*dual write*), habitual en orquestadores: el motor de workflow coordina llamadas independientes, y una falla intermedia deja el sistema en un estado que ninguna de las dos operaciones contempla. Las soluciones estándar son costosas —*saga* con acción compensatoria (borrar el comando si el evento falla), *outbox*, o reintento idempotente con clave de deduplicación—, pero acá **ninguna hace falta**, porque las dos escrituras van al mismo Postgres: alcanza con moverlas a **una sola transacción de base**. El error de diseño no es no haber elegido bien entre saga y outbox, sino haber partido en dos llamadas algo que el motor de base ya sabe hacer atómicamente.
+
+### 13.5.3 — Solución aplicada: `fn_registrar_riego` (✅ aplicada y verificada 11/08/2026)
+
+Se decidió implementarla **antes** de construir los dos nodos HTTP, y no después: como todavía no existían, el costo era escribir la función; hacerlo más tarde habría sido escribir la función **más** rehacer y re-testear dos nodos ya funcionando. Es un caso concreto de por qué el costo de corregir una decisión de diseño crece con el tiempo transcurrido desde que se tomó.
+
+#### Definición aplicada
+
+```sql
+CREATE OR REPLACE FUNCTION public.fn_registrar_riego(
+  p_cultivo_id        uuid,
+  p_dispositivo_id    uuid,
+  p_duracion_segundos integer,
+  p_humedad_inicial   numeric,
+  p_humedad_objetivo  numeric,
+  p_dosis_ml          numeric
+)
+RETURNS TABLE (comando_id bigint, evento_id bigint)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_comando_id bigint;
+  v_evento_id  bigint;
+BEGIN
+  INSERT INTO public.comando_dispositivo (dispositivo_id, tipo_comando, duracion_segundos)
+  VALUES (p_dispositivo_id, 'ACTIVAR_RIEGO', p_duracion_segundos)
+  RETURNING id INTO v_comando_id;
+
+  INSERT INTO public.evento_riego (
+    cultivo_id, dispositivo_id, comando_id,
+    humedad_inicial, humedad_objetivo, dosis_ml, duracion_segundos
+  )
+  VALUES (
+    p_cultivo_id, p_dispositivo_id, v_comando_id,
+    p_humedad_inicial, p_humedad_objetivo, p_dosis_ml, p_duracion_segundos
+  )
+  RETURNING id INTO v_evento_id;
+
+  RETURN QUERY SELECT v_comando_id, v_evento_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_registrar_riego(uuid, uuid, integer, numeric, numeric, numeric)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_registrar_riego(uuid, uuid, integer, numeric, numeric, numeric)
+  TO service_role;
+```
+
+**Verificado tras aplicar** (`pg_proc`): `prosecdef = false` y ACL `postgres=X | service_role=X` — sin `PUBLIC`, sin `anon`, sin `authenticated`.
+
+#### Guía práctica: qué ocurre en cada paso
+
+**1. n8n hace un único POST** a `/rest/v1/rpc/fn_registrar_riego` con los seis valores que calculó `Calcular Dosis`. Supabase expone toda función de Postgres por HTTP automáticamente; es el mismo mecanismo que WF1 ya usa con `fn_registrar_telemetria`.
+
+**2. Postgres abre una transacción**, implícitamente: toda función se ejecuta dentro de una. Eso es lo que compra todo el resto.
+
+**3. Primer INSERT — la orden para el hardware.** `RETURNING id INTO v_comando_id` captura el `id` que la base genera recién al insertar. **Ese es exactamente el motivo por el que antes hacían falta dos llamadas HTTP:** el segundo insert necesita un dato que solo existe después del primero, así que n8n tenía que insertar, esperar la respuesta, leer el id y recién entonces hacer el segundo pedido. Dentro de la función, los dos pasos ocurren sin salir de la base.
+
+**4. Segundo INSERT — el registro de trazabilidad**, ya con el `comando_id` en la mano.
+
+**5. COMMIT y respuesta:** `[{ "comando_id": 1, "evento_id": 1 }]`.
+
+**Y si algo falla en cualquier punto** —se corta la red, el `CHECK (duracion_segundos <= 30)` rechaza el valor, el `dispositivo_id` no existe— Postgres hace **ROLLBACK automático** y la base queda como estaba. No existe ningún estado intermedio observable.
+
+| Escenario | Con 2 nodos HTTP | Con el RPC |
+|---|---|---|
+| Todo bien | comando + evento ✅ | comando + evento ✅ |
+| Falla la 1ª escritura | nada, WF5 se detiene ✅ | nada ✅ |
+| **Falla la 2ª escritura** | 🔴 **comando sin evento**: el ESP32 riega, el sistema no se entera, no hay cooldown → vuelve a regar en la lectura siguiente | ✅ ni comando ni evento; el riego no ocurre y se reintenta después |
+| Corte de red a mitad | 🔴 mismo caso anterior | ✅ la transacción nunca commitea |
+
+La fila roja es la que justifica el cambio: es **un riego que ocurre sin memoria**. Y sin memoria ninguno de los mecanismos de seguridad del diseño funciona — el cooldown no sabe que regó, el recheck (13.7.1) no tiene qué chequear, el circuit breaker (13.3.1) no tiene qué contar. El daño no es perder un registro: es que el sistema pierde la capacidad de frenarse a sí mismo.
+
+**Por qué las dos filas, y no una:** tienen lectores distintos. `comando_dispositivo` es el **buzón del hardware** — el ESP32 pregunta si hay algo `pendiente` para él, lo ejecuta y lo marca (13.6); nadie le habla al dispositivo, él viene a buscar sus órdenes. `evento_riego` es la **memoria del sistema**: alimenta `vista_ultimo_riego`, que a su vez alimenta el cooldown de WF5 y el `Obtener Ultimo Riego` de WF1.
+
+#### Decisiones de seguridad tomadas al escribirla
+
+**Sin `SECURITY DEFINER`.** n8n la invoca con la Secret key, que es `service_role` y ya pasa por encima del RLS, así que no hace falta. Agregarlo la convertiría en una puerta de entrada a `comando_dispositivo` y `evento_riego` para cualquier rol que consiguiera ejecutarla — sería abrir exactamente el agujero que 16.13 busca cerrar. Se corrige de paso el patrón heredado: `fn_registrar_telemetria` **sí** es `SECURITY DEFINER` y ejecutable por `PUBLIC`/`anon`/`authenticated` (verificado el 11/08 en `pg_proc.proacl`), o sea que cualquiera con la Publishable key puede insertar telemetría falsa. Hoy el impacto es contaminación de datos y no actuación —el riego se dispara desde el webhook de n8n, no desde la tabla—, pero queda anotado en el backlog (B.9).
+
+**El `REVOKE` explícito no es opcional.** Postgres otorga `EXECUTE` a `PUBLIC` por defecto al crear cualquier función; sin esa línea, la función nueva habría nacido ejecutable por `anon`, repitiendo el problema que se estaba corrigiendo. Es el mismo mecanismo de *default permisivo* que 16.13 documenta para las tablas — **el default del entorno gana sobre la intención del script**, así que hay que revocar explícitamente y verificar el resultado, no la intención.
+
+**El tope de 30 segundos no se duplica en la función:** `comando_dispositivo` ya tiene `CHECK (duracion_segundos <= 30)` desde 13.1. Y ahora la atomicidad juega a favor de la seguridad física: si un valor absurdo violara el `CHECK`, la transacción entera aborta y no queda ni comando ni evento — antes, con dos inserts separados, un `CHECK` que fallara en el primero al menos dejaba el sistema limpio, pero fallar en el segundo dejaba la orden viva.
+
+**Estado:** ✅ aplicada y verificada el 11/08/2026. Queda pendiente únicamente 13.7.1 (recheck + tope duro por ventana) como precondición para conectar un actuador físico.
+
+### 13.6 — Contrato ESP32 ↔ Sistema (diseñado para desarrollarse sin hardware)
+
+> [!IMPORTANT]
+> **Estado real del proyecto:** el ESP32 físico todavía no está armado — lo que se está construyendo ahora es la **orquestación digital** (Supabase + n8n + Telegram). Por diseño, esa orquestación no depende de que el hardware exista: habla con el mundo exterior únicamente a través de HTTP contra la REST API de Supabase, nunca en el otro sentido. Eso es intencional — es lo que permite programar cada lado por separado y recién unirlos cuando el ESP32 esté listo.
+
+**El contrato es este (cualquier dispositivo que lo cumpla sirve, sea el ESP32 real o un script de prueba):**
+
+1. El dispositivo manda telemetría: `POST /webhook/telemetria` (ya lo hacés hoy con cURL/PowerShell — Fase 5).
+2. El dispositivo pregunta si tiene comandos pendientes: `GET /rest/v1/comando_dispositivo?dispositivo_id=eq.<ID>&estado=eq.pendiente`.
+3. Si hay un comando `ACTIVAR_RIEGO`: lo marca `entregado` (PATCH), "ejecuta" (activa el relé/bomba — o, mientras no hay hardware, simplemente espera), y al terminar lo marca `ejecutado` (PATCH con `ejecutado_en`).
+4. Después de ejecutar el riego, programa una lectura extra a los 15 minutos (en vez de esperar el próximo intervalo regular) para cerrar el loop del recheck (13.7).
+
+**Cuando el ESP32 físico esté armado**, el firmware solo tiene que implementar estos 4 pasos — nada del lado de n8n/Supabase cambia. Dos detalles a tener en cuenta para ese momento:
+
+- **Válvula de seguridad local:** el firmware debería tener su propio tope de duración máxima hardcodeado (ej. 30s), independiente de lo que diga el comando — así, aunque n8n o la base de datos fallen y manden un valor corrupto, el ESP32 nunca riega indefinidamente.
+- El polling (paso 2) puede ir en el mismo ciclo en el que ya manda telemetría — no hace falta un ciclo separado.
+
+**Cómo probar todo esto ahora, sin el ESP32 (simulador en PowerShell):**
+
+Este script cumple el contrato de los pasos 2-3 en lugar del hardware. Corrélo manualmente después de que WF5 inserte un comando (13.5), para simular que "el ESP32" lo levanta y lo ejecuta:
+
+```powershell
+# Simulador de ESP32 — cumple el contrato sin hardware real
+$dispositivoId = "TU-DISPOSITIVO-ID-UUID"
+$baseUrl = "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1"
+$headers = @{
+  apikey        = "TU_SERVICE_ROLE_KEY"
+  Authorization = "Bearer TU_SERVICE_ROLE_KEY"
+  "Content-Type" = "application/json"
+  Prefer        = "return=minimal"
+}
+
+$comandos = Invoke-RestMethod -Uri "$baseUrl/comando_dispositivo?dispositivo_id=eq.$dispositivoId&estado=eq.pendiente" -Headers $headers -Method GET
+
+foreach ($c in $comandos) {
+  Write-Host "[SIM ESP32] Ejecutando $($c.tipo_comando) por $($c.duracion_segundos)s..."
+  Invoke-RestMethod -Uri "$baseUrl/comando_dispositivo?id=eq.$($c.id)" -Headers $headers -Method PATCH -Body (@{ estado = "entregado" } | ConvertTo-Json)
+  Start-Sleep -Seconds $c.duracion_segundos
+  Invoke-RestMethod -Uri "$baseUrl/comando_dispositivo?id=eq.$($c.id)" -Headers $headers -Method PATCH -Body (@{ estado = "ejecutado"; ejecutado_en = (Get-Date).ToString("o") } | ConvertTo-Json)
+  Write-Host "[SIM ESP32] Listo."
+}
+```
+
+Con esto podés desarrollar y testear **toda la Fase 13 de punta a punta** (SQL, WF1, WF5, cooldown, recheck) antes de tener una sola placa soldada. El día que el ESP32 exista, estos mismos 4 pasos del contrato se portan a C++/Arduino y listo — nada del lado de n8n/Supabase se toca.
+
+### 13.7 — Cómo se Cierra el Loop (Recheck)
+
+> [!WARNING]
+> **Lo que sigue describe el diseño, no lo implementado.** Auditoría del 11/08: los pasos 3 y 4 le atribuyen a `Motor de Inferencia` un PATCH sobre `evento_riego` que ese nodo **no hace** — ver **13.7.1**, que documenta el hueco, sus consecuencias (el circuit breaker nunca abre) y el diseño propuesto para cerrarlo.
+
+1. WF5 dispara el riego y queda un `evento_riego` con `resultado='pendiente'`.
+2. ~15 minutos después, llega la lectura extra del ESP32 (13.6.4) → dispara WF1 normalmente.
+3. En el Motor de Inferencia (13.3), si `humedad` ya está dentro del rango ideal → PATCH a `evento_riego` seteando `resultado='exitoso'`, `humedad_recheck`, `fecha_recheck`. El `estadoGlobal` vuelve a `OK`.
+4. Si `humedad` sigue baja → PATCH `resultado='insuficiente'`. Como no pasó el cooldown, WF1 dispara WF5 de nuevo, que vuelve a regar (reintento normal).
+5. Si esto se repite y ya hay un `evento_riego` reciente con `resultado='insuficiente'`, el Motor de Inferencia lo detecta (13.3) y **no reintenta indefinidamente**: escala a `'Falla de Riego - Revisar Sistema'`, que es un estado que el IF de WF1 ya trata como alerta (Telegram), pero que la condición de 13.4 excluye explícitamente de volver a disparar WF5.
+
+### 13.7.1 — 🟠 Hueco abierto: el recheck de 13.7 no está implementado en ningún nodo (hallazgo 11/08)
+
+**Qué dice 13.7 y qué hay en realidad.** Los pasos 3 y 4 de 13.7 atribuyen a `Motor de Inferencia` un PATCH a `evento_riego` que setea `resultado` en `'exitoso'` o `'insuficiente'`. Ese PATCH **no existe**: el código real del nodo (verificado en el JSON del 11/08) no lo hace, y no podría hacerlo bien aunque se agregara — es un Code node, y meterle una llamada HTTP adentro escondería una escritura a la base dentro de un nodo cuyo nombre y responsabilidad son "inferir", rompiendo la separación de responsabilidades que el resto del pipeline respeta (persistir es tarea de `fn_registrar_telemetria`, un nodo aparte y explícito).
+
+**Consecuencia en cadena.** Ningún `evento_riego` sale nunca de `'pendiente'` → `vista_ultimo_riego.resultado` nunca vale `'insuficiente'` → `fallaRiegoPersistente` nunca se vuelve `true` → el estado `'Falla de Riego - Revisar Sistema'` **nunca se alcanza**. El *circuit breaker* de 13.3.1 está escrito, razonado y documentado, pero está desconectado de la señal que debería abrirlo. Con eso, el único freno que le queda al sistema es el cooldown de 15 minutos de WF5 — que no es un freno, es un **espaciador**: mientras la humedad siga baja, cada lectura posterior al cooldown vuelve a disparar riego, indefinidamente, sin tope. Los tres escenarios en los que esto pasa son justamente los tres que el sistema tiene que manejar bien: sensor mal enterrado, fuga o sustrato agotado, y tanque vacío (B.5).
+
+**Por qué importa más que un bug funcional.** El costo del error acá es **asimétrico**: no regar una vez de más se corrige en la lectura siguiente; regar de más durante horas encharca el sustrato, pudre la raíz y mata la planta. En un producto que se vende, ese es exactamente el fallo que destruye la confianza del cliente de forma irreversible — el sistema no falló "no haciendo nada", falló *haciendo algo* que el cliente no pidió y que arruinó su cultivo. Es la diferencia entre un sistema que decepciona y uno del que el usuario tiene miedo.
+
+**Fundamentación teórica — lazo abierto vs. lazo cerrado, y por qué el interlock va aparte.** Tal como está hoy, el riego es un control en **lazo abierto** (*open-loop*): el sistema actúa sobre el proceso pero nunca verifica el efecto de su propia acción; asume que actuar equivale a corregir. El diseño de 13.7 pretende cerrar el lazo (*closed-loop feedback*) usando la lectura de los 15 minutos siguientes como señal de realimentación, y el circuit breaker es lo que evita que ese lazo, ante un actuador roto, degenere en oscilación o saturación — el equivalente de control del *windup* del integrador, donde un controlador sigue acumulando acción correctiva porque el error no baja, sin saber que su actuador no está teniendo efecto. La segunda pieza es de otra familia: un **safety interlock** (tope duro de riegos por ventana de tiempo) no depende de la realimentación para funcionar, y por eso mismo protege incluso si la realimentación falla — es **defensa en profundidad** aplicada a control físico, el mismo argumento por el que 13.9 pone `MAX_DURACION_RIEGO_SEG` en dos lugares independientes (n8n y firmware): una barrera que depende de la misma señal que puede fallar no es una segunda barrera.
+
+**Diseño propuesto (a decidir antes de construir WF5, no después):**
+
+1. **Nodo nuevo en WF1 — `Cerrar Loop de Riego`** (HTTP Request, PATCH a `evento_riego`), después de `fn_registrar_telemetria` y en paralelo al IF de mantenimiento. Condición de entrada: existe un `evento_riego` del cultivo con `resultado = 'pendiente'` y `fecha_inicio` dentro de los últimos ~30 min (dato que `Obtener Ultimo Riego` ya trae al principio de la cadena, sin consultas nuevas). Setea `resultado = 'exitoso'` si la humedad de esta lectura ya está dentro del rango ideal, `'insuficiente'` si sigue por debajo del mínimo, y graba `humedad_recheck` / `fecha_recheck`. Es el nodo que le da al circuit breaker su señal de entrada.
+2. **Tope duro independiente** — condición extra en el IF "¿Dispara WF5?" (13.4) o, mejor, en WF5 junto al cooldown: no más de **N riegos automáticos por cultivo en las últimas X horas** (propuesta inicial: 4 en 6 hs), contando filas de `evento_riego` sin mirar su `resultado`. Corta aunque el recheck falle, aunque el sensor mienta y aunque el circuit breaker no haya abierto.
+3. **Qué pasa al abrir el circuito:** el sistema deja de regar solo y escala a Telegram. La decisión de *reanudar* es del humano — mismo criterio que 13.12 (`/reanudar`), y por el mismo motivo: la acción automática se suspende sola, pero volver a habilitarla requiere que alguien haya ido a mirar la maceta.
+
+**Estado:** hueco de diseño identificado el 11/08, **sin implementar**. Bloquea el cierre de Fase 13 (no la construcción de 13.4, que es previa), y debería resolverse **antes** de que WF5 riegue por primera vez en un cultivo real.
+
+### 13.8 — Recomendación de Maceta según Cultivo
+
+Vista de consulta directa para que una futura interfaz (o el propio agricultor por Telegram) sepa qué maceta usar al crear un cultivo:
+
+```sql
+CREATE OR REPLACE VIEW public.vista_recomendacion_maceta AS
+SELECT 
+  ep.nombre_comun AS planta,
+  te.nombre_etapa AS etapa,
+  mre.volumen_min_litros,
+  mre.volumen_max_litros,
+  mre.notas
+FROM public.maceta_recomendada_especie mre
+JOIN public.especie_planta ep ON ep.id = mre.especie_id
+LEFT JOIN public.tipo_etapa te ON te.id = mre.etapa_id
+ORDER BY ep.nombre_comun, te.id;
+
+GRANT SELECT ON public.vista_recomendacion_maceta TO authenticated, service_role, anon;
+```
+
+Al dar de alta un cultivo, se consulta esta vista filtrando por `planta` y la etapa inicial, y se sugiere el rango de litros antes de pedirle al usuario que cargue `volumen_maceta_litros`.
+
+### 13.9 — Parámetros de Seguridad (resumen)
+
+| Constante | Valor default | Dónde vive | Qué evita |
+|-----------|---------------|------------|-----------|
+| `MAX_DURACION_RIEGO_SEG` | 30s | Code "Calcular Dosis" (n8n) + firmware ESP32 (doble chequeo) | Inundar la maceta si la fórmula da un número absurdo |
+| `MIN_DURACION_RIEGO_SEG` | 3s | Code "Calcular Dosis" | Pulsos tan cortos que no muevan agua realmente |
+| `TIEMPO_ABSORCION_MIN` | 15 min | Code "Verificar Cooldown" | Re-regar sobre un riego que todavía se está absorbiendo |
+| `FACTOR_RETENCION_HIDRICA` | 0.25 | Code "Calcular Dosis" | Sobre/sub-dosificar según el sustrato |
+
+### 13.10 — Testing WF5
+
+```powershell
+# Simular Sequía con volumen_maceta y caudal seteados en el cultivo de prueba
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":20.0,"ph":6.5,"n":45,"p":32,"k":28}'
+```
+
+Verificar: `evento_riego` tiene 1 fila nueva con `resultado='pendiente'`, `comando_dispositivo` tiene 1 fila `ACTIVAR_RIEGO` en estado `pendiente`, Telegram recibe el aviso de riego iniciado (además de la alerta normal y el diagnóstico IA). Repetir el mismo cURL antes de 15 min → **no** debe crear un segundo evento (cooldown activo).
+
+### 13.12 — Modo Mantenimiento (pausa durante trasplante/manipulación física)
+
+**Origen:** discutido el 06/08/2026 — al cambiar de maceta (13.1b, algo que el propio sistema recomienda al cambiar de etapa), hay que desconectar el sensor de la tierra vieja y reinsertarlo en la nueva. Mientras está al aire o desenchufado, suele reportar humedad muy baja — indistinguible de una sequía real para el sistema. Sin este mecanismo, WF1 podría interpretar eso como "Sequía" y disparar riego automático en pleno trasplante.
+
+**Diseño:** una sola columna, que se autoexpira sola (no depende de que el usuario se acuerde de "reanudar" manualmente):
+
+```sql
+ALTER TABLE public.cultivo
+  ADD COLUMN IF NOT EXISTS mantenimiento_hasta timestamptz;
+COMMENT ON COLUMN public.cultivo.mantenimiento_hasta IS 'Si tiene una fecha futura, el cultivo está en modo mantenimiento: se sigue guardando la lectura cruda pero no se dispara ninguna alerta ni acción automática hasta esa fecha. Se autoexpira — no depende de que el usuario recuerde reanudar.';
+```
+
+Mientras está en pausa: la lectura se persiste igual (no se pierde el historial), pero `Motor de Inferencia` (13.3) no dispara ninguna rama de alerta/riego — se corta primero en el IF de WF1 (13.4). Se activa/desactiva por Telegram (`/pausar` y `/reanudar`, ver 13.13) con una duración fija de 2 horas — tiempo de sobra para un trasplante, corto para no dejar un cultivo "invisible" por error prolongado.
+
+### 13.13 — WF6: Comandos por Telegram (modo mantenimiento + calibración guiada)
+
+> [!IMPORTANT]
+> **Primer workflow que escucha al usuario, no solo le avisa.** Hasta ahora Telegram se usó siempre de salida (nodos "Send a text message"). Esto necesita un nodo **Telegram Trigger** (inbound) — el mismo bot de la Fase 2, configurado para recibir mensajes en vez de solo mandarlos.
+
+**Por qué comparte workflow el modo mantenimiento con la calibración:** los dos necesitan la misma pieza nueva (escuchar mensajes entrantes de Telegram y decidir qué hacer según el texto), así que conviene resolverlos juntos en un solo lugar en vez de construir el "oído" del sistema dos veces.
+
+**Nodo 1 — Telegram Trigger:** escucha mensajes nuevos del bot.
+
+**Nodo 2 — Code: Interpretar Comando:**
+
+```javascript
+const texto = ($json.message?.text || '').trim();
+const chatId = $json.message?.chat?.id;
+
+let tipo = null;
+let argumento = null;
+
+if (/^\/pausar\s+/i.test(texto))        { tipo = 'pausar';               argumento = texto.replace(/^\/pausar\s+/i, '').trim(); }
+else if (/^\/reanudar\s+/i.test(texto)) { tipo = 'reanudar';             argumento = texto.replace(/^\/reanudar\s+/i, '').trim(); }
+else if (/^\/calibrar\s+/i.test(texto)) { tipo = 'calibrar';             argumento = texto.replace(/^\/calibrar\s+/i, '').trim(); }
+else if (/^\d+([.,]\d+)?$/.test(texto)) { tipo = 'respuesta_calibracion'; argumento = parseFloat(texto.replace(',', '.')); }
+
+return [{ json: { tipo, argumento, chatId, texto_original: texto } }];
+```
+
+**Nodo 3 — Switch por `tipo`** (4 ramas):
+
+- **`pausar`** → UPDATE `cultivo SET mantenimiento_hasta = now() + interval '2 hours' WHERE nombre_personalizado ILIKE '%' || argumento || '%'` → Telegram: *"⏸️ Pausado por 2hs. Mandá /reanudar cuando termines el trasplante."*
+- **`reanudar`** → UPDATE `cultivo SET mantenimiento_hasta = NULL WHERE nombre_personalizado ILIKE ...` → Telegram: *"▶️ Reanudado, ya vuelve a monitorear normal."*
+- **`calibrar`** → busca el `dispositivo_id` del cultivo nombrado → INSERT en `comando_dispositivo` (`tipo_comando: 'CALIBRAR_BOMBA'`, `duracion_segundos: 10`) → Telegram: *"🧪 Poné un vaso medidor bajo la manguera. La bomba se prende 10 segundos exactos — vos no tenés que cronometrar nada. Cuando termine, contestame solo el número de ml que juntaste."*
+- **`respuesta_calibracion`** → busca el `comando_dispositivo` más reciente tipo `CALIBRAR_BOMBA` en estado `ejecutado`, dentro de los últimos 10 minutos y sin usar todavía → si existe: `UPDATE dispositivo SET caudal_bomba_ml_s = argumento / 10 WHERE id = ...` → Telegram: *"✅ Caudal calibrado: X ml/s."* Si no hay ninguna calibración pendiente, no hace nada — evita confundir un número suelto del chat con una respuesta de calibración.
+
+> [!NOTE]
+> **Alcance v1, a propósito simple:** el matching de nombre de cultivo/dispositivo por texto (`ILIKE`) alcanza mientras haya pocos cultivos con nombres claramente distintos. Si en algún momento hay nombres ambiguos, se ajusta cuando aparezca el caso real en vivo — mismo criterio del resto del proyecto: no armar reglas para casos que todavía no existen.
+
+**SQL adicional — nuevo tipo de comando** (agrega `CALIBRAR_BOMBA` al `CHECK` existente de `comando_dispositivo.tipo_comando`, que hoy solo permite `ACTIVAR_RIEGO`):
+
+```sql
+-- el nombre real del constraint se verifica antes de aplicar (regla de la sesión: no asumir, confirmar en vivo)
+ALTER TABLE public.comando_dispositivo DROP CONSTRAINT comando_dispositivo_tipo_comando_check;
+ALTER TABLE public.comando_dispositivo ADD CONSTRAINT comando_dispositivo_tipo_comando_check
+  CHECK (tipo_comando IN ('ACTIVAR_RIEGO', 'CALIBRAR_BOMBA'));
+```
+
+**Contrato ESP32 (extensión de 13.6):** al recibir un comando `CALIBRAR_BOMBA`, el dispositivo hace exactamente lo mismo que con `ACTIVAR_RIEGO` (prender la bomba la `duracion_segundos` indicada y marcar `ejecutado`) — no necesita lógica nueva, la diferencia de significado vive del lado de n8n/Telegram, no del firmware.
+
+### 13.14 — Checklist Fase 13
+
+- [x] SQL 13.1 a-g (tipo_maceta, maceta_recomendada_especie, columnas cultivo/dispositivo, comando_dispositivo, evento_riego, vista_ultimo_riego) — ✅ aplicado y verificado 06/08/2026 (RLS en las 6 tablas, sin alertas nuevas en el advisor de seguridad)
+- [x] SQL 13.2 (vista_cultivos_activos ampliada, incluye `mantenimiento_hasta`) — ✅ aplicado y verificado 06/08/2026, tras corregir un drift real (ver nota en 13.2)
+- [x] Motor de Inferencia modificado (13.3, incluye modo mantenimiento y chequeo de lectura sospechosa — fundamentación en 13.3.1) — ✅ código pegado, pero con 2 bugs de referencia por nombre sin corregir todavía (🔴 crítico + 🟡 silencioso, ver 13.3.2 checklist abajo)
+- [x] WF1: nodo `Obtener Ultimo Riego` — ✅ ya insertado y cableado (hallazgo 11/08, no lo había agregado nadie a propósito documentado, pero está)
+- [x] **Fix 13.3.2 (1):** 🔴 `$('Obtener Último Riego')` → `$('Obtener Ultimo Riego')` en `Motor de Inferencia` — ✅ aplicado 11/08 (código completo pegado por el usuario)
+- [x] **Fix 13.3.2 (2):** 🟡 `$('Preparar Foto Binaria')` → `$('Preparar Foto binaria')` en `Consolidar datos` — ✅ aplicado y **verificado en vivo 11/08** (`path_foto_evento` devuelve path real). Ver 12.2.3: no alcanza por sí solo, faltan los fixes de WF2 y WF3
+- [x] **Fix 13.3.3 (3):** 🔴 **Always Output Data** en `Obtener Ultimo Riego` + lectura defensiva en `Motor de Inferencia` — ✅ aplicado 11/08
+- [x] **Fix 13.3.3 (4):** 🔴 contrato de salida uniforme en `Motor de Inferencia` — ✅ aplicado 11/08
+- [x] **Fix 12.2.3 (B):** 🔴 WF2 `Persistir Diagnotico` → `path_foto` = `={{ $json.path_foto_evento }}` — ✅ aplicado y **verificado en vivo 11/08**
+- [x] **Fix 12.2.3 (C):** 🟡 WF3 `Persistir Seguimiento Fenologico` → `path_foto` con un solo `=` — ✅ aplicado 11/08
+- [ ] **Limpieza:** borrar las lecturas de test de `lectura_sensores` (id 171-180 y las que sumen los tests de 13.4/13.10) una vez cerrada la Fase 13 — misma práctica que v17
+- [ ] **13.7.1:** 🟠 implementar el recheck (`Cerrar Loop de Riego`) + tope duro de riegos por ventana — bloquea el cierre de Fase 13, obligatorio antes de que WF5 riegue un cultivo real
+- [ ] **Datos:** cargar `tiene_actuador_riego` / `caudal_bomba_ml_s` (dispositivo) y `volumen_maceta_litros` (cultivo) del cultivo demo — hoy en `false`/`NULL`, la rama de WF5 no puede dispararse en ningún test
+- [ ] WF1: rama "Trigger WF5" + corte por `en_mantenimiento`, 3 IF + 1 HTTP nuevos (13.4, reescrito 11/08 con la topología real)
+- [x] WF1: rama de 13.4 construida y verificada en vivo (11/08) — 5 nodos: 3 IF + HTTP a WF5 + 1 No Op
+- [x] **SQL 13.5.2:** `fn_registrar_riego` (escritura atómica de comando + evento, sin `SECURITY DEFINER`, `EXECUTE` solo para `service_role`) — ✅ aplicada y verificada 11/08/2026
+- [x] WF5 creado (**7 nodos**, 13.5 + settings de 13.5.1 y 13.5.2) — ✅ construido, activado y **verificado en vivo 12/08**: `evento_riego` 3 ↔ `comando_dispositivo` 3, 30s / 1625 ml, sin huérfanos, y el cooldown bloqueó una segunda telemetría disparada 6 segundos después
+- [x] **16.14:** 5 fixes (validación positiva de la respuesta de Gemini, `Retry On Fail`, IF que no persiste diagnósticos fallidos, `fotoPlausible`, y `Hay foto nueva?` leyendo `tiene_foto`) — ✅ aplicados y verificados en vivo 12/08
+- [ ] **16.14 (pendiente menor):** test de inyección de fallos (modelo inexistente en la URL de Gemini) para ejercer la rama de error, + borrar la fila basura del 12/08 16:03:43
+- [ ] **13.7.1:** recheck + tope duro de riegos por ventana — **última precondición pendiente para conectar un actuador físico**
+- [ ] Contrato ESP32 definido y testeado con el simulador PowerShell (13.6) — firmware real queda pendiente hasta tener la placa
+- [ ] SQL 13.8 (vista_recomendacion_maceta)
+- [ ] Test 13.10 ✅
+- [x] SQL 13.12 (`cultivo.mantenimiento_hasta`) — ✅ aplicado y verificado 06/08/2026
+- [ ] WF6 creado: modo mantenimiento + calibración guiada (13.13)
+- [x] SQL 13.13 (nuevo `CHECK` de `tipo_comando` con `CALIBRAR_BOMBA`) — ✅ aplicado y verificado 06/08/2026
+
+---
+
+## Fase 14 · Anticipación de Etapa Fenológica por NPK/pH
+
+> [!IMPORTANT]
+> **Estado: 🆕 Diseño nuevo, no implementado.** Hoy WF3 solo dispara la validación de IA cuando se cumple **80% del tiempo estimado** de la etapa (Fase 9.4). No mira NPK ni pH para nada — esta fase agrega una señal química complementaria para anticipar el cambio de etapa cuando el cultivo va más rápido de lo esperado por el calendario.
+
+### 14.0 — Decisión
+
+La idea **no** es reemplazar el gate temporal (sigue siendo necesario como piso de seguridad — una sola lectura ruidosa o una fertilización puntual no debería disparar un cambio de etapa). Se agrega una **señal adicional**: si los promedios recientes de N, P, K y pH ya se parecen más al perfil ideal de la **etapa siguiente** que al de la etapa actual, se baja el umbral temporal de evaluación (de 80% a 40% del tiempo estimado), permitiendo que la IA de visión confirme el cambio antes.
+
+### 14.1 — Nodos Nuevos en WF3 (antes de "Calcular Días en Etapa", Fase 9.4)
+
+**Nodo A — Obtener Promedios Recientes** (mismo patrón que WF4, Fase 12.1): HTTP Request GET a `vista_promedios_recientes`, filtro `cultivo_id`.
+
+**Nodo B — Obtener Umbrales de Todas las Etapas de la Especie:** HTTP Request GET a `vista_conocimiento_experto`, filtro solo por `planta` (sin filtrar `etapa`, para traer todas las etapas de esa especie ordenadas por `orden`).
+
+### 14.2 — Nodo C: Evaluar Tendencia NPK/pH (Code)
+
+```javascript
+const cultivo = $('Obtener Cultivos Activos').first().json;
+const promedios = $('Obtener Promedios Recientes').first()?.json;
+const umbralesEspecie = $('Obtener Umbrales de Todas las Etapas').all().map(i => i.json);
+
+const actual = umbralesEspecie.find(u => u.etapa === cultivo.etapa_actual);
+const siguiente = actual ? umbralesEspecie.find(u => u.orden === actual.orden + 1) : null;
+
+let anticipacionTemprana = false;
+let scoreAnticipacion = 0;
+
+if (promedios && actual && siguiente) {
+  const phIdealActual = (actual.ph_min + actual.ph_max) / 2;
+  const phIdealSiguiente = (siguiente.ph_min + siguiente.ph_max) / 2;
+
+  const metricas = [
+    { valor: promedios.ph_promedio, actual: phIdealActual,      siguiente: phIdealSiguiente },
+    { valor: promedios.n_promedio,  actual: actual.ideal_n,     siguiente: siguiente.ideal_n },
+    { valor: promedios.p_promedio,  actual: actual.ideal_p,     siguiente: siguiente.ideal_p },
+    { valor: promedios.k_promedio,  actual: actual.ideal_k,     siguiente: siguiente.ideal_k }
+  ].filter(m => m.valor != null && m.actual != null && m.siguiente != null);
+
+  let puntosAFavor = 0;
+  for (const m of metricas) {
+    const distActual = Math.abs(m.valor - m.actual) / m.actual;
+    const distSiguiente = Math.abs(m.valor - m.siguiente) / m.siguiente;
+    if (distSiguiente < distActual) puntosAFavor++;
+  }
+  scoreAnticipacion = metricas.length ? puntosAFavor / metricas.length : 0;
+  anticipacionTemprana = scoreAnticipacion >= 0.75; // al menos 3 de 4 métricas ya "parecen" la etapa siguiente
+}
+
+return [{
+  json: {
+    ...cultivo,
+    anticipacion_temprana: anticipacionTemprana,
+    score_anticipacion: scoreAnticipacion
+  }
+}];
+```
+
+> [!NOTE]
+> Humedad queda afuera del score a propósito: depende del riego (recién controlado en Fase 13), no de la fisiología de la planta, así que no es un buen indicador de cambio de etapa.
+
+### 14.3 — Modificar "Calcular Días en Etapa" (Fase 9.4) con Piso de Seguridad Dinámico
+
+Reemplazar la línea de `ventanaEvaluacion` por:
+
+```javascript
+// PISO_MINIMO_SEGURIDAD: aunque NPK/pH sugieran adelanto, nunca evaluar antes de este % del tiempo
+// (evita falsos positivos por una lectura ruidosa o una fertilización puntual)
+const PISO_MINIMO_SEGURIDAD = 0.4;
+const VENTANA_NORMAL = 0.8;
+
+const ventanaEvaluacion = cultivo.duracion_estimada_dias * (cultivo.anticipacion_temprana ? PISO_MINIMO_SEGURIDAD : VENTANA_NORMAL);
+```
+
+(el resto del nodo, incluyendo el cálculo de `diasEnEtapa` y el filtro `idxActual < etapasOrdenadas.length - 1`, queda igual).
+
+### 14.4 — Enriquecer el Prompt de IA de WF3 (Fase 9.6)
+
+Agregar al prompt una línea de contexto:
+
+```
+SEÑAL QUÍMICA: {{ $json.anticipacion_temprana ? ('Los valores de NPK/pH ya se asemejan a los de la etapa ' + $json.etapa_siguiente + ' (score ' + $json.score_anticipacion.toFixed(2) + '/1)') : 'Sin señales químicas de adelanto todavía' }}
+```
+
+Esto le da a Gemini un dato adicional (no visual) para ponderar en su `confianza`, sin que la señal química por sí sola alcance para confirmar el cambio — sigue siendo la IA de visión la que decide.
+
+### 14.5 — Extensión Opcional a WF4 (Aviso Preventivo Temprano)
+
+WF4 ya corre cada 6 horas y ya trae `vista_promedios_recientes` + `vista_conocimiento_experto` (Fase 10.3-10.4). Agregar el mismo cálculo de 14.2 y, si `anticipacion_temprana=true`, sumar una línea al prompt de WF4 (Fase 10.5): *"Los valores químicos sugieren un posible adelanto de etapa — considerá una inspección visual antes del chequeo diario de las 8 AM."* Así el agricultor se entera el mismo día en vez de esperar al schedule de WF3.
+
+### 14.6 — Conexiones WF3 (actualizadas)
+
+```
+[Schedule] → [Obtener Cultivos] → [Obtener Promedios Recientes] → [Obtener Umbrales Especie] → [Evaluar Tendencia NPK/pH] → [Calcular Días en Etapa] → [IF skip?]
+                                                                                                                                                            ├─ TRUE → [AI Vision] → ... (igual que antes)
+                                                                                                                                                            └─ FALSE → [No Op]
+```
+
+### 14.7 — Testing Fase 14
+
+1. Con un cultivo en Vegetativo al 45% del tiempo estimado (por debajo del 80% normal), forzar lecturas de N/P/K/pH que coincidan con los valores ideales de Floración (ver tabla `vista_conocimiento_experto` para los números exactos de tu especie).
+2. Verificar que "Evaluar Tendencia NPK/pH" devuelva `anticipacion_temprana: true` y `score_anticipacion >= 0.75`.
+3. Verificar que "Calcular Días en Etapa" ahora sí incluya ese cultivo en la evaluación (con el piso del 40% en vez del 80%).
+4. Verificar que el prompt de Gemini haya recibido la línea de "SEÑAL QUÍMICA".
+
+### 14.8 — Checklist Fase 14
+
+- [ ] Nodo A: Obtener Promedios Recientes (WF3)
+- [ ] Nodo B: Obtener Umbrales de Todas las Etapas (WF3)
+- [ ] Nodo C: Evaluar Tendencia NPK/pH (Code, 14.2)
+- [ ] Modificar Calcular Días en Etapa con piso dinámico (14.3)
+- [ ] Enriquecer prompt IA WF3 (14.4)
+- [ ] (Opcional) Extender WF4 con aviso temprano (14.5)
+- [ ] Test 14.7 ✅
+
+---
+
+## Fase 15 · Recomendación de Fertirriego (N/P/K/pH) — Asistido, No Automatizado
+
+> [!IMPORTANT]
+> **Estado: 🆕 Diseño nuevo, no implementado.** Corrección de rumbo respecto a la primera versión de esta fase: **el único actuador físico del sistema es el agua** (Fase 13). Para NPK y pH, el sistema **no inyecta nada** — calcula una cantidad aproximada según el volumen de la maceta y se la manda al agricultor por Telegram para que la aplique él mismo. No requiere hardware adicional (sin bombas dosificadoras, sin químicos automatizados).
+>
+> **Rediseño del cálculo de NPK (06/08/2026):** el modelo de `producto_fertilizante` y el nodo `Calcular Recomendación NPK` (15.1-15.2) fueron revisados y reescritos antes de implementarse — se encontraron dos errores de fondo en la primera versión (confusión óxido/elemental en las etiquetas de fertilizante, y doble conteo cuando un mismo producto combinado cubre varios nutrientes a la vez). Ver 15.1.1 para la fundamentación completa. Sigue sin implementarse en n8n/Supabase — lo que cambió es el diseño, no el estado.
+
+### 15.0 — Decisión
+
+| Variable | ¿Se inyecta sola? | Qué hace el sistema |
+|----------|--------------------|-----------------------|
+| Humedad (agua) | ✅ Sí — Fase 13 | Calcula dosis y duración, y el ESP32 acciona la bomba automáticamente |
+| N, P, K | ❌ No | Calcula una **cantidad aproximada** (en ml o gramos, según el producto que declaró el usuario) y la manda por Telegram. El agricultor la aplica a mano. |
+| pH | ❌ No | Igual que hoy: alerta cuando está fuera de rango, con una sugerencia de punto de partida (sin cantidad exacta — ver 15.6) |
+
+Esto encaja con el objetivo del proyecto: **facilitar**, no reemplazar al agricultor. Automatizar solo el agua evita meter hardware de químicos (costo, mantenimiento, riesgo) mientras que igual se resuelve el problema real — no saber cuánto fertilizante poner — con un cálculo que hoy nadie hace a ojo.
+
+### 15.1 — Ajustes de Esquema SQL
+
+**a) Qué producto usa cada usuario/cultivo — rediseñado (06/08/2026, ver 15.1.1 para la fundamentación completa):**
+
+El modelo original tenía una fila por *nutriente* (`UNIQUE(cultivo_id, nutriente)`), como si el usuario tuviera un frasco separado para N, otro para P y otro para K. En la práctica casi ningún fertilizante hogareño es así — es un único producto combinado (ej. "10-5-8") que aporta los tres a la vez. Se modela ahora **una fila por producto físico real**, con sus tres porcentajes tal cual figuran en la etiqueta (sin pedirle al usuario que convierta nada):
+
+```sql
+CREATE TABLE IF NOT EXISTS public.producto_fertilizante (
+  id serial PRIMARY KEY,
+  cultivo_id uuid NOT NULL REFERENCES public.cultivo(id),
+  nombre_producto text NOT NULL,
+  presentacion text NOT NULL CHECK (presentacion IN ('liquido','solido')),
+  formato_declarado text NOT NULL DEFAULT 'oxido' CHECK (formato_declarado IN ('oxido','elemental')),
+  pct_n numeric NOT NULL DEFAULT 0 CHECK (pct_n >= 0 AND pct_n <= 100),
+  pct_p numeric NOT NULL DEFAULT 0 CHECK (pct_p >= 0 AND pct_p <= 100),
+  pct_k numeric NOT NULL DEFAULT 0 CHECK (pct_k >= 0 AND pct_k <= 100),
+  densidad_g_ml numeric,  -- solo si presentacion='liquido'; si no se carga, se asume 1g/ml (agua) como default conservador
+  UNIQUE (cultivo_id, nombre_producto)
+);
+COMMENT ON TABLE public.producto_fertilizante IS 'Un producto físico de fertilizante por fila (no un producto por nutriente) — modela lo que el usuario realmente tiene en la mano: un frasco/bolsa con una fórmula NPK combinada. Los % se cargan tal cual figuran en la etiqueta, sin conversión de parte del usuario.';
+COMMENT ON COLUMN public.producto_fertilizante.formato_declarado IS 'Convención con la que el fabricante declaró P y K: "oxido" (P2O5/K2O — estándar en la enorme mayoría de fertilizantes comerciales, ver 15.1.1) o "elemental" (P/K puro — usado por algunas líneas de hidroponía avanzada). N nunca necesita esta distinción: se declara siempre elemental por convención.';
+
+-- Provisional: mismo GRANT que el resto de las tablas nuevas de Fase 13/15. Pendiente de la
+-- decisión general de RLS/mínimo privilegio para estas 6 tablas (ver conversación de diseño 06/08/2026,
+-- todavía sin resolver) — no dar por definitivo hasta esa decisión.
+GRANT SELECT, INSERT, UPDATE ON public.producto_fertilizante TO service_role, authenticated;
+```
+
+### 15.1.1 — Fundamentación teórica: por qué el % de la etiqueta no es directamente "mg de nutriente"
+
+**El problema que resuelve este rediseño tiene dos causas independientes, ambas reales en cualquier fertilizante comercial:**
+
+1. **Convención de "análisis garantizado" (Guaranteed Analysis).** La forma en que los fabricantes declaran NPK en el envase —el clásico "10-5-8"— no expresa los tres nutrientes en la misma base química. El nitrógeno (N) se declara como elemento puro. El fósforo y el potasio, por una convención histórica que se remonta a los métodos de análisis químico del siglo XIX y que se mantiene hoy por estandarización regulatoria (en EE.UU. la fija la AAPFCO — *Association of American Plant Food Control Officials* —, y normativas equivalentes rigen en Europa y Latinoamérica), se declaran como **óxidos equivalentes**: P₂O₅ (pentóxido de fósforo) y K₂O (óxido de potasio), no como P y K elementales. La conversión a elemento puro es estequiométrica, fija, y no depende del producto: P₂O₅ → P es ×0.4364 (masa molar P₂O₅ = 141.94 g/mol, 2 átomos de P = 61.94 g/mol), y K₂O → K es ×0.83 (masa molar K₂O = 94.2 g/mol, 2 átomos de K = 78.2 g/mol). Ignorar esta conversión sobreestima el fósforo real en ~2.3× y el potasio real en ~1.2×, lo que hace que el sistema calcule **menos** producto del que realmente hace falta para cerrar el déficit medido por el sensor (la concentración asumida queda más alta que la real).
+
+2. **Modelado de datos: la entidad correcta es "el producto", no "el nutriente".** El diseño anterior (`UNIQUE(cultivo_id, nutriente)`) le asignaba una fila a cada nutriente, lo cual fuerza a modelar un fertilizante combinado como si fueran tres productos independientes. Cuando el motor de recomendación evaluaba cada nutriente por separado y sumaba las cantidades, terminaba —para un mismo frasco combinado cargado tres veces— recomendando aplicar la suma de las tres dosis individuales, en vez de una sola aplicación del producto real que ya cubre los tres a la vez. Modelar la tabla por producto físico (con sus tres porcentajes en la misma fila) hace que la entidad de la base coincida con la entidad del mundo real, y permite calcular correctamente "una aplicación de este frasco cubre estos nutrientes, dosificada según el más exigente" en vez de sumar cantidades que en la práctica sería un solo gesto del agricultor.
+
+**Relevancia para la tesis:** este hallazgo es del mismo tipo que 16.11 y 12.5 — una simplificación que "funciona" en el caso de prueba trivial (un solo nutriente bajo, o valores de ejemplo elegidos a mano) pero produce una recomendación cuantitativamente incorrecta en el caso general, silenciosamente, sin ningún error visible. Refuerza el mismo argumento de fondo del proyecto: la corrección de un sistema experto no se valida con que "el mensaje se vea razonable", sino con que la lógica subyacente modele correctamente el dominio — acá, tanto la química de fertilizantes como la relación real entre "producto" y "nutriente".
+
+**b) Historial de recomendaciones enviadas** (para no repetir la misma recomendación cada pocos minutos mientras persiste la alerta):
+
+```sql
+CREATE TABLE IF NOT EXISTS public.recomendacion_fertirriego (
+  id bigserial PRIMARY KEY,
+  cultivo_id uuid NOT NULL REFERENCES public.cultivo(id),
+  nombre_producto text NOT NULL,
+  nutriente text NOT NULL CHECK (nutriente IN ('N','P','K')),  -- nutriente_limitante: el que definió la dosis de esta aplicación
+  valor_actual numeric,
+  valor_objetivo numeric,
+  cantidad_recomendada numeric,
+  unidad text CHECK (unidad IN ('ml','g')),
+  fecha timestamptz DEFAULT now()
+);
+COMMENT ON TABLE public.recomendacion_fertirriego IS 'Log de cada recomendación de fertirriego calculada y enviada por Telegram. Sirve de cooldown (por producto+nutriente, no solo por nutriente — ver 15.1.1: dos productos distintos pueden cubrir el mismo nutriente) y de auditoría — no dispara ninguna acción física.';
+
+-- Provisional, mismo criterio que 15.1a: pendiente la decisión general de RLS/mínimo privilegio.
+GRANT SELECT, INSERT ON public.recomendacion_fertirriego TO service_role, authenticated;
+```
+
+### 15.2 — Nodo Nuevo en WF1: Calcular Recomendación NPK (rediseñado 06/08/2026, ver 15.1.1)
+
+Se agrega **dentro de WF1** (no hace falta un workflow nuevo, ya que no hay nada que accionar): entre "Motor de Inferencia" (4.4) y "Alerta Telegram" (4.7). Necesita una query previa (Supabase Get Many) a `producto_fertilizante` filtrada por `cultivo_id`, y otra a `recomendacion_fertirriego` filtrada por `cultivo_id` y `fecha >= now() - interval '12 hours'` (cooldown de aviso).
+
+**Cambios respecto a la versión original:** (1) ya no se re-parsea un string de display (`rango`) para sacar el valor ideal — se usa directo `motor.umbrales.n_ideal/p_ideal/k_ideal`, que `Motor de Inferencia` (Fase 4.4) ya expone como número; (2) se convierte P y K de óxido a elemental antes de calcular (15.1.1); (3) el cálculo es **por producto físico**, no por nutriente — si un mismo frasco cubre dos o tres nutrientes bajos a la vez, se recomienda una sola aplicación, dosificada según el nutriente más exigente de los que ese frasco aporta.
+
+```javascript
+const DENSIDAD_SUSTRATO_KG_L = 0.4;  // densidad aproximada de un sustrato de maceta (kg por litro de volumen)
+const FACTOR_DISPONIBILIDAD = 0.5;   // apunta a corregir la mitad del déficit por aplicación — evita sobrefertilizar de una
+const COOLDOWN_HORAS = 12;           // no repetir la misma recomendación antes de este tiempo
+const FACTOR_P2O5_A_P = 0.4364;      // conversión estequiométrica estándar P2O5 -> P elemental (15.1.1)
+const FACTOR_K2O_A_K = 0.83;         // conversión estequiométrica estándar K2O -> K elemental (15.1.1)
+
+const motor = $('Motor de Inferencia').first().json;
+const productos = $('Obtener Productos Fertilizante').all().map(i => i.json);
+const recomendacionesRecientes = $('Obtener Recomendaciones Recientes').all().map(i => i.json);
+
+const masaSustratoKg = (motor.volumen_maceta_litros || 10) * DENSIDAD_SUSTRATO_KG_L;
+
+// Déficit real de cada nutriente (mg/kg), tomado directo de los campos numéricos que
+// Motor de Inferencia ya calculó — no se re-parsea ningún string de display (mismo criterio que 16.11/12.5).
+const deficits = {
+  N: Math.max(0, (motor.umbrales?.n_ideal ?? 0) - (motor.n ?? 0)),
+  P: Math.max(0, (motor.umbrales?.p_ideal ?? 0) - (motor.p ?? 0)),
+  K: Math.max(0, (motor.umbrales?.k_ideal ?? 0) - (motor.k ?? 0)),
+};
+
+const recomendaciones = [];
+
+for (const producto of productos) {
+  // % de cada nutriente ya convertido a elemental (N nunca necesita conversión, ver 15.1.1)
+  const pctElemental = {
+    N: producto.pct_n,
+    P: producto.formato_declarado === 'oxido' ? producto.pct_p * FACTOR_P2O5_A_P : producto.pct_p,
+    K: producto.formato_declarado === 'oxido' ? producto.pct_k * FACTOR_K2O_A_K : producto.pct_k,
+  };
+
+  // Nutrientes que este producto aporta Y que además están bajos ahora mismo, excluyendo
+  // combinaciones producto+nutriente ya avisadas dentro de COOLDOWN_HORAS
+  const candidatos = ['N', 'P', 'K']
+    .filter(nut => pctElemental[nut] > 0 && deficits[nut] > 0)
+    .filter(nut => !recomendacionesRecientes.some(r => r.nutriente === nut && r.nombre_producto === producto.nombre_producto))
+    .map(nut => {
+      const deficitMgKg = deficits[nut] * FACTOR_DISPONIBILIDAD;
+      const masaNecesariaMg = masaSustratoKg * deficitMgKg;
+      const concentracionMgG = pctElemental[nut] * 10; // % -> mg de nutriente por gramo de producto
+      return { nutriente: nut, cantidadG: masaNecesariaMg / concentracionMgG };
+    });
+
+  if (candidatos.length === 0) continue; // este producto no cubre ningún nutriente bajo, o ya se avisó
+
+  // Un mismo frasco se aplica UNA sola vez: la cantidad que corrige al nutriente más exigente
+  // que aporta. Los demás nutrientes bajos que cubre vienen incluidos gratis en esa misma
+  // aplicación — nunca se suman cantidades del mismo producto (15.1.1).
+  const masExigente = candidatos.reduce((max, c) => c.cantidadG > max.cantidadG ? c : max);
+
+  const densidad = producto.densidad_g_ml || 1; // default conservador (agua, 1g/ml) si no se cargó
+  const cantidadFinal = producto.presentacion === 'liquido'
+    ? masExigente.cantidadG / densidad
+    : masExigente.cantidadG;
+
+  recomendaciones.push({
+    nombre_producto: producto.nombre_producto,
+    nutriente_limitante: masExigente.nutriente,
+    nutrientes_cubiertos: candidatos.map(c => c.nutriente),
+    valor_actual: motor[masExigente.nutriente.toLowerCase()],
+    valor_objetivo: motor.umbrales?.[masExigente.nutriente.toLowerCase() + '_ideal'],
+    cantidad_recomendada: Math.round(cantidadFinal * 10) / 10,
+    unidad: producto.presentacion === 'liquido' ? 'ml' : 'g'
+  });
+}
+
+return [{ json: { ...motor, recomendaciones_fertirriego: recomendaciones } }];
+```
+
+> [!NOTE]
+> `FACTOR_DISPONIBILIDAD = 0.5` sigue siendo **aproximado a propósito**: mejor quedarse corto y volver a medir en la próxima lectura que pasarse y quemar la raíz. Este factor y `DENSIDAD_SUSTRATO_KG_L` siguen siendo constantes genéricas (no por tipo de sustrato) — ver 15.7, sigue anotado como mejora futura, independiente del rediseño de esta sección.
+
+### 15.3 — Insertar en `recomendacion_fertirriego`
+
+Justo después de calcular, un nodo Supabase Insert (uno por cada item de `recomendaciones_fertirriego`, con un Loop/Split in Batches) para dejar el registro y activar el cooldown de 15.2.
+
+### 15.4 — Enriquecer la Alerta Telegram (WF1, Fase 4.7)
+
+Agregar al mensaje existente una sección condicional:
+
+```
+{{ $json.recomendaciones_fertirriego && $json.recomendaciones_fertirriego.length > 0 ?
+  '\n🧪 <b>Fertilización sugerida (aproximada):</b>\n' + $json.recomendaciones_fertirriego.map(r =>
+    `• ${r.nombre_producto}: ~${r.cantidad_recomendada}${r.unidad}` +
+    (r.nutrientes_cubiertos.length > 1 ? ` (cubre ${r.nutrientes_cubiertos.join('+')}, dosificado por ${r.nutriente_limitante})` : ` (${r.nutriente_limitante}: actual ${r.valor_actual} → objetivo ${r.valor_objetivo} mg/kg)`)
+  ).join('\n') + '\n\n⚠️ Cantidad aproximada según el volumen de tu maceta. Aplicá, regá, y esperá a la próxima lectura antes de agregar más.'
+  : '' }}
+```
+
+> [!NOTE]
+> Si un producto cubre más de un nutriente bajo a la vez, el mensaje lo aclara explícitamente ("cubre N+K, dosificado por K") para que el agricultor entienda que es **una sola aplicación**, no una por nutriente — justamente lo que el rediseño de 15.1.1 evita confundir.
+
+### 15.5 — Si el Usuario No Cargó su Producto
+
+Si `producto_fertilizante` está vacío para ese cultivo, el flujo no rompe — simplemente no hay `recomendaciones_fertirriego` esa vez, y el mensaje de alerta queda igual que hoy (solo la observación cualitativa "🟡 DÉFICIT Nitrógeno..."). Conviene, la primera vez que se detecta un déficit sin producto cargado, agregar una línea al mensaje: *"💡 Para recibir una cantidad aproximada de fertilizante a aplicar, cargá tu producto (ver `producto_fertilizante`)."*
+
+### 15.6 — pH: Sugerencia Cualitativa (sin cantidad exacta)
+
+A diferencia de NPK, para pH **no se calcula una cantidad** — la curva de titulación no es lineal (la misma cantidad de corrector cambia el pH de forma distinta según el buffer del sustrato), así que dar un número concreto sería engañoso. En cambio, el mensaje de alerta de pH (ya existente) se enriquece con una guía de aplicación incremental:
+
+```
+{{ $json.ph < $json.umbrales.ph.min ?
+  '💡 pH ácido: agregá tu corrector de pH+ de a poco (empezá con una dosis chica), esperá 10-15 min y volvé a medir antes de agregar más. No hay una cantidad exacta porque depende de tu sustrato.'
+  : ($json.ph > $json.umbrales.ph.max ?
+      '💡 pH alcalino: agregá tu corrector de pH- de a poco, esperá 10-15 min y volvé a medir antes de agregar más.'
+      : '') }}
+```
+
+### 15.7 — Trabajo Futuro (fuera de alcance de esta tesis)
+
+- **Confirmación de aplicación:** que el agricultor le responda al bot de Telegram "listo" después de aplicar la recomendación, y el sistema lo registre en `recomendacion_fertirriego` (hoy se registra el cálculo, no si efectivamente se aplicó).
+- **Sensor de conductividad (EC):** la tabla `tipos_metricas` ya tiene `Conductividad (mS/cm)` catalogada pero nunca se llegó a cablear ni a `fn_registrar_telemetria`. Permitiría verificar el efecto real de la fertilización aplicada en la siguiente lectura.
+- **Ajuste del factor de disponibilidad por tipo de sustrato:** hoy `FACTOR_DISPONIBILIDAD` y `DENSIDAD_SUSTRATO_KG_L` son constantes genéricas; podrían calibrarse por especie o por tipo de sustrato declarado (mismo tipo de mejora que se discutió para Fase 13 — un catálogo `tipo_sustrato` serviría a las dos fases a la vez, todavía sin decidir si se implementa).
+- **Nutrientes secundarios y micronutrientes (Ca, Mg, S, Fe, Mn, Zn, B, Cu, Mo):** discutido el 06/08/2026 — el sensor NPK económico usado en este proyecto no los mide (solo N, P, K, humedad, pH y a veces EC). Sin sensor no hay forma de detectar un déficit en tiempo real; requeriría análisis de laboratorio periódico, fuera del alcance del hardware actual. Si se retoma, el camino más simple es una recomendación genérica y no calculada (ej. "aplicá un fertilizante NPK completo con micronutrientes cada N semanas, según el fabricante"), no un cálculo cuantitativo como el de N/P/K.
+- **Catálogo de productos comerciales conocidos:** en vez de que el usuario tipee los % de la etiqueta a mano, ofrecerle una lista de productos comunes (marca + fórmula ya cargada) para elegir. Reduce fricción de alta pero implica mantenimiento de un catálogo regional — evaluar si vale la pena antes de escalar a más usuarios.
+
+### 15.8 — Testing Fase 15
+
+1. Cargar un `producto_fertilizante` de prueba combinado (ej. "Fertilizante NPK 10-5-8", líquido, `formato_declarado: 'oxido'`, `pct_n: 10, pct_p: 5, pct_k: 8`, sin densidad cargada).
+2. Enviar telemetría con N y K bajos a la vez, P en rango (ej. contra los ideales de `parametro_etapa` del cultivo de prueba, en una maceta de `volumen_maceta_litros: 10`).
+3. Verificar que "Calcular Recomendación NPK" devuelva **una sola** recomendación para ese producto (no dos), con `nutrientes_cubiertos: ['N','K']` y `nutriente_limitante` igual al que dio la cantidad mayor.
+4. Verificar a mano la conversión: con `pct_p: 5` y `formato_declarado: 'oxido'`, el % elemental de P usado internamente debe ser `5 × 0.4364 ≈ 2.18`, no `5`.
+5. Verificar que el mensaje de Telegram muestre "cubre N+K, dosificado por [el que corresponda]" en vez de dos líneas separadas.
+6. Repetir el mismo test antes de las 12hs → verificar que **no** se repita el aviso para ese producto+nutriente (cooldown).
+7. Cargar un segundo producto de prueba con `formato_declarado: 'elemental'` y confirmar que esa fila **no** se multiplica por los factores de conversión.
+8. Probar un escenario de pH fuera de rango sin `producto_fertilizante` cargado → verificar que llegue la sugerencia cualitativa de 15.6, sin cantidad numérica.
+
+### 15.9 — Checklist Fase 15
+
+- [ ] SQL 15.1 a-b rediseñadas (`producto_fertilizante` por producto físico, `recomendacion_fertirriego` con `nombre_producto`) — ver 15.1.1
+- [ ] Nodo "Obtener Productos Fertilizante" + "Obtener Recomendaciones Recientes" en WF1
+- [ ] Nodo "Calcular Recomendación NPK" (Code, 15.2) — con conversión óxido/elemental y dosis por producto, no por nutriente
+- [ ] Insert en `recomendacion_fertirriego` (15.3) — incluyendo `nombre_producto`
+- [ ] Alerta Telegram enriquecida con sección de fertilización, aclarando aplicaciones multi-nutriente (15.4)
+- [ ] Manejo del caso sin producto cargado (15.5)
+- [ ] Sugerencia cualitativa de pH (15.6)
+- [ ] Test 15.8 ✅ (incluye caso de producto combinado y caso `formato_declarado: 'elemental'`)
+- [ ] Decisión pendiente de RLS/mínimo privilegio para `producto_fertilizante`/`recomendacion_fertirriego` (ver nota en 15.1a)
+
+---
+
+## Fase 16 · Registro de Hallazgos
+
+Los **38 hallazgos** de auditoría del proyecto, en orden numérico. Cada uno conserva su número original —están referenciados desde los workflows y desde el changelog— y cambia de estado sin cambiar de identificador.
+
+Un hallazgo entra acá cuando fue **verificado contra el artefacto** (el JSON exportado, la base, una ejecución). Un modelo mental del runtime es una hipótesis, no evidencia: **16.32** es el caso que dejó esa regla instalada, y se conserva justamente porque fue descartado.
+
+> **Los hallazgos abiertos, priorizados, están en 1.2.** Esta sección es el detalle: qué se encontró, por qué importa, cómo se arregla y qué alternativa se descartó.
+
+### 16.0 — Índice de hallazgos
+
+| # | Sev. | Hallazgo | Estado |
+|---|---|---|---|
+| 16.1 | 🔴 | Secretos en texto plano (`service_role`, API key de Gemini) | 🟡 Supabase ✅ · Gemini: ver **Contradicciones**, fila f |
+| 16.2 | 🔴 | Webhooks de producción sin autenticación | ✅ Resuelto y testeado (26/07) |
+| 16.3 | 🔴 | Referencia a nodos renombrados — WF4 nunca ejecutó sin error | ✅ Resuelto en vivo (04/08) |
+| 16.4 | 🔴 | Body de Gemini mal armado (falta `specifyBody: json`) | ✅ Resuelto en vivo (04/08) |
+| 16.5 | 🔴 | URL de foto firmada guardada en la base — ya expiró | ✅ vía 12.2 · título desactualizado, ver **Contradicciones**, fila g |
+| 16.6 | 🟡 | Mínimo privilegio: `service_role` para lecturas públicas | 🟡 Parcial — limitación del nodo nativo |
+| 16.7 | 🟡 | Sin manejo de errores ni reintentos en llamadas críticas | ✅ Resuelto (27/07) |
+| 16.8 | 🟡 | Sin registro ante dispositivo desconocido | 🟢 Diferido (27/07) |
+| 16.9 | 🟢 | Limpieza menor (headers, nombres de nodo, `chatId` duplicado) | 🟢 Resto en B.4 |
+| 16.10 | — | *Checklist de la fase, no es un hallazgo* | — |
+| 16.11 | 🟡 | `estado_optimo` decidido por el criterio del LLM, no determinístico | ✅ Resuelto (05/08) |
+| 16.12 | 🟡 | Bug de tipos en `Hay cultivos a evaluar?` (WF3) | ✅ Resuelto (05/08) |
+| 16.13 | 🟡 | GRANTs: `anon`/`authenticated` con `ALL` sobre 18 tablas y vistas | 🟡 **Abierto** — SQL propuesto |
+| 16.14 | 🔴 | WF2 guardaba el error de Gemini como si fuera un diagnóstico | ✅ Cerrado por inyección de fallos (17/08) |
+| 16.15 | 🟠 | La degradación no deja ninguna señal operativa | 🟠 **Abierto** — aplicado solo en WF2 |
+| 16.16 | 🔴 | Pérdida de cardinalidad en WF3: procesaba un cultivo y descartaba el resto | ✅ Resuelto y verificado (17/08) |
+| 16.17 | 🔴 | Catálogo de etapas duplicado: el nodo HTTP corría una vez por cultivo | ✅ Resuelto (17/08) |
+| 16.18 | 🔴 | La concurrencia contra Gemini no escala | ✅ Resuelto (17/08) |
+| 16.19 | 🟡 | `diagnostico_ia` guarda dos formas distintas según quién escriba | ⚠️ Ver **Contradicciones**, fila e — 16.28 lo da por cerrado |
+| 16.20 | 🔴 | `debe_actualizar` valida que la IA respondió, no *qué* respondió | ✅ Aplicado (20/08) |
+| 16.21 | 🔴 | WF3 re-analiza la misma foto cada 8 h, indefinidamente | 🟡 **Abierto a medias** (opción 2) |
+| 16.22 | 🟠 | Una foto rota aborta la corrida de todos los cultivos | ✅ Aplicado (20/08) |
+| 16.23 | 🟡 | Dual-write sin atomicidad en WF3 | ✅ Resuelto (23/08) por la RPC transaccional |
+| 16.24 | 🟢 | `Obtener Orden Etapas` sin `limit` explícito | ✅ Aplicado y mejorado (20/08) |
+| 16.25 | 🔴 | La evidencia se consume antes de que el resultado esté persistido | ✅ Resuelto de raíz (23/08) — ver 9.14 |
+| 16.26 | 🟠 | Un `=` de más: la condición "tiene foto" no puede dar falso | ✅ **Ya aplicado** — ver **Contradicciones**, fila d |
+| 16.27 | 🟠 | La rama FALSE de `Diagnostico util?` no existe | ✅ Resuelto vía 16.27.1 |
+| 16.27.1 | — | Corrección: el `Stop and Error` era el fix equivocado | ✅ Verificado en vivo (24/08) |
+| 16.28 | 🟡 | `etapa_detectada_cruda` se calcula y se tira | ✅ Resuelto (23/08) |
+| 16.29 | 🟢 | `"condition": "=eq"` no admite reintento | 🟢 **Abierto** |
+| 16.30 | 🟢 | Deriva de modelo: WF4 quedó en `gemini-2.5-flash` | 🟢 **Abierto** — confirmado en el export |
+| 16.31 | 🟠 | `etapa_no_coincide` es un estado absorbente | 🟠 **Abierto** |
+| 16.32 | ❌ | "Un fallo de Telegram impide el riego" | ❌ **Descartado** — refutado por el test y la topología |
+| 16.33 | 🟠 | Dos cultivos activos por dispositivo: uno se pierde en silencio | 🟠 **Abierto** — SQL |
+| 16.34 | 🟠 | `fn_registrar_telemetria` arma el JSON por concatenación | ✅ **Aplicado y verificado contra la base** (31/08) |
+| 16.35 | 🟡 | `tiene_actuador_riego` sin `!!` — cuarta aparición del patrón | ✅ Aplicado (31/08), sin ejercitar por separado |
+| 16.36 | 🟢 | `Requiere Alerta?` rutea sobre el string `estado` | ✅ **Aplicado y verificado en vivo** (31/08) |
+| 16.37 | 🔴 | Un cultivo en etapa sin umbrales se reporta sano indefinidamente | 🟡 Guarda aplicada (31/08), **sin ejercitar** — falta el dato (B.1) |
+| 16.38 | 🟠 | La base no impide que el hueco de umbrales vuelva a aparecer | 🟠 **Abierto** — SQL |
+| 16.40 | 🔴 | Un JWT `service_role` quedó en texto plano dentro del plan | 🔴 **Abierto** — redactado; falta verificar y rotar |
+| 16.39 | 🟠 | Una lectura de sensor desconectado que trae foto se pierde entera y en silencio | 🟠 **Abierto** — confirmado en vivo el 31/08 |
+
+<details>
+<summary><i>Tabla original de 16.0 (25/07 → 05/08), conservada sin editar</i></summary>
+
+| # | Hallazgo | Severidad | Workflow(s) |
+|---|----------|-----------|-------------|
+| 16.1 | Service role key de Supabase y API key de Gemini pegadas en texto plano en múltiples nodos | 🔴 Crítica | WF1, WF2, WF3, WF4 |
+| 16.2 | Webhooks de producción sin autenticación (`/webhook/telemetria`, `/webhook/diagnostico-ia`) | 🔴 Alta | WF1, WF2 |
+| 16.3 | Bug de referencia a nodos renombrados — WF4 probablemente nunca ejecutó sin error | ✅ Resuelto **en vivo** (04/08/2026) — se había marcado resuelto el 27/07 pero el fix no había quedado aplicado; corregido y confirmado con ejecución real | WF4 |
+| 16.4 | Body de Gemini mal armado (falta `specifyBody: json`) | ✅ Resuelto **en vivo** (04/08/2026) — mismo caso que 16.3: seguía sin aplicar pese a marcarse resuelto el 27/07; corregido (Body Content Type → JSON) y confirmado | WF4 |
+| 16.5 | `url_foto`/`path_foto` guardada como URL firmada — **ya expiró** (22/07/2026), bug activo | 🟡 Resuelto en diseño (12.2), pendiente de construir en n8n | WF2, WF3 |
+| 16.6 | Se usa `service_role` para lecturas públicas | 🟡 Parcial (2/3 nodos vía Publishable; los 2 nativos restantes quedan en Secret — limitación del nodo nativo, ver detalle) | Nodos nativos Supabase |
+| 16.7 | Sin manejo de errores/reintentos en llamadas críticas | ✅ Resuelto (27/07/2026) | Todos |
+| 16.8 | Sin registro/alerta ante dispositivo desconocido o configuración faltante | 🟢 Diferido a futura mejora (27/07/2026) | WF1 |
+| 16.9 | Detalles de limpieza (headers con espacios/tabs, nombres de nodo poco descriptivos, chatId duplicado) | 🟢 Baja | WF1, WF4 |
+| 16.11 | `estado_optimo` decidido por el criterio del LLM (Gemini) — no determinístico, puede variar entre corridas con el mismo dato de entrada | ✅ Resuelto e implementado (05/08/2026) — verificado en vivo con 2 corridas idénticas ("seria") y un caso "leve" exacto | WF4 |
+
+
+</details>
+
+---
+
+### 16.A — Procedencia: las auditorías que produjeron estos hallazgos
+
+Cada bloque es el contexto de una auditoría: qué se cruzó, contra qué, qué se confirmó sano y qué hallazgos abrió. Se conservan porque **la narrativa de cómo se descubrió cada cosa es material de tesis**, y porque el método —cruzar el artefacto contra el documento, no el documento contra sí mismo— es el que produjo todos los hallazgos de peso del proyecto.
+#### Auditoría inicial sobre los 4 exports (25/07/2026)
+
+
+> [!IMPORTANT]
+> Análisis hecho sobre los 4 workflows exportados directamente de n8n (`WORKFLOWS/*.json`, 25/07/2026) — no sobre lo documentado, sino sobre lo que **realmente** hay armado. Aparecen diferencias importantes respecto al plan, incluyendo un bug que probablemente explica por qué WF4 nunca se activó.
+
+
+---
+
+#### Auditoría del export de WF3 (18/08/2026) — sesión 7
+
+
+**Contexto.** Punto 1 del cierre de la sesión 6: verificar que el JSON re-exportado de WF3 refleje realmente los 6 cambios de la sesión anterior, en vez de asumirlo. Se cruzó el export contra este documento y contra el estado vivo de Supabase (esquema de `vista_cultivos_activos`, `etapas_especie`, FKs de `cultivo` y `seguimiento_fenologico`).
+
+**Resultado de la verificación — los 6 cambios están:**
+
+| Cambio | Evidencia en el JSON |
+|---|---|
+| 16.16-1 · `Convertir a Base64` itera | `$input.all()` + `$('Validacion de foto').all()`, devuelve N ítems, con la guarda de desalineación ✅ |
+| 16.16-2 · `Parsear y decidir` itera | `$input.all()` + `$('Convertir a Base64').all()`, `.map()` sobre N, con guarda ✅ |
+| 16.16-3 · `path_foto` por ítem | los 5 campos de `Persistir Seguimiento Fenologico` usan `.item` ✅ |
+| 16.16-4 · `Generar URL Firmada` por ítem | `$('Parsear y decidir').item.json.ultima_foto_path` ✅ |
+| 16.17 · catálogo una sola vez | `"executeOnce": true` en `Obtener Orden Etapas`, + la guarda `siguiente.id === cultivo.etapas_especie_id` ✅ |
+| 16.18 · batching contra Gemini | `options.batching.batch.batchSize = 1` ✅ |
+
+**Chequeos automáticos sobre el JSON:** 6 referencias `$('...')`, las 6 a nodos existentes (**0 rotas**); **0 `.first()` remanentes** en todo el workflow; 10 usos de `.item`; ningún nodo huérfano; `active: true`.
+
+**Salvedad única.** `batchInterval` no aparece en el JSON. Es coherente con que n8n no serializa los parámetros que coinciden con el default del nodo (1000 ms), así que el comportamiento efectivo es el documentado en 16.18 — pero es **el único de los 6 fixes cuyo valor no es verificable desde el export**, y conviene confirmarlo visualmente en la UI. Nota de método: un cambio de configuración que consiste en *dejar un valor en su default* es indistinguible en un artefacto serializado de no haberlo tocado nunca; cuando el valor importa para el diseño, conviene fijarlo en un número distinto del default (por ejemplo 1200 ms) solo para que quede evidencia de la decisión.
+
+**Dos pendientes viejos que el export cierra**, sin que estuvieran anotados como cerrados:
+
+- `expiresIn` de `Generar URL Firmada` volvió a **60** — era el punto 1 de "próximos pasos" de 12.2.2, en 300 desde el 28/07 para poder testear a mano. ✅
+- El nodo `Send a text message` ya se llama `Notificar Cambio de Etapa` — parte del ítem de WF3 de **B.4**. ✅
+
+**Cinco hallazgos nuevos**, ninguno de ellos regresión de los fixes: 16.20 🔴, 16.21 🔴, 16.22 🟠, 16.23 🟡 y 16.24 🟢, detallados abajo.
+
+**Nota operativa para cualquier test de WF3 (regla 5).** El único cultivo está en **Floración desde el 12/08** y Floración dura 20 días para Tomate Cherry, así que la ventana de evaluación (`0.8 × duración`) se abre recién el **28/08**. Hoy `Calcular Dias en Etapa` devuelve `{ skip: true }` y **la corrida se corta en `Hay cultivos a evaluar?`**: cualquier prueba daría una ejecución verde sin haber ejercido un solo nodo posterior. Para probar de verdad hay que retrasar `fecha_inicio_etapa` a propósito y restaurarla después — los datos que un test crea son parte del test (16.16).
+
+---
+
+
+---
+
+#### Auditoría de los exports del 20/08 (WF3 y WF2) — sesión 8, 21/08/2026
+
+
+**Contexto y cómo apareció.** La sesión abrió con el paso 1 del cierre de la sesión 6 —auditar el export de WF3— que la sesión 7 ya había ejecutado. Antes de releer nada se compararon las fechas de modificación de los artefactos: el plan estaba grabado el **18/08 19:30 UTC** y `WF 3 - Validacion Fenologica 8-20-26.json` y `WF 2 - Diagnostico IA Emergencia 8-20-26.json` el **20/08 23:54 UTC**. Dos días de diferencia a favor de los archivos: hubo una sesión de trabajo que no quedó registrada. La auditoría pasó entonces a tener dos objetivos, no uno — verificar los fixes **y** reconstruir qué se hizo.
+
+**Lo que se había aplicado sin documentar:**
+
+| Ítem | Aplicado | Dónde se ve |
+|---|---|---|
+| **16.20** 🔴 | ✅ completo | `normalizar()` NFD + 4º término `etapaCoincide` + `etapa_no_coincide` + `etapa_detectada_cruda` en `Parsear y decidir` |
+| **16.21** 🔴 | 🟡 a medias (opción 2) | columna `cultivo.ultima_foto_evaluada_path`, expuesta en `vista_cultivos_activos`, 2ª condición en `Validacion de foto`, nodo `Marcar Foto Evaluada` |
+| **16.22** 🟠 | ✅ los 5 toques | `onError` en `Descargar Foto` y `Extract from File`, `foto_ok` + `motivo_sin_foto`, IF `Foto Descargada`, guarda reapuntada |
+| **16.24** 🟢 | ✅ y mejorado | `limit=1000` + detección de truncado con `throw` en `Calcular Dias en Etapa` |
+| **16.15** 🟠 | 🟡 solo WF2 | nodo `Diagnostico Fallido` (Stop and Error) en la rama FALSE de `Diagnostico Valido` |
+| Modelo Gemini | ✅ WF2 y WF3 | `gemini-2.5-flash` → **`gemini-3.5-flash`** (modelo real y vigente, confirmado; **WF4 quedó en 2.5**, ver 16.30) |
+| Nodo nuevo sin diseño previo | — | `Diagnostico util?`, que no figuraba en ninguna sección del plan |
+| **16.23** 🟡 | ❌ sin aplicar | y **agravado** por el fix de 16.21 — ver 16.25 |
+
+**Lo que se verificó que sigue sano.** Los 6 cambios de la sesión 6 intactos (4 de 16.16, `executeOnce` de 16.17, `batchSize: 1` de 16.18); **0 referencias `$('...')` rotas** de las 7 del workflow, incluida la nueva a `Foto Descargada`; **0 `.first()` remanentes**; ningún nodo huérfano; `active: true` en WF2 y WF3. La calidad del código pegado el 20/08 es buena: las guardas de cardinalidad se reapuntaron donde correspondía y los comentarios citan las secciones del plan.
+
+**Estado real de la base, verificado contra Supabase y no contra el documento (reglas 3 y 4):** `cultivo.ultima_foto_evaluada_path` existe y está en **`null`**; `vista_cultivos_activos` la expone; `seguimiento_fenologico` tiene **24 filas** (el plan decía 23 — la nueva es de WF2, del 20/08 18:49, con `path_foto` bien formado); `evento_riego` tiene **8 filas**, todas en `resultado = 'pendiente'` (el plan decía 5). Y 16.19 quedó confirmado en vivo: la fila del 12/08 19:39 es el string concatenado de WF3, las demás son objetos de WF2, en la misma columna `jsonb`.
+
+**Seis hallazgos nuevos: 16.25 🔴 · 16.26 🟠 · 16.27 🟠 · 16.28 🟡 · 16.29 🟢 · 16.30 🟢.** Ninguno es una regresión de los fixes tomados de a uno; **los tres primeros son defectos de composición** — de cómo un fix nuevo se apoya sobre el sistema que ya estaba.
+
+---
+
+
+---
+
+#### Auditoría de WF1 (24/08/2026) — primera vez que se cruza contra el plan
+
+
+**Contexto.** WF1 es el único workflow `active: true` que mueve datos en cada telemetría, y **nunca se había auditado** contra este documento. Los exports del 24/08 de WF1, WF2, WF4 y WF5 son **byte a byte idénticos** a los del 18/08 (verificado por hash), así que no hubo drift y lo auditado es el estado real.
+
+**Lo que está sano:** 18 nodos, todos alcanzables desde el Webhook, **0 referencias `$('...')` rotas** de 7. Confirmados en el JSON los 6 fixes históricos — `Obtener Ultimo Riego` sin tilde con `alwaysOutputData`, `Preparar Foto binaria` con la `b` correcta, `enMantenimiento` con `!!` calculado al principio del nodo, `fotoPlausible`, `tiene_foto`, y los tres IF de 13.4 ruteando sobre booleanos de dominio. El `Motor de Inferencia` está limpio.
+
+**Deuda latente sin numerar:** el Motor usa `.first()` en cinco referencias. Correcto hoy, porque el Webhook trae un ítem por invocación. Se convierte en cruce silencioso el día que el ESP32 mande lecturas en lote.
+
+---
+
+
+---
+
+### 16.1 — 🔴 Secretos en Texto Plano
+
+**Qué se encontró:** el JWT `service_role` de Supabase (acceso total a la base, sin RLS) estaba pegado como string literal en los headers `apikey`/`Authorization` de 6 nodos HTTP Request (los que llaman a la REST API directamente en vez del nodo Supabase nativo: `fn_registrar_telemetria`, `Conocimiento Experto` ×2, `HTTP Request` de promedios) y en la credencial nativa "Supabase account". La API key de Gemini estaba igual de expuesta, pegada en la URL de 3 nodos (`IA Vision Gemini`, `IA Vision Fenologica`, `Request a Gemini - No foto`). Ambas quedaron también pegadas, sin querer, en varias secciones de este documento (Fases 1, 4, 8, 9, 10 — son la key real, no un ejemplo).
+
+**Por qué importa:** quien tenga el `.json` exportado de un workflow, acceso al servidor de n8n, o los logs de ejecución, tiene la clave maestra de la base completa — no una API key acotada, sino la que ignora todos los permisos.
+
+#### ✅ Supabase — resuelto y testeado (26/07/2026)
+
+Supabase migró de las keys legacy (`anon`/`service_role`, que ya no tienen botón "roll", solo copiar o deshabilitar) al sistema nuevo: **Publishable key** (reemplaza `anon`) y **Secret key** (reemplaza `service_role`, revocable individualmente). Se hizo:
+
+1. Se generaron 1 Secret key y 1 Publishable key en Project Settings → API Keys.
+2. Se crearon dos credenciales n8n tipo **Header Auth**, cada una con un único header `apikey` (⚠️ no usar `Authorization: Bearer` con las keys nuevas — Supabase intenta parsearlas como JWT y devuelve `Invalid JWT`): una con la Secret, otra con la Publishable.
+3. Se migró cada nodo a **Authentication → Generic Credential Type → Header Auth** con la credencial que corresponde:
+
+   | Nodo | Credencial |
+   |------|-----------|
+   | `fn_registrar_telemetria` (WF1) | Header Auth → Secret |
+   | `Conocimiento Experto` (WF1, WF4) | Header Auth → Publishable |
+   | `HTTP Request` promedios (WF4) | Header Auth → Publishable |
+   | Credencial nativa "Supabase account" (WF1/WF2/WF3/WF4) | Secret key |
+
+4. En ambas credenciales, **Allowed HTTP Request Domains → Specific Domains → `xypqsthwquegftcnoqyi.supabase.co`** (de paso resuelve 16.6, mínimo privilegio: la Publishable ya no puede escribir nada).
+5. Testeado con los 3 cURL de la Fase 5 — funcionando.
+
+**Pendiente:** una vez confirmado que corre estable unos días, ir a **Settings → API Keys → Disable legacy API keys** para invalidar definitivamente el `service_role` que quedó expuesto.
+
+#### ⏳ Gemini — pendiente
+
+1. Crear una key nueva en Google AI Studio (sale como "Auth key", formato `AQ....` — no tiene botón "Restrict to Gemini API only", esa opción es solo para las keys legacy `AIza...`, no hace falta nada ahí).
+2. Crear una credencial n8n tipo **Query Auth** (Name: `key`, Value: la key nueva), con **Allowed HTTP Request Domains → Specific Domains → `generativelanguage.googleapis.com`**.
+3. Migrar los 3 nodos (`IA Vision Gemini` WF2, `IA Vision Fenologica` WF3, `Request a Gemini - No foto` WF4) a Authentication → Generic Credential Type → Query Auth, borrando el `?key=...` pegado en la URL.
+4. Testear y borrar la key vieja en AI Studio (30 días de margen para deshacer).
+
+#### Pendiente general
+
+Reemplazar en este documento (Fases 1, 4, 8, 9, 10) la key legacy pegada como "ejemplo" por un placeholder (`TU_SERVICE_ROLE_KEY`) antes de compartirlo para la tesis.
+
+---
+
+### 16.2 — ✅ Webhooks de Producción sin Autenticación (resuelto)
+
+#### ¿Qué es un webhook, en criollo?
+
+Un nodo Webhook en n8n es, ni más ni menos, una URL que n8n deja escuchando. Cuando alguien le manda una petición HTTP a esa URL, n8n **ejecuta todo el workflow**, tratando lo que llegó como dato de confianza — no le pregunta "¿quién sos?" antes de arrancar. Hoy `Webhook` de WF1 (`/webhook/telemetria`) y `Webhook` de WF2 (`/webhook/diagnostico-ia`) están configurados así: cualquier POST que les llegue dispara el workflow, sin ningún chequeo.
+
+#### ¿Por qué esto importa?
+
+Ahora mismo el riesgo es bajo, porque n8n corre en `localhost` — solo tu propia computadora puede llegar a esa URL. Pero el día que el ESP32 real necesite mandarte datos desde otra red (tu casa, no la misma máquina que corre n8n), vas a tener que exponer ese puerto de alguna forma. Ese día, cualquiera que encuentre la URL podría:
+- Mandar telemetría falsa haciéndose pasar por tu dispositivo real (`dispositivo_mac`), generando alertas falsas o tapando alertas reales.
+- Pegarle directo a `/diagnostico-ia` (que en teoría solo lo debería llamar WF1 internamente) para gastar tu cuota de Gemini y llenar tu Telegram real de diagnósticos inventados.
+
+Conviene dejar esto resuelto ahora, mientras el costo es bajo, en vez de acordarte el día que ya esté todo expuesto a internet.
+
+#### La solución: Header Auth (una "contraseña" en cada pedido)
+
+Pensalo como un portero en la puerta de un boliche: antes de dejar pasar a alguien, le pide que muestre algo (una entrada, una pulsera). **Header Auth** es eso mismo aplicado a HTTP: configurás un nombre y un valor secreto (ej. header `X-Device-Key` = `un-string-random-larguísimo`), y le decís al nodo Webhook "no ejecutes nada si la petición no trae este header con este valor exacto". Si falta o está mal, n8n responde error 403 y **ni siquiera llega a correr tu workflow** — el chequeo pasa antes de cualquier otro nodo.
+
+Es el mismo tipo de credencial que usaste en la Fase 16.1 (Header Auth) — ahí la usabas para que **n8n se autentique contra Supabase** (saliente); acá la vas a usar al revés: para que **n8n exija autenticación de quien lo llama** (entrante).
+
+#### Paso a paso — WF1 (`/webhook/telemetria`)
+
+1. **Credentials → Add Credential → Header Auth.** Nombre sugerido: `ESP32 Telemetria Key`. Campo **Name**: `X-Device-Key`. Campo **Value**: inventá un string largo y random (podés usar un generador de contraseñas online, cuanto más largo e impredecible, mejor — no tiene que ser memorizable, nadie lo va a tipear a mano).
+2. Abrí WF1 → click en el nodo **Webhook** (el primero del flujo).
+3. En el panel de parámetros del nodo buscá el campo **Authentication** (hoy dice "None") → cambialo a **"Header Auth"**.
+4. Aparece un campo nuevo **Credential for Header Auth** → elegí la credencial que creaste en el paso 1.
+5. Guardá el nodo y el workflow.
+
+Desde ese momento, toda petición a `/webhook/telemetria` que no traiga el header `X-Device-Key` con el valor correcto va a ser rechazada automáticamente, antes de tocar ningún otro nodo.
+
+> [!IMPORTANT]
+> Al hacer esto, tus propias pruebas (los cURL/PowerShell de la Fase 5, y el simulador de ESP32 de 13.6) van a dejar de funcionar hasta que les agregues el mismo header. Ejemplo actualizado:
+> ```powershell
+> Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Headers @{ "X-Device-Key" = "TU_VALOR_SECRETO" } -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":25.0,"ph":6.5,"n":45,"p":32,"k":28}'
+> ```
+
+#### Paso a paso — WF2 (`/webhook/diagnostico-ia`)
+
+Acá el "llamador" no sos vos con un cURL, es el propio **WF1** (el nodo `Trigger a WF2`) — así que la autenticación va en los dos lados, con la misma credencial:
+
+1. **Credentials → Add Credential → Header Auth** de nuevo, pero con un secreto **distinto** al de WF1 (nombre sugerido: `WF1-WF2 Interno`, header `X-Internal-Key`, otro valor random). Usar un secreto separado por webhook es buena práctica: si algún día se compromete uno, el otro sigue protegido.
+2. En WF2 → nodo **Webhook** → Authentication → Header Auth → elegir esta credencial nueva.
+3. En WF1 → nodo **`Trigger a WF2`** (el HTTP Request que llama a `/diagnostico-ia`) → cambiar su **Authentication** de "None" a **"Generic Credential Type"** → **Header Auth** → elegir la misma credencial `WF1-WF2 Interno`. Así, esa llamada interna manda el header automáticamente sin que lo tengas que armar a mano.
+
+#### ✅ Resuelto y testeado (26/07/2026)
+
+Las dos credenciales quedaron creadas (con valores alfanuméricos, sin símbolos, para evitar problemas de escaping en PowerShell) y aplicadas:
+- `X-Device-Key` → Webhook de WF1 (Authentication → Header Auth).
+- `X-Internal-Key` (WF1-WF2 Interno) → usada en **dos lugares con la misma credencial**: Webhook de WF2 (Header Auth, entrante) y nodo `Trigger a WF2` de WF1 (Generic Credential Type → Header Auth, saliente) — es el mismo secreto cumpliendo los dos roles porque ambos extremos son la misma instancia de n8n hablándose a sí misma.
+
+Testeado con el escenario de Sequía de la Fase 5: llegan los 2 mensajes de Telegram (alerta + diagnóstico IA), confirmando que WF1 pasa la key correcta a WF2.
+
+---
+
+### 16.3 y 16.4 — 🔴 Bugs Confirmados en WF4 (probable causa de que nunca se haya activado)
+
+**16.3 — Referencias a nodos que ya no existen:** el nodo Code `Parsear Respuesta de Gemini` de WF4 tiene:
+```javascript
+const geminiResponse = $('AI Análisis Preventivo').first().json;
+const cultivoData = $('Obtener Últimas Lecturas + Conocimiento').first().json;
+```
+Pero en el workflow real **no existe ningún nodo con esos nombres** — se llaman `Request a Gemini  - No foto` y `Obtener lecturas y conocimiento.` (evidentemente los renombraste en algún momento y las referencias del Code no se actualizaron). Esto tira error de "nodo no encontrado" en cada ejecución. Fix: reemplazar esas dos líneas por los nombres reales:
+```javascript
+const geminiResponse = $('Request a Gemini  - No foto').first().json;
+const cultivoData = $('Obtener lecturas y conocimiento.').first().json;
+```
+
+**16.4 — Body de Gemini mal armado:** a diferencia de WF1/WF2/WF3 (que usan `"specifyBody": "json", "jsonBody": "={{ ... }}"`), el nodo `Request a Gemini - No foto` arma el body con `bodyParameters.parameters` y mete todo el JSON dentro del campo **`name`** de un único parámetro, sin `value` y sin `specifyBody` seteado en `"json"`. En la práctica, eso hace que n8n mande un body tipo formulario con un nombre de campo gigante y valor vacío — Gemini nunca recibe un JSON válido.
+
+**Cómo arreglarlo en la UI de n8n, paso a paso:**
+1. Abrí el nodo `Request a Gemini  - No foto` (WF4).
+2. Buscá el selector **"Body Content Type"** (o "Specify Body", según la versión) — hoy está en algo como "Using Fields Below" / "Form-Urlencoded". Cambialo a **JSON**.
+3. Al cambiar el tipo, el campo de abajo con el parámetro raro (el que tiene todo el texto pegado en "Name") desaparece o queda huérfano — borralo si sigue ahí.
+4. Va a aparecer un campo único llamado **"JSON"**. Activá el modo expresión (el ícono de los dos engranajitos / `fx`) y pegá esto completo:
+```javascript
+={{
+  JSON.stringify({
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": `Actuá como un experto en fisiología vegetal. Recibís datos de las últimas lecturas de un cultivo.
+
+CULTIVO: ${$json.planta} en fase ${$json.etapa_actual}
+
+VALORES ACTUALES:
+- Humedad: ${$json.humedad_promedio}%
+- pH: ${$json.ph_promedio}
+- N: ${$json.n_promedio} mg/kg
+- P: ${$json.p_promedio} mg/kg
+- K: ${$json.k_promedio} mg/kg
+
+VALORES IDEALES:
+- Humedad: ${$json.humedad_min}% - ${$json.humedad_max}%
+- pH: ${$json.ph_min} - ${$json.ph_max}
+- N ideal: ${$json.ideal_n}, P ideal: ${$json.ideal_p}, K ideal: ${$json.ideal_k} mg/kg
+
+TAREA: Comparar los datos. Si hay desviación menor al 10%, generar recomendación de ajuste leve. Si están en rango, devolver estado_optimo: true.
+
+RESPONDÉ EXCLUSIVAMENTE en JSON:
+{"estado_optimo": true, "tendencia": "estable|mejorando|empeorando", "desviaciones_leves": [], "recomendaciones_preventivas": [], "mensaje_agricultor": "resumen simple"}`
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "temperature": 0.2,
+      "responseMimeType": "application/json"
+    }
+  })
+}}
+```
+Es el mismo prompt que ya tenías (se rescató el texto original del JSON exportado), solo reescrito con `JSON.stringify(...)` — el mismo patrón que usan `IA Vision Gemini` (WF2) e `IA Vision Fenologica` (WF3). Esto además es más seguro que el formato anterior: si algún valor de sensor tuviera una comilla o un salto de línea raro, `JSON.stringify` lo escapa solo — armar el JSON a mano pegando texto adentro (como estaba) se puede romper con esos casos.
+5. Guardá y probá el nodo (botón "Test step" / ejecutar el workflow con datos de un cultivo real).
+
+> [!NOTE]
+> Estos dos bugs combinados son casi con certeza la razón por la que WF4 quedó `active: false` — probablemente nunca corrió sin tirar error desde que se renombraron esos nodos.
+
+**✅ 16.3 y 16.4 resueltos (27/07/2026)**, ambos aplicados y confirmados por el usuario. Con esto, WF4 debería poder activarse y correr sin los errores de ejecución que tenía — pendiente de un test real (Fase 11, todavía no hecha) antes de darlo por productivo.
+
+#### ⚠️ 16.3 — REABIERTO (02/08/2026), pendiente de verificación en vivo
+
+Al releer el JSON real de WF4 (a pedido del usuario, para responder "¿está terminado WF4?"), el nodo `Parsear Respuesta de Gemini` **sigue mostrando**:
+```javascript
+const geminiResponse = $('AI Request a Gemini - No foto').first().json;
+const cultivoData = $('Obtener lecturas y conocimiento').first().json;
+```
+La segunda línea (`Obtener lecturas y conocimiento`) sí coincide con el nombre real del nodo — esa parte del fix quedó bien. Pero la primera línea referencia `AI Request a Gemini - No foto`, y el nodo real en el workflow se llama **`Request a Gemini  - No foto`** (sin el prefijo "AI ", con doble espacio antes del guion). No coinciden — es el mismo tipo de bug que `Preparar Foto Binaria` vs `Preparar Foto binaria` en WF1 (ver 12.2.1): `$('NodeName')` en n8n exige match exacto de string, así que esa línea tira error en cada ejecución, el `try/catch` del propio nodo lo traga en silencio, y `diagnosis` cae siempre en el fallback `{ estado_optimo: true, ... }` — lo que hace que `Hay recomendacion?` sea siempre falso y `Reporte preventivo` nunca se envíe, sin ningún error visible en Telegram ni en la ejecución.
+
+Esto contradice el checklist 16.10, que marca este punto como resuelto el 27/07/2026. Dos explicaciones posibles, no excluyentes:
+1. El fix se aplicó pero con un typo al escribir el nombre del nodo (agregando "AI " de más), o
+2. El export `.json` que se está leyendo quedó desactualizado respecto al estado real en n8n (ya pasó una vez esta sesión, al revés, con un nodo de WF1 que en el export figuraba roto pero en vivo ya estaba arreglado).
+
+**No se tocó nada.** Antes de reactivar WF4 o de dar por cerrada la Fase 16, hay que abrir el nodo `Parsear Respuesta de Gemini` directamente en n8n y confirmar el nombre exacto que usa esa primera línea contra el nombre real del nodo HTTP Request de Gemini en el canvas.
+
+#### ✅ 16.3 y 16.4 — RESUELTOS EN VIVO (04/08/2026)
+
+Verificación en vivo confirmó la sospecha: el nodo HTTP de Gemini se llamaba en el canvas de forma distinta a la referenciada en el Code node, y además el body de Gemini **también** seguía roto (16.4 estaba igual de reabierto que 16.3, aunque no se había detectado hasta ahora). Se corrigió todo en la misma sesión, con verificación live en cada paso (usuario reportando pantalla, sin asumir nada del export):
+
+1. **16.3** — se renombraron los nodos en n8n hasta que coincidieran, y se corrigió `Parsear Respuesta de Gemini` para referenciar el nombre real del nodo HTTP de Gemini vía autocompletado de n8n (evita error de tipeo manual, incluido un espacio de más que apareció en el primer intento: `$('Request a Gemini ')` vs `$('Request a Gemini')`).
+2. **16.4** — el body de Gemini seguía armado como parámetro de formulario (el JSON pegado en el campo "Name"), no como JSON real. Se cambió "Body Content Type" a **JSON** y se confirmó con un test del nodo.
+3. **Bug adicional encontrado** (no documentado antes): dentro del prompt de Gemini, los valores de humedad/pH/N/P/K y la etapa del cultivo (`${$json.etapa_actual}` / `${$json.humedad_promedio}`, etc.) referenciaban `$json` plano, que en ese punto del flujo correspondía al nodo `Conocimiento Experto` (no tiene esos campos, o los tiene con otro nombre de columna — la vista real expone `etapa`, no `etapa_actual`). Corregido por el usuario referenciando explícitamente `$('Obtener lecturas y conocimiento').first().json.<campo>` para los promedios, y `$json.etapa` (en vez de `$json.etapa_actual`) para la etapa.
+4. **Dato de prueba insuficiente**: al testear, `Consultar Promedios` no devolvía filas — la vista `vista_promedios_recientes` filtra lecturas de las últimas 6hs y las últimas cargadas en `lectura_sensores` para el cultivo de test tenían casi 2 días de atraso. Se insertaron 5 filas de test frescas (`lectura_sensores` ids **156-160**, timestamp `2026-08-04 20:23:26 UTC`, mismo cultivo `a1327127-1570-474a-a49e-6d506b300759`) con confirmación explícita del usuario antes de ejecutar el `INSERT`. **Pendiente: borrar esas 5 filas de test una vez terminada la orquestación completa** (`DELETE FROM lectura_sensores WHERE id IN (156,157,158,159,160);`) — no tocan la base de conocimiento experto, solo lecturas de sensor de prueba.
+
+**Resultado:** WF4 corrió de punta a punta con éxito — Gemini respondió con la key rotada, `Parsear Respuesta de Gemini` procesó la respuesta sin error, y `Reporte preventivo` llegó por Telegram con contenido real. Esto también confirma el nodo Gemini de WF4 con la key nueva (ver checklist de la tarea de rotación). Ver 16.11 para una mejora de diseño detectada durante este mismo test.
+
+---
+
+### 16.5 — 🔴 URL de Foto Firmada — YA EXPIRÓ (bug activo, no preventivo)
+
+`url_foto` en WF2 y WF3 (`Persistir Diagnotico - Url estatica` y `Persistir Seguimiento Fenologico`) guardaba una URL **firmada** de Supabase Storage (`.../object/sign/...?token=...`). Decodificando el JWT del token: **expiró el 22/07/2026**. No era un riesgo a futuro, era un bug activo: cualquier intento de reenviar esa foto a Telegram (nodo `Mandar foto` en WF3) fallaba desde entonces.
+
+**Primer intento (revertido):** el plan original decía que el bucket `fotos-cultivos` ya era público desde la Fase 7.2 — se verificó contra la base real y **era falso**, el bucket estaba `public: false` (por eso la URL pública daba `404 Bucket not found`, el mensaje genérico que usa Supabase para no confirmar si un bucket privado existe). Se probó marcarlo público directamente, pero el usuario correctamente señaló el riesgo: **si el producto escala a más de un cliente, las fotos muestran el espacio/predio de cultivo de cada uno — es información que identifica un lugar y un negocio ajeno**, y un bucket público con URL fija y adivinable expone eso para siempre a cualquiera. Se revirtió (`public = false` de nuevo).
+
+**Diseño definitivo (bucket privado + URL firmada generada al vuelo):** el patrón correcto para storage privado multi-tenant es no guardar nunca una URL de acceso larga duración — se guarda solo la *referencia* (el path del archivo dentro del bucket) y se pide una URL firmada nueva, de vida muy corta, justo en el momento en que hace falta usarla. Cambios aplicados:
+
+1. **Columna renombrada** (SQL, ya aplicado): `seguimiento_fenologico.url_foto` → `path_foto`. Un path no es una URL ni un secreto — no sirve para acceder al archivo sin credenciales, así que guardarlo de forma permanente es seguro.
+2. **De dónde sale el valor de `path_foto` hoy:** se rediseñó junto con 12.2 para que sea un path único y dinámico por evento (`{cultivo_id}/{timestamp}.jpg`), no un nombre fijo — ver 12.2 para el detalle completo de los nodos en WF1/WF2/WF3 que generan y propagan ese path.
+3. **WF3, nodo nuevo antes de `Mandar foto`:** `Generar URL Firmada` (HTTP Request) que pide a Supabase Storage una URL firmada válida por muy poco tiempo (60 segundos — lo justo para que Telegram la descargue). Nunca se guarda esa URL en la base; se genera, se usa una vez, se descarta.
+   - Method: `POST`
+   - URL: `https://xypqsthwquegftcnoqyi.supabase.co/storage/v1/object/sign/fotos-cultivos/{{ encodeURIComponent($json.path_foto) }}`
+   - Headers: `apikey` con la credencial Header Auth de **Secret key** ya existente (generar URLs firmadas requiere permiso elevado, no alcanza con Publishable)
+   - Body (JSON): `{ "expiresIn": 60 }`
+   - Devuelve: `{ "signedURL": "/object/sign/fotos-cultivos/Foto%20tomate.jpg?token=..." }` (ruta relativa)
+4. **Nodo `Mandar foto` (WF3):** el campo de URL de la foto pasa a ser una expresión que arma la URL completa con lo que devolvió el paso anterior:
+   ```
+   ={{ 'https://xypqsthwquegftcnoqyi.supabase.co/storage/v1' + $json.signedURL }}
+   ```
+
+WF2 no envía la foto por Telegram hoy (solo texto), así que no necesita el paso 3 — pero se alinea igual el nombre de columna para no tener dos convenciones distintas en la misma tabla.
+
+---
+
+### 16.6 — 🟡 Principio de Mínimo Privilegio
+
+**Resuelto (16.1):** los 3 nodos HTTP Request que leen vistas públicas (`Conocimiento Experto` ×2, `HTTP Request` de promedios) ya usan la Publishable key.
+
+**Intentado y revertido (26/07/2026) — limitación técnica descubierta, no error de configuración:** se creó una segunda credencial nativa de Supabase (`Supabase account (solo lectura)`) para reasignar `Resolver Cultivo` (WF1) y `Obtener Cultivos Activos` (WF4) a la Publishable key. Al guardar la credencial con la Publishable key, n8n devuelve **"error de autorización fallida"** — la Secret key sí funciona en ese mismo tipo de credencial nativa. Diagnóstico: el nodo/credencial nativo `n8n-nodes-base.supabase` es anterior al sistema de keys nuevo de Supabase y todo indica que fue construido asumiendo el formato JWT viejo (`anon`/`service_role`); con una key opaca nueva (`sb_publishable_...`) falla la autenticación antes de llegar siquiera a Supabase. Esto **no pasa** con el patrón HTTP Request + Header Auth (usado en `Conocimiento Experto`, etc.), que sí es compatible con las keys nuevas — la limitación es específica del nodo nativo.
+
+**Decisión:** se revierte `Resolver Cultivo` y `Obtener Cultivos Activos` a la credencial nativa original ("Supabase account", Secret key). Severidad de este punto ya era baja (mínimo privilegio es defensa en profundidad, no un bug), así que no se justifica el esfuerzo de reescribir esos 2 nodos como HTTP Request solo para esto. **Queda anotado como futura mejora:** si en algún momento se quiere aplicar mínimo privilegio ahí, convertir `Resolver Cultivo` y `Obtener Cultivos Activos` de nodo nativo Supabase a HTTP Request (mismo patrón que `Conocimiento Experto`), reutilizando la credencial Header Auth + Publishable ya probada.
+
+> [!NOTE]
+> **Por qué tampoco se mueve `Obtener etapa nueva` (WF3):** este nodo consulta la tabla `etapas_especie` **directamente** (no a través de una vista). Se verificó con SQL (`SET LOCAL ROLE anon`) que esa tabla tiene RLS activado **sin ninguna política** para `anon`/Publishable — la consulta devuelve 0 filas con esa key, lo que rompería la actualización de etapa en WF3. Las vistas (`vista_cultivos_activos`, `vista_conocimiento_experto`, `vista_promedios_recientes`) sí funcionan con Publishable porque en Postgres una vista se ejecuta con los permisos de quien la creó, no de quien pregunta — "esquivan" el RLS de las tablas de abajo. Una tabla consultada directamente no tiene ese atajo. `Obtener etapa nueva`, `Persistir*` y `Actualizar etapa` se quedan con la Secret key de todos modos.
+
+**Hallazgo adicional (menor, no urgente):** al revisar los permisos se encontró que el rol `anon` tiene GRANT de INSERT/UPDATE/DELETE en casi todas las tablas (configuración por defecto de Supabase al crear una tabla nueva). Hoy no es explotable en la práctica porque RLS bloquea esas operaciones en las tablas sensibles (se verificó que solo existen policies de INSERT para `authenticated` en `lectura_sensores` y `seguimiento_fenologico`, y de SELECT/UPDATE propio en `cultivo`) — pero sería más prolijo, a futuro, hacer `REVOKE` de los permisos que ninguna parte del sistema usa realmente, en vez de depender únicamente de RLS como única barrera.
+
+---
+
+### 16.7 — 🟡 Manejo de Errores y Resiliencia
+
+Ningún nodo HTTP Request tiene configurado `retryOnFail` ni `continueOnFail`, y el nodo Webhook no tiene timeout. Esto contradice el principio de "fault isolation" que justifica la arquitectura de 4 workflows separados (documentado en `arquitectura_ia.md`): si "Trigger a WF2" en WF1 falla (por ejemplo, WF2 desactivado o Gemini con 429 — ya documentado como problema conocido), no hay ninguna garantía explícita de que eso no afecte al resto del pipeline. Recomendado:
+- `continueOnFail: true` en "Trigger a WF2" (WF1) y en las llamadas HTTP a Gemini (WF2, WF3, WF4) — un fallo ahí nunca debería tumbar la alerta rule-based ni la persistencia de la lectura.
+- `retryOnFail: true` (2-3 intentos) en las llamadas a Gemini, dado el 429 de rate limit ya documentado en el handoff.
+
+**Configuración confirmada (27/07/2026):** el usuario configuró, en el panel "Settings" del nodo: `Retry On Fail` activado, `Wait Between Tries` en 1000ms, y `On Error` en **"Continue (using regular output)"** (la opción que sigue el flujo pasando el error como si fuera un item normal, en vez de cortar la ejecución). Es la combinación correcta para estos nodos puntualmente: los Code que parsean la respuesta de Gemini (`Parsear Respuesta IA`, `Parsear y decidir`, `Parsear Respuesta de Gemini`) ya tienen su propio `try/catch` que arma un diagnóstico "degradado" por defecto si el parseo falla — así que si Gemini falla o tarda, el error cae ahí, se maneja solo, y el resto del pipeline (alerta rule-based, persistencia de la lectura) sigue sin cortarse. Si se hubiera usado "Continue using error output" en cambio, haría falta una rama aparte para manejar el error — no es necesario acá porque el código de abajo ya lo contempla.
+
+**Confirmado (27/07/2026): aplicado en los 4 nodos recomendados** — `Trigger a WF2` (WF1), `IA Vision Gemini` (WF2), `IA Vision Fenologica` (WF3), `Request a Gemini - No foto` (WF4). ✅ 16.7 cerrado. Pendiente menor, no bloqueante: revisar el campo `Max Tries` de cada nodo (cuántos reintentos hace, no solo la espera entre ellos) — 2-3 es razonable si no lo tocaste todavía.
+
+---
+
+### 16.8 — 🟡 Sin Registro ante Dispositivo Desconocido o Configuración Faltante
+
+Si `Resolver Cultivo` (WF1) no encuentra ningún cultivo activo para la MAC recibida (dispositivo no registrado, o typo), o si `Conocimiento Experto` no encuentra `parametro_etapa` para esa combinación planta/etapa, el workflow simplemente termina sin items — sin ningún registro de que pasó, ni alerta al desarrollador. Para un sistema en producción conviene, como mínimo, un mensaje de Telegram al admin ("dispositivo no registrado intentó enviar telemetría: MAC X") en ese caso, en vez de que la falla sea completamente invisible.
+
+**Diferido a futura mejora (27/07/2026, decisión del usuario):** severidad baja — hoy esto no rompe nada ni oculta una alerta real, solo dificulta notar en el momento que un dispositivo está mal configurado. Se prioriza cerrar el resto de la Fase 16 y avanzar con Fase 12/13. Si se retoma, la implementación es sencilla: un IF después de `Resolver Cultivo` que detecte "sin resultados" y dispare un Telegram al chat del admin en vez de terminar el workflow en silencio.
+
+---
+
+### 16.9 — 🟢 Limpieza Menor
+
+**Actualizado 05/08 (sesión 2):** se re-auditaron los 4 JSON exportados. El tab literal de "Trigger a WF2" (WF1) y el rename de `HTTP Request`→`Consultar Promedios` (WF4) ya aparecen resueltos en el export actual — se sacan de la lista. Queda:
+
+- WF4, nodo `Request a Gemini`: header `Content-Type ` con espacio al final.
+- WF3, nodo `Send a text message` (el de cambio de etapa): nombre por defecto de Telegram, sin renombrar — sugerido `Notificar Cambio de Etapa`, para que combine con `Alerta Telegram`/`Telegram Diagnostico IA`/`Reporte preventivo`.
+- `chatId` de Telegram (`5593622386`) pegado igual en **5** nodos de los 4 workflows (`Alerta Telegram` WF1, `Telegram Diagnostico IA` WF2, `Send a text message` + `Mandar foto` WF3, `Reporte preventivo` WF4) — corregido el conteo, no eran 4. **Centralización diferida a pedido del usuario (05/08):** está evaluando reemplazar Telegram por una app propia, así que no tiene sentido invertir en centralizarlo todavía (ver backlog al final).
+- Los workflows reales usan `gemini-2.5-flash`; el plan documentaba `gemini-2.0-flash` — se sincroniza acá para que quede trazado (no es un problema, es una mejora que ya hiciste).
+
+---
+
+### 16.10 — Checklist Fase 16 (priorizado)
+
+- [x] 🔴 Migrar Supabase de `service_role`/`anon` (legacy) a **Secret key** / **Publishable key** — hecho: Secret en los nodos de escritura + credencial nativa "Supabase account", Publishable en los 3 GET de solo lectura (`Conocimiento Experto` ×2, `HTTP Request` promedios). De paso resuelve 16.6 (mínimo privilegio). Header usado: solo `apikey` — se sacó `Authorization` para evitar el error `Invalid JWT` con las keys nuevas. Testeado y funcionando (25/07/2026).
+- [x] 🔴 Deshabilitar las legacy API keys de Supabase — hecho (28/07/2026). Verificado antes de deshabilitar: grep sobre los 4 JSON exportados de WF1-WF4 sin ningún hardcode de key legacy (`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`). Testeado después de deshabilitar con un Invoke-RestMethod real: llegaron los 2 mensajes de Telegram (alerta + diagnóstico IA), confirmando que nada dependía de las legacy keys.
+- [x] 🔴 Rotar la API key de Gemini — key nueva cargada en la credencial existente (28/07/2026), lo cual actualiza automáticamente los 3 nodos que la referencian (`IA Vision Gemini` WF2, `IA Vision Fenologica` WF3, `Request a Gemini - No foto` WF4), sin tener que tocarlos uno por uno. Key vieja borrada en AI Studio (02/08/2026). Confirmado funcionando en los 3: WF4 (04/08), WF2 y WF3 (05/08, sesión 2 — ver v17).
+- [x] 🔴 Agregar autenticación a los webhooks de producción de WF1 y WF2 — Header Auth en ambos, testeado (26/07/2026)
+- [x] 🔴 Corregir referencias de nodos en "Parsear Respuesta de Gemini" (WF4) — **RESUELTO EN VIVO (04/08/2026)**, ver detalle en 16.3/16.4 RESUELTOS EN VIVO. Confirmado con ejecución real de punta a punta.
+- [x] 🔴 Corregir el body de Gemini en "Request a Gemini - No foto" (WF4) — **RESUELTO EN VIVO (04/08/2026)**: seguía roto pese a marcarse resuelto el 27/07 (mismo patrón que 16.3). Corregido (Body Content Type → JSON) y confirmado.
+- [x] 🔴 Reemplazar el `url_foto`/`path_foto` firmado vencido por el nuevo esquema de path dinámico + URL firmada al vuelo — implementado y confirmado de punta a punta en WF1/WF2/WF3 (28/07/2026, ver 12.2.2). ~~Pendiente menor: bajar `expiresIn` de 300 (testeo) a 60-120s (producción).~~ **✅ cerrado: el export del 18/08 muestra `expiresIn: 60`.**
+- [~] 🟢 Segunda credencial nativa Publishable para `Resolver Cultivo` y `Obtener Cultivos Activos` — **descartado (26/07/2026):** el nodo nativo Supabase de n8n rechaza la Publishable key ("error de autorización fallida"), incompatible con el formato nuevo. Revertido a Secret key. Queda como futura mejora (convertir a HTTP Request + Header Auth si se quiere retomar). `Obtener etapa nueva` se queda en Secret igual (RLS sin política para anon en `etapas_especie`).
+- [x] 🟡 `retryOnFail`/`onError` — confirmado aplicado en los 4 nodos recomendados: `Trigger a WF2` (WF1), `IA Vision Gemini` (WF2), `IA Vision Fenologica` (WF3), `Request a Gemini - No foto` (WF4). Retry On Fail + wait 1000ms + On Error "Continue (using regular output)" (27/07/2026).
+- [~] 🟡 Alertar al admin ante dispositivo desconocido o configuración faltante — **diferido a futura mejora (27/07/2026)**, decisión del usuario. Severidad baja: hoy el fallo es silencioso pero no rompe nada, solo dificulta notar un dispositivo mal configurado.
+- [~] 🟢 Limpiar los ítems menores de 16.9 — el rename de nodo en WF3 **✅ hecho** (`Notificar Cambio de Etapa`, confirmado en el export del 18/08); queda el header con espacio en WF4 y el rename de `Get many rows` en WF5 (B.4). Bajo, no bloquea nada.
+- [x] 🟡 Reemplazar la decisión de `estado_optimo` (hoy a criterio del LLM) por un cálculo determinístico en Code node — implementado y verificado en vivo (05/08/2026), ver 16.11.
+- [x] 🔴 Corregir tipo de dato en `Hay cultivos a evaluar?` (WF3) — **RESUELTO (05/08/2026, sesión 2)**, ver 16.12.
+- [x] 🔴 Auditar el export de WF3 contra el documento y contra Supabase (18/08/2026) — los 6 fixes de la sesión 6 confirmados, 0 referencias rotas, 0 `.first()`. Ver "Auditoría del export de WF3 (18/08/2026)".
+- [ ] 🔴 **16.20** — `debe_actualizar` (WF3) no valida `etapa_detectada` contra `etapa_siguiente`. Categoría "daña el cultivo". Fix: un tercer término en una expresión que ya existe.
+- [ ] 🔴 **16.21** — WF3 re-analiza la misma foto cada 8 h sin límite: falta frescura y clave de idempotencia. Mayor impacto en economía unitaria de todo lo abierto.
+- [ ] 🟠 **16.22** — `Descargar Foto` sin `onError`: una foto rota aborta la corrida de todos los cultivos. Prioridad real recién con N>1.
+- [ ] 🟡 **16.23** — dual-write sin atomicidad en WF3. Se cierra junto con 16.19 vía `fn_registrar_avance_etapa` (SQL nuevo, requiere confirmación).
+- [ ] 🟢 **16.24** — `limit` explícito en `Obtener Orden Etapas`.
+- [ ] 🟠 **16.15** — señal operativa ante degradación (`Stop and Error` en WF2 y WF3). El ítem más barato que queda.
+
+---
+
+### 16.11 — ✅ Determinismo en la decisión de `estado_optimo` (WF4)
+
+**Hallazgo (04/08/2026):** al testear WF4 de punta a punta, se observó que Gemini puede devolver `estado_optimo: false` (con desviaciones leves) y, en una corrida posterior con exactamente los mismos datos de entrada, devolver `estado_optimo: true` — atribuible a `temperature: 0.2` (no 0) del nodo de Gemini y a que el corte "leve vs. óptimo" queda librado al criterio del modelo en casos límite (ej. pH a 0.1 del límite del rango ideal). Esto es aceptable para texto libre, pero no para la decisión binaria que dispara (o no) el `Reporte preventivo`.
+
+**Decisión de diseño:** mover el cálculo de `estado_optimo` a un nodo Code determinístico, alimentado únicamente por los datos ya existentes en `parametro_etapa` (`humedad_min/max`, `ph_min/max`, `ideal_n/p/k`), dejando a Gemini exclusivamente la redacción del mensaje y las recomendaciones a partir del diagnóstico ya calculado.
+
+**Fórmula acordada:**
+- Métricas de rango (humedad, pH): si el valor cae dentro de `[min, max]` → 0% de desviación (óptimo). Si cae afuera, desviación = `distancia_al_límite / (max - min) × 100` — normalizada contra el **ancho del rango**, no contra un umbral absoluto fijo, para que el mismo criterio sea comparable entre cultivos con rangos de tolerancia muy distintos.
+- Métricas de valor ideal único (N, P, K): desviación = `|actual - ideal| / ideal × 100`.
+- Corte: 0% = óptimo, 0-10% = leve, >10% = seria (se mantiene el 10% que ya usaba el prompt original, por continuidad).
+- Agregación cuando hay varias métricas desviadas a la vez: **manda el peor caso** (si una sola métrica es "seria", el estado general es "seria"), criterio estándar en sistemas de alerta/monitoreo.
+
+**Fundamento (para defensa de tesis):**
+1. *Escalabilidad a nuevos cultivos sin tocar código:* toda la fórmula lee de `parametro_etapa`, que ya es una tabla parametrizada por especie y etapa (fuente FAO). Agregar una especie nueva es solo insertar filas — el Code node no cambia.
+2. *Normalización por ancho de rango:* evita que el mismo error absoluto (ej. 0.2 de pH) se juzgue distinto según qué tan angosto sea el rango ideal de cada cultivo/etapa, sin necesidad de recalibrar umbrales a mano al sumar especies.
+3. *Fail-safe:* desacopla la alerta de la disponibilidad/éxito de la API de Gemini. El bug de 16.3/16.4 mostró el riesgo concreto de lo contrario: cualquier falla de Gemini caía en un fallback que decía `estado_optimo: true` — el peor comportamiento posible para un sistema de alerta (silencia problemas reales ante una falla técnica ajena al cultivo).
+4. *Reproducibilidad y testeable sin costo de API:* la fórmula se puede testear con datos sintéticos (casos límite, nulls) sin llamar a Gemini, y el mismo input siempre da el mismo resultado — clave para poder explicar y defender el comportamiento del sistema.
+5. *Separación de responsabilidades:* Gemini queda relegado a lo que mejor hace (lenguaje natural), no a decidir umbrales — permite incluso cambiar de proveedor de IA a futuro sin tocar la lógica de alerta.
+
+**Fundamentación teórica (para el marco conceptual de la tesis):**
+
+La arquitectura resultante (`parametro_etapa` → `Calcular Diagnóstico` → Gemini) replica, casi sin buscarlo, la arquitectura clásica de un **sistema experto basado en reglas** (Buchanan & Shortliffe, sistemas tipo MYCIN, años 70-80): una **base de conocimiento** declarativa y separada del código (`parametro_etapa`, parametrizada por especie/etapa, con fuente FAO), un **motor de inferencia** determinístico que aplica reglas fijas sobre esa base (`Calcular Diagnóstico`), y una **capa de explicación/comunicación** que traduce el resultado del motor a lenguaje natural para el usuario final (Gemini). Este es precisamente el argumento de fondo para justificar por qué el proyecto puede llamarse "sistema experto" en sentido estricto y no solo "aplicación con IA generativa": la decisión experta vive en reglas auditables, no en un modelo de lenguaje.
+
+El método de normalización de la desviación (expresarla como % del ancho del rango tolerado, en vez de un valor absoluto) es una aplicación directa de **normalización min-max**, técnica estándar en preprocesamiento de datos y en sistemas de soporte a decisiones (DSS) para poder comparar magnitudes heterogéneas — acá, variables con unidades y rangos de tolerancia muy distintos entre sí (pH ~0.5-1 de ancho vs. humedad ~15-40 puntos porcentuales) — bajo una misma escala de severidad.
+
+Separar la capa de decisión (reglas fijas) de la capa de generación de lenguaje (LLM) también es consistente con principios de **IA explicable (XAI)** y de diseño **fail-safe** en ingeniería de software: un sistema crítico no debería degradar su comportamiento de seguridad (en este caso, si alertar o no) ante una falla de un componente no determinístico o de terceros (la API de Gemini). El propio bug de 16.3/16.4 es evidencia empírica de este riesgo dentro del proyecto, no solo un argumento teórico.
+
+**Limitación reconocida:** la fórmula evalúa cada métrica de forma independiente, sin modelar interacciones fisiológicas entre variables (ej. un pH bajo puede limitar la absorción de fósforo aunque el fósforo medido esté en rango). Se deja como trabajo futuro — y como un lugar legítimo donde la IA generativa aporta valor real: razonar sobre el conjunto de categorías ya calculadas para señalar posibles interacciones en el mensaje al agricultor, en vez de decidir si hay o no un problema.
+
+**Implementación (05/08/2026):** insertado el nodo `Calcular Diagnóstico` entre `Conocimiento Experto` y `Request a Gemini` (splice de la conexión directa), reescrito el prompt de `Request a Gemini` para que reciba `diagnostico_calculado` ya resuelto y solo redacte `tendencia` (mejor esfuerzo, sin historial), `recomendaciones_preventivas` y `mensaje_agricultor`, y reescrito `Parsear Respuesta de Gemini` para que tome `estado_optimo`/`nivel_alerta`/`desviaciones_leves` del cálculo (no del JSON de Gemini) con fallback seguro si Gemini falla.
+
+**Verificación de reproducibilidad (05/08/2026):** se corrió el mismo caso de prueba (humedad 20, pH 6.5, N 45, P 32, K 28 — desviaciones grandes) dos veces seguidas y dio **exactamente el mismo resultado** ambas veces (200%/0%/50%/36%/53.3%, todas "seria" salvo pH "óptimo") — a diferencia del comportamiento previo con Gemini decidiendo, que sí variaba entre corridas. Se probó además un caso deliberadamente en zona "leve" (humedad 49, pH 6.15, N 32, P 48, K 58 — todos calculados para caer entre 0-10% de desviación) y el resultado coincidió exactamente con el cálculo manual: humedad 6.7%, pH 8.3%, N 6.7%, P 4%, K 3.3%, las 5 en categoría "leve", `nivel_alerta: "leve"`. Gemini redactó el mensaje de Telegram en tono acorde ("desviaciones leves", ajustes suaves) sin contradecir el cálculo. De paso quedó documentado que el caso pH=6.1 usado en pruebas anteriores (con el criterio viejo de Gemini) da bajo esta fórmula 16.7% → "seria", no "leve" — otra muestra de que el corte ahora es fijo y explicable, no a criterio del modelo.
+
+**Estado:** ✅ Implementado y verificado en vivo (05/08/2026). `estado_optimo` en WF4 ya no depende del criterio del LLM.
+
+---
+
+### 16.12 — ✅ Bug de tipos en `Hay cultivos a evaluar?` (WF3)
+
+**Hallazgo (05/08/2026, sesión 2):** al testear WF3 en vivo para confirmar Gemini con la key rotada, el nodo `Hay cultivos a evaluar?` tiró error: `Wrong type: 'true' is a boolean but was expecting a string`.
+
+**Causa:** `Calcular Dias en Etapa` deja `$json.skip` como boolean real (`true`) cuando ningún cultivo entró todavía en su ventana de evaluación (80% de `duracion_estimada_dias` en la etapa actual). El IF comparaba ese boolean contra el string `"true"` con `typeValidation: strict` — n8n no convierte tipos automáticamente bajo ese modo, así que explota en vez de comparar. Esto rompía **cada vez que corría el schedule y no había ningún cultivo para evaluar**, que es el caso más común en producción (la ventana de evaluación por etapa dura pocos días de cada ciclo de 15-40 días) — no una rareza de este test puntual.
+
+**Fix:** condición reescrita como comparación boolean explícita: `leftValue = {{ !!$json.skip }}`, operador boolean `notEquals`, `rightValue = true`. El `!!` fuerza un boolean real incluso cuando `skip` no existe en el objeto (caso "sí hay cultivos para evaluar"), evitando el mismo problema al revés con `undefined`.
+
+**Por qué no se detectó antes:** cada vez que se testeó WF3 en sesiones previas fue justo en una ventana donde sí había un cambio de etapa para evaluar — la rama que rompía (sin cultivos que evaluar) nunca se había ejercitado de punta a punta hasta hoy.
+
+**Estado:** ✅ Corregido y verificado en vivo (05/08/2026) — cortó a `false` sin error cuando no hay cultivos en ventana.
+
+---
+
+---
+
+### 16.13 — 🟡 Auditoría de GRANTs: `anon` y `authenticated` tienen ALL sobre las 18 tablas y vistas (hallazgo 11/08)
+
+**Origen:** al revisar los permisos de las tablas nuevas de 13.1 antes de construir WF5 (que va a escribir en `comando_dispositivo` y `evento_riego`), se encontró que v19 afirma haberlas creado "sin `GRANT` a `authenticated`" — pero la base dice otra cosa. La auditoría se extendió entonces a **todo** el esquema `public`, y el patrón resultó uniforme.
+
+**Estado real (verificado 11/08 vía `information_schema.role_table_grants` + `pg_class.relrowsecurity` + `pg_policies`):**
+
+| Capa | Qué hay |
+|---|---|
+| GRANTs | `anon` **y** `authenticated` tienen `SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` sobre **las 14 tablas y las 4 vistas** de `public`, sin excepción |
+| RLS | Activo en las 14 tablas. 5 tienen exactamente 1 política (para `authenticated`): `cultivo`, `especie_planta`, `lectura_sensores`, `seguimiento_fenologico`, `maceta_recomendada_especie`, `tipo_maceta`. Las demás tienen 0 |
+| Vistas | `relrowsecurity = false` — una vista no hereda el RLS de sus tablas base (ya documentado en 16.6) |
+
+**Por qué pasó:** no es que alguien haya escrito esos `GRANT`. Supabase configura `ALTER DEFAULT PRIVILEGES` en el esquema `public` de forma que **toda tabla nueva** nace con todos los privilegios otorgados a `anon` y `authenticated`, delegando la protección enteramente en RLS. Por eso el SQL de 13.1 —que efectivamente no otorgó nada— igual terminó con las tablas abiertas a nivel de privilegio: el default del entorno ganó sobre la intención del script. **Lección transversal:** verificar el resultado, no la intención del comando; un `CREATE TABLE` sin `GRANT` no significa "sin permisos" si el esquema tiene default privileges.
+
+**Riesgo real hoy: bajo.** RLS activo sin políticas bloquea todo lo que PostgREST puede emitir sobre esas tablas para `anon`/`authenticated` (`SELECT/INSERT/UPDATE/DELETE`), y las 4 vistas no son auto-actualizables (usan `JOIN`, `DISTINCT ON` o agregados), así que las escrituras contra ellas fallan por definición. `TRUNCATE` **no** está sujeto a RLS y sí está otorgado, pero PostgREST no lo expone, así que no es alcanzable con la Publishable key.
+
+**Riesgo estructural: no tan bajo.** La seguridad del proyecto depende hoy de **una sola capa**. Las dos capas de Postgres (privilegios DAC y RLS) deberían ser independientes y ambas restrictivas; con los GRANTs abiertos, cualquier política permisiva que se agregue después "para que ande algo" expone inmediatamente esa tabla, sin ninguna barrera adicional que lo contenga. Es un riesgo latente, no una vulnerabilidad activa — pero es el tipo de riesgo que se materializa justo cuando el proyecto crece y alguien toca RLS con prisa.
+
+**Fundamentación teórica:** esto es un caso de libro de dos de los principios de diseño de sistemas seguros de Saltzer y Schroeder (*The Protection of Information in Computer Systems*, 1975). El **mínimo privilegio** (*least privilege*) — cada sujeto debe tener solo los permisos necesarios para su función — se viola de forma clara: `anon` tiene `TRUNCATE` sobre `lectura_sensores` cuando su único uso real en el proyecto es leer dos vistas de conocimiento agronómico. Y **defaults a prueba de fallos** (*fail-safe defaults*) — la decisión por defecto debe ser denegar, y el acceso concederse explícitamente — está invertido: acá el default concede todo y la denegación se agrega después por otra vía (RLS). Que el resultado neto hoy sea seguro es una propiedad del sistema *tal como está configurado ahora*, no del diseño; y la diferencia entre esas dos cosas es precisamente lo que la **defensa en profundidad** busca cubrir: capas independientes, de modo que fallar una no exponga el sistema.
+
+**Corrección propuesta (no aplicada — requiere confirmación explícita, regla 2):**
+
+```sql
+-- 1) Cerrar el default para todo lo que se cree de acá en adelante
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+
+-- 2) Cerrar lo existente
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+
+-- 3) Re-otorgar SOLO lo que el pipeline real usa hoy con la Publishable key ("Supa P"):
+--    Conocimiento Experto (WF1 y WF4) y Consultar Promedios (WF4).
+GRANT SELECT ON public.vista_conocimiento_experto  TO anon;
+GRANT SELECT ON public.vista_promedios_recientes   TO anon;
+```
+
+**Verificación previa obligatoria antes de aplicar** (para no repetir el drift de v22): confirmar credencial por credencial qué nodo usa Publishable ("Supa P") y cuál Secret ("Sup S" / "Supabase account"). Del relevamiento de los JSON del 11/08: solo `Conocimiento Experto` (WF1, WF4) y `Consultar Promedios` (WF4) usan `Supa P`; todo el resto usa Secret key, que es `service_role` y **no** se ve afectado por estos `REVOKE`. `authenticated` no lo usa nada del pipeline actual (ya documentado en v19) — si a futuro hay una app de cliente con login, sus permisos se diseñan ahí, explícitamente, que es justamente el punto.
+
+**Riesgo de aplicarlo:** bajo pero no nulo — si algún nodo usa `Supa P` contra una vista no listada arriba, deja de funcionar de inmediato y de forma ruidosa (403), que es el modo de fallo preferible. Se recomienda aplicarlo con WF1 en `active: false` y correr el simulador de 13.10 justo después.
+
+**Estado:** auditado y documentado el 11/08, **sin aplicar**.
+
+---
+
+---
+
+### 16.14 — ✅ WF2 guardaba el error de Gemini como si fuera un diagnóstico (hallazgo 12/08 — resuelto y cerrado 17/08)
+
+**Origen:** al testear WF5 se dispararon varias telemetrías seguidas y Gemini devolvió **503 (modelo sobrecargado)** en la tercera. El mensaje de Telegram llegó con todos los campos vacíos y `Confianza: NaN%`. La verificación contra la base mostró algo peor que un mensaje feo:
+
+| Hora | `confianza_ia` | `diagnostico_ia` |
+|---|---|---|
+| 16:02:02 | 0.90 | diagnóstico real |
+| 16:03:14 | 0.95 | diagnóstico real |
+| **16:03:43** | **null** | **`{"error": {"code": "ERR_BAD_RESPONSE", "name": "AxiosError", "stack": "AxiosError: Request failed with status code 503…"}}`** |
+
+**El mecanismo, paso a paso.** El nodo `IA Vision Gemini` falló, pero el objeto de error siguió viajando por el flujo. `Parsear Respuesta IA` intentó leer `candidates[0].content.parts[0].text`, no lo encontró, y cayó en su fallback:
+
+```javascript
+const rawText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text
+  || JSON.stringify(geminiResponse);   // ← acá se rompe todo
+```
+
+Ese `JSON.stringify` convirtió el objeto de error en un **string JSON perfectamente válido**, así que el `JSON.parse` de la línea siguiente **tuvo éxito** y `diagnosis` quedó siendo el error. El `try/catch` nunca se disparó, el flujo continuó con normalidad, y `Persistir Diagnostico` grabó un stack trace de Axios en `seguimiento_fenologico` — la historia clínica del cultivo.
+
+**Fundamentación teórica.** Es el mismo patrón de *fail-silent* que 13.3.2 y 12.2.3, pero con una vuelta más interesante: acá **no hubo ninguna excepción que capturar**. Un `try/catch` protege contra operaciones que fallan, no contra datos con la forma equivocada; y este dato no falló al parsearse, parseó bien — solo que representaba otra cosa. Es la distinción entre **validez sintáctica y validez semántica**: `{"error": {...}}` es JSON impecable y no es un diagnóstico agronómico, y ningún parser puede notar la diferencia porque el parser no sabe qué es un diagnóstico. La consecuencia de diseño, que aplica a toda integración con un servicio externo: **el chequeo tiene que ser positivo, no negativo** — no alcanza con "no falló", hay que verificar afirmativamente que la respuesta contiene lo que se esperaba, antes de tratarla como tal. Un fallback que garantiza que el flujo continúe garantiza también que un fallo se propague disfrazado de éxito.
+
+El agravante es *dónde* termina: un error de red guardado como diagnóstico no es solo un registro perdido, es un registro que **miente**. Y a diferencia de un `null`, que se ve raro y se investiga, un objeto con contenido pasa cualquier inspección superficial.
+
+**Fix 1 (obligatorio) — validación positiva de la respuesta**, en `Parsear Respuesta IA`:
+
+```javascript
+let diagnosis;
+const rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+if (!rawText) {
+  // Gemini no devolvió diagnóstico (503, cuota, red). NO inventamos uno ni guardamos el error.
+  diagnosis = {
+    diagnostico_visual: null,
+    diagnostico_tecnico: 'La IA no pudo analizar la foto en este intento.',
+    severidad: 'desconocida',
+    plagas_detectadas: [],
+    acciones_inmediatas: ['Reintentar el diagnóstico más tarde.'],
+    explicacion_agricultor: 'No se pudo generar el diagnóstico visual. La alerta del sistema experto sigue siendo válida.',
+    confianza: 0,
+    diagnostico_fallido: true
+  };
+} else {
+  try {
+    const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    diagnosis = JSON.parse(cleaned);
+    diagnosis.diagnostico_fallido = false;
+  } catch (e) {
+    diagnosis = {
+      diagnostico_tecnico: 'La IA respondió en un formato inesperado.',
+      severidad: 'desconocida', acciones_inmediatas: ['Revisar manualmente.'],
+      explicacion_agricultor: 'No se pudo interpretar la respuesta de la IA.',
+      confianza: 0, diagnostico_fallido: true
+    };
+  }
+}
+```
+
+**Fix 2 — reintentos en `IA Vision Gemini`:** Settings → `Retry On Fail` ✅, Max Tries 3, Wait Between Tries 5000 ms. Un 503 es transitorio y se resuelve esperando. Acá el reintento **es seguro**, y es el contraste exacto con `Registrar Riego` de 13.5.2: pedir dos veces un diagnóstico no tiene efecto acumulativo, insertar dos veces un comando de riego sí. Confirma el criterio ya adoptado — **los reintentos se habilitan según la idempotencia de la operación**.
+
+**Fix 3 (recomendado) — no persistir diagnósticos fallidos:** un IF antes de `Persistir Diagnostico` que solo deje pasar `diagnostico_fallido: false`, para que la historia clínica contenga únicamente diagnósticos reales. El agricultor igual recibe la alerta del sistema experto por el canal de `Alerta Telegram`, que no depende de Gemini.
+
+**Fix 4 (barato, complementario) — endurecer el filtro de entrada.** En `Motor de Inferencia`, `tiene_foto` hoy es `!!fotoBase64`, así que un base64 truncado o vacío pasa el filtro y **sí** consume una llamada real a Gemini (a diferencia del 503, que no gasta tokens porque el modelo nunca procesa el pedido). Se endurece a:
+
+```javascript
+// Una foto real en base64 pesa decenas de miles de caracteres.
+const fotoPlausible = !!fotoBase64 && fotoBase64.length > 1000;
+```
+
+y `tiene_foto: fotoPlausible` en ambos `return`. El IF de `¿Dispara WF2?` no cambia: sigue leyendo el mismo booleano, que ahora significa "hay una foto plausible". **Criterio adoptado:** validar antes de llamar lo que es barato y objetivo (¿hay foto?, ¿pesa lo que debería?), y dejar al modelo lo que es caro y subjetivo (¿está borrosa?, ¿se ve la planta?) — una heurística de calidad de imagen cuesta casi lo mismo que la llamada que intenta evitar, y puede rechazar fotos buenas.
+
+**Fix 5 — unificar el criterio de "foto usable" (detectado al aplicar el Fix 4).** `Hay foto nueva?` (WF1) evaluaba `{{ !!$json.foto_base64 }}`, o sea "¿hay algo en el campo?", no "¿hay una foto usable?". Con solo el Fix 4, una foto truncada dejaba de llamar a Gemini ✅ pero **igual se subía a Storage** y `cultivo.ultima_foto_path` pasaba a apuntar a un archivo corrupto ❌, que después consume WF3 para su análisis fenológico — el problema se propagaba a otro workflow. Era el mismo concepto ("foto usable") evaluado por dos consumidores con criterios distintos. Se unifica cambiando la condición del IF a `{{ $json.tiene_foto }}` **is true**, con lo que la definición vive en un único lugar (el productor) y los dos consumidores deciden igual por construcción. De paso desaparece el `!!` inline, que era una coerción hecha en el consumidor para compensar que el productor no exponía el dato — mismo argumento de 13.4.2.
+
+**Verificación por inyección de fallos.** El camino feliz no prueba este fix: si Gemini responde bien, no se ejerce ninguna de las ramas nuevas. Para verificarlo hay que **provocar el fallo a propósito**, cambiando temporalmente el modelo en la URL de `IA Vision Gemini` por uno inexistente (`gemini-2.5-flash-inexistente`) y disparando una telemetría: lo esperado es que el nodo reintente 3 veces, que `Parsear Respuesta IA` devuelva el diagnóstico de fallo, que el IF corte, que **no se cree ninguna fila** en `seguimiento_fenologico` y que **no llegue** el Telegram de diagnóstico — mientras la alerta del sistema experto y el riego sí ocurren, porque no dependen de Gemini. Es una aplicación puntual de **inyección de fallos** (*fault injection*): en un sistema que integra servicios externos, la ruta de error es código como cualquier otro y, si no se ejecuta nunca, no hay ninguna razón para creer que funciona. Vale además como material de demo: mostrar que el sistema **degrada con elegancia** ante la caída de un servicio externo dice más sobre su madurez que el camino feliz.
+
+**Alcance real del daño (medido al cerrar la sesión 5).** Al contar filas afectadas apareció que el problema no era del 12/08: **7 de las 26 filas de `seguimiento_fenologico` (27%) contienen un objeto de error en vez de un diagnóstico**, con fechas entre el **27/07 y el 05/08** — errores 400 de la época en que se depuraba el pipeline de foto (12.2.1/12.2.2). Todas comparten la marca `confianza_ia = null`, que es un discriminador confiable para limpiarlas. El bug venía corrompiendo la historia clínica del cultivo desde hacía **16 días** sin que nadie lo notara, porque las filas tenían contenido y ningún workflow falló. Es la medición concreta de lo que 13.3.2 llamó **latencia de detección**: el costo característico de un fallo silencioso no es la caída sino el tiempo que pasa antes de que alguien mire el lugar correcto. **Limpieza pendiente** (próxima sesión, requiere confirmación):
+
+```sql
+-- Verificar primero, borrar después
+SELECT id, fecha_registro, confianza_ia FROM public.seguimiento_fenologico WHERE diagnostico_ia ? 'error';
+DELETE FROM public.seguimiento_fenologico WHERE diagnostico_ia ? 'error';
+```
+
+**Estado:** ✅ **CERRADO el 17/08.** Los 5 fixes aplicados y verificados en vivo el 12/08 (la fila de las 16:46:48 muestra `diagnostico_ia.diagnostico_fallido: false`, campo que solo existe en el código nuevo, junto con `confianza 0.95`, severidad real y `path_foto` bien formado), **más el test de inyección de fallos ejecutado el 17/08** y la limpieza de las 7 filas históricas.
+
+#### Resultado del test de inyección de fallos (17/08)
+
+Se reemplazó el modelo en la URL de `IA Vision Gemini` por `gemini-2.5-flash-inexistente` y se disparó una telemetría de sequía. Línea de tiempo reconstruida **desde el estado persistido**, no desde el color de los nodos:
+
+| Momento (UTC) | Qué pasó | Evidencia en la base |
+|---|---|---|
+| 17:58:53 | Corrida 1, URL sana — telemetría | 5 filas en `lectura_sensores` |
+| 17:58:55 | Riego disparado | `evento_riego` id 6 ↔ `comando_dispositivo` id 6 |
+| 18:01:28 | Diagnóstico guardado | `confianza 0.9`, `diagnostico_fallido: false`, severidad real |
+| **18:02:29** | **Corrida 2, URL rota** — telemetría | 5 filas en `lectura_sensores` ✅ |
+| 18:02:29 | Riego: **no** | cooldown de 3 min 34 s < 15 min ✅ |
+| — | Diagnóstico: **no** | `seguimiento_fenologico` **no creció** ✅ |
+
+Los tres criterios de aceptación se cumplieron, y el tercero es el que importa: la corrida fallida **no agregó una octava fila corrupta**. Mismo escenario que el 12/08, resultado opuesto.
+
+**Observación teórica que dejó el test.** El cooldown de WF5 se comportó **igual con Gemini caído que con Gemini sano**. Eso no es trivial: confirma que el subsistema que puede dañar físicamente la planta no comparte destino con el subsistema que depende de un servicio de terceros. Es **aislamiento de fallos** (patrón *bulkhead*): si Google se cae una semana, el sistema sigue regando correctamente y solo deja de explicar por qué. En un producto agrícola esa separación es la que define qué se puede prometer al cliente y qué no.
+
+**Nota sobre el método.** Un modelo inexistente devuelve **404**, no el 503 del incidente original, y `retryOnFail` de n8n no distingue errores transitorios de permanentes: reintentó 3 veces algo que nunca se iba a resolver solo (10 segundos de costo, irrelevante acá, pero es una limitación real de la política de reintentos). El 404 es igualmente un proxy válido del 503 porque **lo que se está probando es el contrato de manejo de la respuesta**, y desde el punto de vista de `Parsear Respuesta IA` los dos casos son indistinguibles: en ambos `candidates[0].content.parts[0].text` no existe.
+
+#### Limpieza de las 7 filas (ejecutada el 17/08)
+
+Antes de borrar se clasificó la tabla completa, y las 29 filas se partían en tres grupos sin superposición: 18 objetos con diagnóstico real y confianza (WF2), **7 objetos con clave `error` y `confianza_ia` nula** (las corruptas), y 4 strings concatenados con confianza (WF3 — ver 16.19). Dos de las 7 no eran errores de Gemini sino de n8n (`{"error": "invalid syntax"}` y `{"error": "The value in the \"JSON Body\" field is not valid JSON"}`), de la noche del 27/07 en que se depuraba 12.2.
+
+**Criterio de seguridad aplicado:** los dos discriminadores candidatos —`diagnostico_ia ? 'error'` y `confianza_ia IS NULL`— seleccionaban **exactamente el mismo conjunto de 7**. Que dos criterios que no se derivan uno del otro coincidan es lo que da confianza de que el filtro no barre de más ni de menos; con uno solo, la evidencia habría sido la mitad. Verificado después del `DELETE`: 22 filas, 0 con clave `error`.
+
+---
+
+### 16.15 — 🟠 La degradación es correcta pero no deja ninguna señal operativa (confirmado en vivo 2 veces, 17/08)
+
+**Origen:** predicho al diseñar el test de inyección de fallos de 16.14, confirmado dos veces el 17/08 — primero en WF2 durante ese test, y después en WF3 de forma espontánea durante el test N=2 de 16.16.
+
+Con los fixes de 16.14 aplicados, un fallo de Gemini produce: ninguna fila, ningún Telegram, y una **ejecución marcada en verde** en n8n. El nodo de Gemini tiene `onError: continueRegularOutput`, que convierte el fallo en un ítem normal, y el IF posterior corta la rama sin levantar error.
+
+Pasamos de un fallo que **mentía** (16.14: el error guardado como diagnóstico) a un fallo que es **invisible**. Es una mejora clara, pero no es el final: 16.14 ya midió que el costo característico de un fallo silencioso no es la caída sino la latencia de detección, y un fallo que no deja rastro tiene latencia de detección infinita por construcción.
+
+**El concepto: degradación funcional y señal operativa son cosas separadas.** Que el agricultor no se vea afectado es correcto desde producto — recibe igual la alerta del sistema experto y el riego, que no dependen de Gemini. Que el operador no se entere de que la IA lleva días caída es una deuda distinta, y confundir las dos es lo que hace que se cierre el ítem antes de tiempo. La regla es: **un fallo manejado tiene que seguir siendo contado.**
+
+**En WF3 duele más que en WF2.** En WF2 un fallo significa "esta vez no hay diagnóstico visual". En WF3 significa "**la etapa de esta planta no se verificó**", y como los umbrales de riego y de nutrientes dependen de la etapa, una planta que avanzó sin que el sistema lo note queda recibiendo los parámetros de la etapa anterior. WF3 corre cada 8 horas, así que puede corregirse sola en la próxima pasada — o no, si la causa del fallo persiste.
+
+**Fix propuesto (barato):** un nodo `Stop and Error` colgado de la rama FALSE de `Diagnostico Valido` (WF2) y de `Cambio de etapa?` (WF3) cuando el motivo es `diagnostico_fallido: true`. La ejecución pasa a marcarse en rojo, aparece filtrando por error en la lista de ejecuciones, y queda elegible para un *Error Workflow* de n8n más adelante. Costo: un nodo por workflow, cero filas, cero mensajes.
+
+**Acoplamiento a tener en cuenta antes de aplicarlo.** El Webhook de WF2 responde en modo *Immediately* (default), así que WF1 recibe su 200 antes de que WF2 termine y un `Stop and Error` no le llega. Si alguna vez ese webhook se cambia a "When Last Node Finishes", `Trigger a WF2` —que tiene `retryOnFail: true`— empezaría a reintentar 3 veces cada diagnóstico fallido, o sea 3 llamadas a Gemini por alerta. La versión productizada (tabla de incidentes o Error Workflow que notifique) queda para cuando exista telemetría real y periódica.
+
+**Estado: 🟡 APLICADO SOLO EN WF2 (20/08, verificado el 21/08).** El nodo `Diagnostico Fallido` (`n8n-nodes-base.stopAndError`) existe y cuelga de la salida FALSE (índice 1) de `Diagnostico Valido`. **En WF3 no se aplicó**, y ahora el lugar correcto ya no es `Cambio de etapa?` sino la rama FALSE de `Diagnostico util?`, que es el nodo nuevo que separa "la IA no respondió" de "la IA respondió que no" — una distinción que el diseño original de esta sección no podía hacer porque ese nodo no existía. Ver **16.27**, donde además se explica por qué en WF3 este ítem dejó de ser solo observabilidad y pasó a ser también costo.
+
+Vale anotar el patrón: **un ítem aplicado en un workflow y no en el otro es peor que un ítem sin aplicar en los dos**, porque la tabla de estado registra el ítem como avanzado y el hueco restante se vuelve invisible. Es la misma forma de 16.23 —un criterio establecido que no se propaga— y la razón por la que conviene que el estado de un hallazgo sea por workflow y no global.
+
+---
+
+---
+
+### 16.16 — 🔴 Pérdida de cardinalidad en WF3: procesaba un solo cultivo y descartaba el resto en silencio (resuelto y verificado 17/08)
+
+**Origen:** hallazgo del 17/08 al verificar el conteo de `seguimiento_fenologico` después de la limpieza de 16.14. Al notar que la tabla tenía dos productores con formas distintas (ver 16.19) se revisó WF3 completo, y apareció esto.
+
+**El bug.** Un barrido de todas las referencias `$('...')` del workflow encontró **cuatro** puntos donde la correspondencia entre ítems se rompía:
+
+| # | Nodo | Qué hacía | Efecto con N cultivos |
+|---|---|---|---|
+| 1 | `Convertir a Base64` | `$('Hay cultivos a evaluar?').first()` y devolvía 1 ítem | 🔴 Colapsaba N→1 **acá**, antes de llamar a Gemini |
+| 2 | `Parsear y decidir` | `$input.first()` + `.first()` y devolvía 1 ítem | 🔴 Colapsaba otra vez |
+| 3 | `Persistir Seguimiento Fenologico` | `path_foto` usaba `.first()`; los otros 5 campos `.item` | 🟠 Desalineación dentro de la misma fila |
+| 4 | `Generar URL Firmada` | `.first()` | 🟠 La foto de Telegram sería siempre la del primer cultivo |
+
+Con dos cultivos, WF3 descargaba las dos fotos y **tiraba una antes de llamar a Gemini**: el segundo cultivo no se evaluaba nunca, sin error, sin log y sin ninguna señal.
+
+**Por qué los cuatro tenían que corregirse juntos.** Hoy los cuatro `.first()` coinciden porque N=1: el primer cultivo es el único y todo apunta a lo mismo. Corregir solo 1 y 2 habría hecho que el cultivo #2 **sí se procesara**, pero su fila se guardaría con el `path_foto` del cultivo #1 y su notificación saldría con la foto del #1. O sea: se pasa de *perder* silenciosamente el cultivo #2 a *diagnosticarlo mal* silenciosamente, que en un sistema experto agrícola es estrictamente peor, porque el usuario actúa sobre un diagnóstico atribuido a la planta equivocada.
+
+**Fundamentación teórica.** La cardinalidad y el emparejamiento son **un mismo invariante**, no dos arreglos independientes. En un modelo de dataflow como el de n8n cada nodo mantiene implícitamente la correspondencia "ítem *i* de la salida ↔ ítem *i* de la entrada", y `.first()` la rompe de dos maneras distintas que se ven idénticas cuando N=1. Es además una forma particular de *fail-silent*: **pérdida de cardinalidad**. Devolver un ítem es perfectamente legal, así que el runtime no tiene forma de saber que los N−1 restantes debían existir; nadie se entera de lo que se cayó.
+
+**Fix aplicado.** Los nodos 1 y 2 pasaron a iterar con `$input.all()` y devolver N ítems, emparejando por índice contra el nodo anterior (`$('Validacion de foto').all()` y `$('Convertir a Base64').all()` respectivamente), y los nodos 3 y 4 cambiaron `.first()` por `.item`. El Fix 3 era demostrablemente seguro antes de probarlo: los otros 5 campos del mismo nodo **ya usaban `.item` y funcionaban**, o sea que el emparejamiento por ítem resolvía en ese punto de la cadena. El Fix 4 era el único sin evidencia previa (está detrás de un nodo de Telegram y la propagación del *paired item* no se podía verificar desde el JSON); quedó validado en la corrida real.
+
+**Guardas agregadas.** Los dos nodos de código lanzan excepción si las cantidades no coinciden:
+
+```javascript
+if (fotos.length !== cultivos.length) {
+  throw new Error(
+    `Desalineación en Convertir a Base64: ${fotos.length} fotos para ${cultivos.length} cultivos. ` +
+    `Emparejar mal una foto con un cultivo produce un diagnóstico atribuido a la planta equivocada.`
+  );
+}
+```
+
+Es la inversión deliberada del criterio de 16.14. Allá el problema fue que el sistema siguió andando cuando debía frenar; acá **cuando la alternativa a fallar es producir un dato incorrecto y creíble, fallar es la opción segura**.
+
+**Verificación (test N=2, 17/08).** Con un solo cultivo activo ninguno de los cuatro fixes es distinguible del código viejo, así que se dio de alta un segundo cultivo de prueba con su propio dispositivo. **Detalle de diseño que hace válido el test:** los dos cultivos llevaban `ultima_foto_path` **distintos**. Con el mismo path un cruce habría sido indetectable —las dos filas se verían bien igual—, de modo que los inputs tenían que diferir en la dimensión exacta que el bug afectaba. Es un principio general: *un test cuyos casos son indistinguibles no puede detectar que se intercambiaron.*
+
+Resultado, verificado contra la base:
+
+| Fila | Cultivo | `path_foto` guardado | `confianza_ia` |
+|---|---|---|---|
+| `6d4f4343` | Tomate Cherry — Demo | `…/1786744915880.jpg` ✅ | 0.95 |
+| `cd6386ec` | TEST CARDINALIDAD | `…/1786553164044.jpg` ✅ | 0.98 |
+
+Cada cultivo recibió su propio `path_foto`, y las confianzas distintas confirman dos llamadas reales e independientes a Gemini en vez de una duplicada.
+
+**Estado:** ✅ resuelto y verificado. Los datos de prueba (cultivo + dispositivo) fueron eliminados y el cultivo real restaurado a `etapa_actual_id = 4` con su `fecha_inicio_etapa` original.
+
+**Nota de limpieza — la fila que documentaba el propio test.** La corrida buena dejó en `seguimiento_fenologico` una fila (17/08 21:41, `etapas_especie_id = 8` → Cosecha, confianza 0.95) que registraba el avance de etapa. Era un registro **correcto**, generado por el sistema funcionando bien, pero al restaurar el cultivo a Floración quedaba afirmando una etapa en la que la planta no está, y sin ninguna fila que explicara la vuelta atrás. Se borró, con este criterio: **`seguimiento_fenologico` no la lee solo un humano, la consume el sistema** —WF3 la usa como contexto y Fase 15 se va a apoyar en la etapa para calcular fertirriego—, así que una fila que afirma un estado falso es, en versión suave, el mismo problema de 16.14: un registro que miente. El valor probatorio del test no dependía de la fila, porque quedó documentado acá con ids, timestamps y `path_foto`. Es también un recordatorio metodológico: **los datos que un test crea son parte del test, no del sistema**, y limpiarlos es parte de haberlo terminado.
+
+---
+
+---
+
+### 16.17 — 🔴 Catálogo de etapas duplicado: el nodo HTTP corría una vez por cultivo (resuelto 17/08)
+
+**Origen:** primera corrida del test N=2 de 16.16. Los dos ítems llegaron hasta el final, pero Telegram anunció `Floración → Floración` y los cultivos no cambiaron de etapa, aunque `fecha_inicio_etapa` **sí** se actualizó.
+
+**El síntoma en el log de n8n:** `indice_etapa_actual: 6`, con una especie que tiene **5 etapas**. Un índice 6 no debería existir.
+
+**El mecanismo.** `Obtener Orden Etapas` es un nodo HTTP Request alimentado por `Obtener Cultivos Activos`. En n8n **un nodo HTTP corre una vez por cada ítem de entrada**: con dos cultivos hizo dos llamadas y devolvió las 8 filas del catálogo dos veces (16 ítems). `Calcular Dias en Etapa` las lee con `.all()`, filtra por especie (10 filas en vez de 5) y ordena por `orden`. Como `Array.prototype.sort` es estable, cada etapa queda pegada a su propio duplicado:
+
+```
+[0] id=6  Germinación     [5] id=10 Vegetativo
+[1] id=6  Germinación     [6] id=9  Floración   ← findIndex encuentra ACÁ
+[2] id=7  Plántula        [7] id=9  Floración   ← [idx+1] es la MISMA etapa
+[3] id=7  Plántula        [8] id=8  Cosecha
+[4] id=10 Vegetativo      [9] id=8  Cosecha
+```
+
+Reproducido en una simulación que devolvió los **tres** valores exactos del log (`indice_etapa_actual: 6`, `etapa_siguiente: "Floración"`, `etapa_siguiente_etapas_especie_id: 9`), lo que confirmó el diagnóstico sin necesidad de instrumentar el workflow.
+
+**El bug estaba latente desde siempre y lo reveló el fix de 16.16.** Con un solo cultivo había una sola llamada, catálogo sin duplicar, todo correcto. Es un **defecto de segundo orden**: al arreglar la cardinalidad, la rama pasó a llevar N ítems por primera vez y todo lo escrito asumiendo N=1 salió a la superficie. Justifica retroactivamente haber testeado con N=2 en vez de conformarse con "no rompimos nada": el test no encontró un error en el fix, encontró **el siguiente error de la fila**.
+
+**Fundamentación teórica: datos por-ítem vs. datos de referencia.** La foto de un cultivo es un dato **por-ítem** — hay una por planta y corresponde traerla N veces. El catálogo de etapas de una especie es una **invariante del dominio**: no depende de cuántos cultivos se estén evaluando, y traerlo N veces no solo desperdicia N−1 llamadas HTTP sino que **corrompe el resultado**, porque el consumidor lo lee como una lista y la lista ahora tiene repetidos. En un modelo de dataflow el default es *map* (cada nodo se aplica a cada ítem); un nodo que resuelve una constante tiene que declararse como tal explícitamente. Es la misma distinción que en SQL entre una subconsulta correlacionada, que se evalúa por fila, y un CTE que se evalúa una vez y se reutiliza.
+
+**Fix aplicado:** `Obtener Orden Etapas` → Settings → **`Execute Once` ✅**. Expresa lo que el nodo significa —"traer el catálogo"— en vez de compensar el síntoma deduplicando en el consumidor. Se verificó que ningún otro workflow tiene el mismo patrón: en WF1, `Conocimiento Experto` está alimentado por `Resolver Cultivo`, que devuelve un solo cultivo por diseño. Es exclusivo de WF3, el único que itera sobre todos los cultivos.
+
+**Guarda agregada** en `Calcular Dias en Etapa`, inmediatamente después de resolver `siguiente`:
+
+```javascript
+// La etapa siguiente no puede ser la actual. Si lo es, el catálogo vino mal
+// (duplicado, mal ordenado) y cualquier decisión sobre él sería inválida.
+if (siguiente.id === cultivo.etapas_especie_id) {
+  throw new Error(
+    `Catálogo inválido para ${cultivo.planta}: la etapa siguiente a "${cultivo.etapa_actual}" ` +
+    `resolvió a sí misma (etapas_especie_id ${siguiente.id}). Revisar duplicados en Obtener Orden Etapas.`
+  );
+}
+```
+
+Compara **identidad de fila** (`etapas_especie_id`) y no nombre de etapa, a propósito: varias especies comparten nombres de etapa (Germinación, Plántula y Vegetativo aparecen en Tomate y en Albahaca), así que una comparación por nombre daría falsos positivos.
+
+Con `Execute Once` puesto la guarda no se dispara nunca. Ese es el punto: **es un detector, no un arreglo**. Su valor operativo quedó demostrado de inmediato — permitió volver a correr el workflow sin auditar el export primero, porque la peor consecuencia posible de que el toggle no hubiera quedado guardado pasaba a ser un error rojo y cero escrituras, en vez de dos filas mentirosas y dos Telegrams anunciando un cambio que no ocurrió.
+
+**Daño colateral, limpiado.** La corrida fallida dejó 2 filas en `seguimiento_fenologico` con `etapas_especie_id = 9` (Floración) documentando un cambio de etapa que nunca ocurrió, y reseteó `fecha_inicio_etapa` de ambos cultivos sin cambiar la etapa — o sea que `Actualizar etapa en cultivo` **sí corrió**, actualizó la fecha y dejó la etapa donde estaba. Ambas cosas fueron revertidas.
+
+**Verificación tras el fix:** `indice_etapa_actual: 3`, `etapa_siguiente: "Cosecha"`, `etapa_siguiente_id: 5`, `etapa_siguiente_etapas_especie_id: 8`, Telegram `Floración → Cosecha`, y la fila persistida con `etapas_especie_id = 8`. ✅
+
+---
+
+---
+
+### 16.18 — 🔴 La concurrencia contra Gemini no escala (resuelto 17/08)
+
+**Origen:** en la corrida de verificación de 16.16, **Gemini falló para uno de los dos cultivos** con `diagnostico_fallido: true`.
+
+No fue mala suerte. **WF3 dispara N llamadas simultáneas a Gemini**, una por cultivo, porque el nodo HTTP se ejecuta en paralelo sobre todos los ítems. Con 2 cultivos ya se cayó una; con 10 se caería la mayoría.
+
+Y este también lo destapó el fix de 16.16: mientras el `.first()` colapsaba la rama a un solo ítem había una única llamada por corrida. **El bug estaba conteniendo la carga.** Es una variante interesante del defecto de segundo orden de 16.17 — corregir la lógica convirtió una carga accidentalmente serializada en una carga paralela real.
+
+**Fundamentación teórica.** Es el patrón de *fan-out* contra una dependencia con límite de tasa. La solución no es reintentar más —ya reintenta 3 veces— porque **el reintento compite contra las mismas llamadas que causan la saturación**: hay que limitar la tasa de salida. Retry y throttling atacan problemas distintos y el primero empeora el segundo si se usa solo.
+
+**Fix aplicado:** `IA Vision Fenologica` → Options → **Batching**: `Batch Size = 1`, `Batch Interval = 1000 ms`. Las llamadas salen de a una, espaciadas un segundo. En un workflow que corre cada 8 horas, N segundos extra por corrida es irrelevante frente a eliminar la causa.
+
+**Efecto colateral positivo, ya observado:** el fallo del segundo cultivo ejerció **sola y gratis** la rama de error que WF3 heredó de 16.14 — la validación positiva devolvió `diagnostico_fallido: true`, `Cambio de etapa?` cortó, no se guardó ninguna fila y el cultivo no cambió de etapa. Es la verificación de la ruta de error de WF3 sin haber tenido que provocarla, y confirma que el criterio de 16.14 vale para los dos workflows que llaman a la IA.
+
+---
+
+---
+
+### 16.19 — 🟡 `diagnostico_ia` guarda dos formas distintas según quién la escriba
+
+**Origen:** detectado el 17/08 al clasificar la tabla para la limpieza de 16.14; una consulta que asumía objeto falló contra las filas de WF3 con `cannot call jsonb_object_keys on a scalar`.
+
+La columna `seguimiento_fenologico.diagnostico_ia` es `jsonb` y tiene **dos productores que escriben cosas incompatibles**:
+
+| Productor | Qué escribe | `jsonb_typeof` |
+|---|---|---|
+| WF2 — `Persistir Diagnotico` | El objeto de diagnóstico completo | `object` |
+| WF3 — `Persistir Seguimiento Fenologico` | `evidencia_visual` + `" - "` + `justificacion` | `string` |
+
+Cualquier consulta sobre esa columna tiene que saber de antemano quién la escribió, y una que asuma objeto revienta contra las filas de la otra.
+
+**El agravante, descubierto el 17/08:** al concatenar dos campos en prosa, WF3 **descarta el resto del objeto** — incluidos `cambio_confirmado`, `confianza` y sobre todo **`etapa_detectada`**, que es el campo donde la IA nombra la etapa que efectivamente ve. En la corrida del 17/08 Gemini devolvió `etapa_detectada: "Fructificación"`, una etapa que no existe en el catálogo, y esa información se perdió (ver B.1). O sea que el sistema **tiene la evidencia de que su propio catálogo está incompleto y la tira en cada corrida**.
+
+**Fundamentación teórica.** Guardar prosa derivada en vez del dato estructurado que la originó es una **pérdida de información irreversible en el borde de escritura**: la concatenación se puede reconstruir desde el objeto, el objeto no se puede reconstruir desde la concatenación. La regla general para una tabla que hace de historia clínica es persistir la representación más rica disponible y derivar la presentación en la lectura, no al revés — el mismo argumento de 13.4.2 sobre no confundir el dato con su presentación, aplicado esta vez a la capa de persistencia.
+
+**Fix propuesto:** que WF3 escriba el objeto completo, igual que WF2, y que la prosa se arme al leer. Resuelve de paso la pérdida de `etapa_detectada`. Requiere decidir qué hacer con las 4 filas históricas que ya están como string (dejarlas y tolerar la heterogeneidad hacia atrás, o migrarlas envolviéndolas en un objeto con un campo `justificacion`).
+
+**Estado:** identificado, **sin aplicar**. Se recomienda hacerlo junto con B.1, porque comparten causa y beneficio.
+
+---
+
+---
+
+### 16.20 — 🔴 `debe_actualizar` valida que la IA respondió, no *qué* respondió (WF3)
+
+**Origen:** auditoría del 18/08 del export de WF3, releyendo `Parsear y decidir`.
+
+**El bug.** La decisión de avanzar de etapa se toma así:
+
+```javascript
+const debeActualizar =
+  diagnosis.diagnostico_fallido === false &&
+  diagnosis.cambio_confirmado === true &&
+  diagnosis.confianza > 0.7;
+```
+
+Se valida que la respuesta **exista** (16.14), que sea **afirmativa** y que sea **confiable**. No se valida en ningún punto que `etapa_detectada` —el campo donde la IA nombra la etapa que efectivamente ve— tenga relación con `etapa_siguiente`, que es la etapa por la que el prompt preguntó. El workflow hace una pregunta concreta y después descarta la respuesta a esa pregunta: avanza el cultivo a `etapa_siguiente` sea cual sea la etapa que el modelo nombró.
+
+**Ya ocurrió en producción, atribuido a otra causa.** El 17/08, durante el test N=2, Gemini devolvió `etapa_detectada: "Fructificación"` con `cambio_confirmado: true` y `confianza: 0.95`, y el sistema avanzó la planta a **Cosecha**. Ese episodio está registrado en **B.1**, que lo lee como *falta la etapa "Fructificación" en el catálogo* y propone agregarla.
+
+**Por qué B.1 no cierra este agujero.** Agregar Fructificación baja la frecuencia del caso, no lo elimina. Con el catálogo completo, cualquier corrida en la que la IA nombre una etapa distinta de la esperada —y aun así devuelva `cambio_confirmado: true`, porque observa *algún* avance respecto de la etapa registrada— sigue produciendo un salto hacia la etapa que el sistema asumió, no hacia la que se observó. B.1 es un hallazgo de **datos** (el catálogo no modela el dominio); 16.20 es un hallazgo de **control** (la decisión no consume toda la evidencia disponible). Se pueden arreglar por separado y conviene arreglar los dos.
+
+**Fundamentación teórica.** Es la **validación positiva** de 16.14 aplicada un nivel más adentro. 16.14 estableció que "no falló" no equivale a "es un diagnóstico", y lo resolvió a nivel de *forma* de la respuesta. Falta el nivel de *contenido*: **que la respuesta esté bien formada no significa que responda la pregunta que se hizo**. En términos de contrato, el productor (Gemini) emite dos hechos —*hubo cambio* y *hacia dónde*— y el consumidor usa solo el primero; un booleano de confirmación desacoplado del campo que lo califica es un contrato ambiguo, y la ambigüedad se resuelve siempre a favor de lo que el consumidor ya creía. Es también un caso de **confirmation bias estructural**: el sistema le pide a la IA que confirme una hipótesis en vez de pedirle que clasifique, y una pregunta cerrada solo puede devolver evidencia a favor o en contra de la hipótesis, nunca la hipótesis correcta que no estaba en el menú.
+
+**Gravedad de producto.** Avanzar a Cosecha cambia los umbrales de humedad y de NPK que WF1 y (a futuro) Fase 15 usan para decidir riego y fertirriego. En Cosecha muchas especies llevan riego **reducido a propósito**, para concentrar azúcares; aplicarlo a una planta que en realidad está fructificando es una recomendación agronómica incorrecta emitida con confianza. Categoría "daña el cultivo", no "queda feo".
+
+**Fix propuesto (barato):** un tercer término en la expresión que ya existe, comparando `etapa_detectada` contra `etapa_siguiente` con normalización de acentos y mayúsculas (`.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim()` de los dos lados) — el mismo problema del acento de 13.4.2, resuelto acá normalizando y no comparando texto crudo. Cuando no coincidan: **no avanzar**, y dejar registrado `etapa_detectada` como señal de que el catálogo se quedó corto, que es exactamente lo que 16.19 desbloquea. Los tres ítems (16.19, 16.20, B.1) se refuerzan entre sí.
+
+**Alternativa descartada:** invertir el prompt para que la IA clasifique la etapa en vez de confirmar la esperada, y que el workflow resuelva el avance comparando el nombre devuelto contra el catálogo. Es más correcto conceptualmente —elimina la pregunta cerrada— pero pasa a depender de que el modelo devuelva exactamente uno de los nombres del catálogo, con lo que el problema de emparejar strings se agranda en vez de achicarse, y obliga a reescribir el prompt de 9.6 entero. Queda como opción a evaluar junto con 16.23, si alguna vez se rediseña el nodo.
+
+**Estado: ✅ APLICADO (20/08, verificado en el export el 21/08).** `Parsear y decidir` incorpora el `normalizar()` con `NFD`, el cuarto término `etapaCoincide` en `debeActualizar`, y dos campos nuevos de salida: `etapa_no_coincide` (señal para el log cuando la IA afirma un cambio hacia otra etapa) y `etapa_detectada_cruda`. **Ojo:** `etapa_detectada_cruda` se calcula y **no se persiste** — ver 16.28. Y sigue **sin ejercerse en vivo**: la ventana de evaluación no se abre hasta el 28/08.
+
+---
+
+---
+
+### 16.21 — 🔴 WF3 re-analiza la misma foto cada 8 horas, indefinidamente
+
+**Origen:** auditoría del 18/08, al cruzar `Validacion de foto` contra el esquema real de `cultivo`.
+
+**El bug.** `Validacion de foto` chequea únicamente que `ultima_foto_path` no esté vacío. No hay ninguna noción de **frescura**: `cultivo.ultima_foto_path` es un puntero persistente, no un evento, y **no existe ninguna columna con la fecha de la foto** en `cultivo` (verificado en `information_schema` el 18/08). El nodo que el diseño de 12.2.2 llamaba `¿Tiene Foto Reciente?` terminó implementado como "¿tiene foto?" — la palabra que se perdió al implementar era la que llevaba toda la semántica.
+
+**Por qué eso se convierte en un bucle sin techo.** La ventana de evaluación es `diasEnEtapa >= duracion_estimada_dias * 0.8`, y `diasEnEtapa` **solo crece**: una vez cruzada, la condición nunca vuelve a ser falsa mientras el cultivo siga en esa etapa. Si la foto no se refresca y no alcanza para confirmar el avance, WF3 descarga la misma imagen y la manda a Gemini **3 veces por día, para siempre**, obteniendo la misma respuesta. Y 13.4.3 ya estableció que el ESP32 va a mandar foto **solo ocasionalmente** (la cámara consume energía, la luz ambiente no siempre sirve, la imagen pesa): el estado normal de un cultivo entre fotos no es la excepción, es el caso medio.
+
+**Dos costos distintos, que conviene no mezclar:**
+
+- **Economía unitaria.** A 100 cultivos son ~300 llamadas de visión y ~300 descargas de Storage por día sobre bytes idénticos. El consumo crece con el tiempo que un cultivo pase estancado, no con el trabajo útil realizado — es precisamente la variable que define si el producto cierra a $X por mes. Un costo que escala con el tiempo y no con el valor entregado es el peor perfil posible para un SaaS.
+- **Agronómico.** Una foto vieja puede confirmar un avance que ya no describe a la planta o, más probable, bloquear indefinidamente uno real. En los dos casos el cultivo queda operando con los umbrales de la etapa equivocada, con el mismo efecto sobre riego y nutrientes que 16.20.
+
+**Fundamentación teórica.** Falta una **clave de idempotencia** sobre la unidad de trabajo. La entrada real del análisis no es el cultivo sino **la foto**: procesar dos veces la misma imagen es, por construcción, trabajo repetido sin información nueva. Es la distinción *level-triggered* vs. *edge-triggered* de B.7, pero aplicada al puntero de la foto en vez de al estado de la planta: hoy WF3 reacciona a "existe una foto" (nivel) cuando debería reaccionar a "hay una foto que no analicé" (flanco). El patrón estándar es *deduplicación por clave de contenido*: la clave natural acá es `(cultivo_id, ultima_foto_path)`.
+
+**El obstáculo para la solución barata, que conviene decir antes de diseñarla.** `seguimiento_fenologico` **solo se escribe cuando la etapa cambia**, así que hoy no queda ningún registro de "esta foto se evaluó y dio que no". El sistema no puede deduplicar contra su propia historia porque no persiste los negativos: la tabla es un registro de **transiciones**, no de **evaluaciones**. Es la misma raíz que 16.15 —un resultado manejado que no deja rastro— vista desde la capa de datos en vez de desde la de ejecución, y explica por qué los dos ítems conviene pensarlos juntos.
+
+**Opciones de fix (a decidir):**
+
+1. **Columna de frescura.** `cultivo.ultima_foto_fecha timestamptz`, escrita por WF1 al subir la foto, expuesta en `vista_cultivos_activos`, y `Validacion de foto` pasa a exigir `notEmpty` **y** antigüedad menor a N horas. Simple, un solo lugar de escritura, pero necesita elegir N y no evita reanalizar la misma foto dos veces dentro de la ventana.
+2. **Deduplicación por path.** Persistir cada evaluación (no solo las transiciones) y saltear el cultivo si su `ultima_foto_path` ya fue evaluado. Cierra el bucle de raíz y de paso resuelve 16.15 para WF3, a costa de más filas y de decidir si van en `seguimiento_fenologico` o en una tabla de evaluaciones aparte.
+3. **Las dos**, que es lo que probablemente corresponde: la frescura protege la calidad del diagnóstico y la deduplicación protege el costo.
+
+**Estado: 🟡 APLICADO A MEDIAS (20/08, verificado el 21/08).** Se eligió la **opción 2 (deduplicación por path)**, con estas piezas confirmadas contra la base y el JSON: columna nueva `cultivo.ultima_foto_evaluada_path text` (existe), expuesta en `vista_cultivos_activos` (existe, columna 16), segunda condición en `Validacion de foto` (`ultima_foto_path != ultima_foto_evaluada_path || ''`), y nodo nuevo `Marcar Foto Evaluada` colgando de `Diagnostico util?`.
+
+**Lo que quedó abierto, y es lo importante:**
+
+- **El camino del error no deduplica** — ver **16.27**. La foto se marca solo cuando el diagnóstico fue útil, así que un fallo permanente de Gemini sobre esa imagen reproduce el bucle original completo, 3 veces por día, indefinidamente. Es el 80% del costo con el 0% del beneficio.
+- **La marca se escribe antes de que el resultado esté persistido** — ver **16.25**, que es la consecuencia grave de haber elegido esta opción sin definir el momento del commit.
+- No se implementó la opción 1 (frescura), que era la mitad que protegía la **calidad** del diagnóstico y no el costo. Una foto vieja pero nunca evaluada sigue siendo aceptada sin límite de antigüedad. Queda diferido a propósito: hoy no hay ESP32 mandando fotos, así que no hay forma de calibrar N.
+- `ultima_foto_evaluada_path` está en **`null`** para el único cultivo: **la deduplicación no corrió nunca**.
+
+**Actualización 23/08 — la deduplicación quedó verificada en vivo, en sus dos capas.** El test de 16.25 la ejerció por primera vez:
+
+- **Capa 1, en n8n (`Validacion de foto`).** Segunda corrida consecutiva sin cambiar nada: la ejecución cortó en ese IF, **sin emitir un solo ítem hacia `Descargar Foto`**. Cero descargas de Storage y cero llamadas a Gemini en una corrida que antes del 20/08 habría hecho las dos. Es la capa que ahorra dinero.
+- **Capa 2, en Postgres (guarda de idempotencia + índice único parcial).** Se llamó a la RPC directamente con la misma `(cultivo_id, path_foto)` **pero con un `p_resultado` distinto** del guardado, y devolvió `{"ya_evaluada": true, "resultado": "duplicado", "evaluacion_id": 1}` sin escribir nada. Que rechace una llamada con distinto resultado es lo que prueba que la clave de idempotencia es la que se diseñó y no otra más específica. Es la capa que garantiza corrección.
+
+El diseño del test importa acá: **la capa 2 no se ejerce corriendo el workflow**, porque la capa 1 filtra antes y nada llega hasta ella. Una capa de defensa en profundidad que solo se prueba por el camino normal es una capa que se está suponiendo — hay que llamarla directamente, salteando la de arriba, o no se sabe si existe.
+
+**Lo que sigue abierto de 16.21:** el camino del error (**16.27**), que tiene la política de terminación implementada pero **sin probar**; y la opción 1 (frescura por antigüedad de la foto), diferida a propósito hasta que haya un ESP32 real mandando fotos con el que calibrar el umbral de horas.
+
+---
+
+---
+
+### 16.22 — 🟠 `Descargar Foto` sin aislamiento de fallo: una foto rota aborta la corrida de todos los cultivos
+
+**Origen:** auditoría del 18/08, revisando los settings de los nodos de WF3.
+
+**El bug.** `Descargar Foto` no tiene `onError` ni `retryOnFail`. Un solo `ultima_foto_path` que apunte a un objeto inexistente —un path corrupto como los del Bug C de 12.2.3, un objeto borrado de Storage, un cambio de permisos del bucket— hace fallar el nodo y **aborta la ejecución entera**. Los cultivos cuya foto ya se había descargado nunca llegan a Gemini, y los que faltaban no se procesan. Con N=1 es indistinguible de "esta vuelta no se evaluó"; con N cultivos de N clientes distintos es **destino compartido**.
+
+**Fundamentación teórica: la granularidad del fail-fast.** El principio que el proyecto viene aplicando —*fallar fuerte cuando la alternativa es un dato incorrecto y creíble* (16.16)— gobierna los fallos de **corrección**. Éste es un fallo de **disponibilidad**, y ahí la pregunta no es *si* fallar sino *hasta dónde propagar el fallo*. Un cultivo cuya foto no se puede descargar no es evidencia de nada sobre los otros cuarenta y nueve, así que el radio de explosión correcto es el ítem, no la corrida: es el patrón **bulkhead** (compartimentos estancos), el mismo razonamiento por el que un barco no se hunde por una vía de agua en una bodega. Confundir las dos granularidades es lo que hace que un sistema multi-cliente tenga la disponibilidad del peor de sus clientes.
+
+**El fix no es un toggle suelto.** Poner `onError: continueRegularOutput` a secas manda `data: null` a Gemini —el bug exacto de 13.4.3 en WF2— y además hace saltar la guarda de longitud de `Parsear y decidir`. La versión coherente son cinco toques encadenados:
+
+1. `Descargar Foto` → `onError: continueRegularOutput` (preserva 1 ítem de salida por ítem de entrada, así que la cardinalidad se mantiene).
+2. `Extract from File` → `onError: continueRegularOutput` (si no hay binario, el nodo también fallaría).
+3. `Convertir a Base64` → mantener la guarda de longitud y agregar **validación positiva por ítem**: `foto_ok = typeof base64 === 'string' && base64.length > <mínimo plausible>`.
+4. Nuevo IF `Foto descargada?` sobre `$json.foto_ok`, entre `Convertir a Base64` e `IA Vision Fenologica`.
+5. `Parsear y decidir` → cambiar la referencia de la guarda de `$('Convertir a Base64').all()` a `$('Foto descargada?').all()`, porque el conjunto contra el que hay que emparejar pasa a ser el que efectivamente entró a Gemini.
+
+El punto 5 es la parte que se olvida: **cuando se agrega un filtro a una cadena, todas las guardas de cardinalidad aguas abajo tienen que reapuntar al nuevo origen**, o el fix de disponibilidad rompe la verificación de corrección que 16.16 dejó puesta.
+
+**Nota:** a diferencia de 16.15, este fallo **no es silencioso** —la ejecución queda en rojo—, así que la deuda es de radio de explosión, no de observabilidad.
+
+**Estado: ✅ APLICADO (20/08, los 5 toques verificados en el export el 21/08).**
+
+| Toque | Evidencia en el JSON |
+|---|---|
+| 1 · `Descargar Foto` | `onError: continueRegularOutput` + `retryOnFail: true`, `maxTries: 2`, `waitBetweenTries: 1000` ✅ |
+| 2 · `Extract from File` | `onError: continueRegularOutput` ✅ |
+| 3 · `Convertir a Base64` | `foto_ok` por ítem con `MINIMO_BASE64 = 1000`, más `motivo_sin_foto` (no estaba en el diseño, y está bien: preserva la causa para el operador) ✅ |
+| 4 · IF nuevo | `Foto Descargada` sobre `$json.foto_ok`, entre `Convertir a Base64` e `IA Vision Fenologica` ✅ |
+| 5 · guarda reapuntada | `Parsear y decidir` empareja contra `$('Foto Descargada').all()` ✅ |
+
+El punto 5 —el que la sección advertía que se olvida— **no se olvidó**. El nombre real del nodo quedó `Foto Descargada`, sin signo de pregunta, y la referencia del código coincide.
+
+**Efecto colateral no previsto:** el bulkhead **tapa** el bug de 16.26. Con `Descargar Foto` fallando en silencio por ítem, un `ultima_foto_path` vacío que nunca debió pasar el filtro se convierte en un ítem descartado limpiamente aguas abajo, en vez de en un error visible. Nota de método: **un fix de resiliencia reduce la observabilidad de los defectos que están aguas arriba de él**. Es el precio inherente del patrón, no un error de implementación — pero obliga a que las guardas de entrada se validen por separado, porque ya no se van a delatar solas.
+
+---
+
+---
+
+### 16.23 — 🟡 Dual-write sin atomicidad en WF3, la misma forma que 13.5.2 resolvió en WF5
+
+**Origen:** auditoría del 18/08, al mirar el orden de escritura de la rama TRUE de `Cambio de etapa?`.
+
+**El bug.** `Actualizar etapa en cultivo` (UPDATE sobre `cultivo`) y `Persistir Seguimiento Fenologico` (INSERT en `seguimiento_fenologico`) son **dos llamadas independientes que deben ocurrir juntas o no ocurrir**. Si la segunda falla, el cultivo queda avanzado de etapa —con `fecha_inicio_etapa` reseteada, o sea con todas las ventanas futuras corridas— y **sin ninguna fila que explique por qué**. La historia clínica pasa a mentir por omisión, y la próxima corrida de WF3 no tiene forma de saber que el avance ocurrió sin evidencia.
+
+**No es hipotético.** 16.17 documenta que en la corrida fallida del 17/08 `Actualizar etapa en cultivo` **sí corrió**, actualizó `fecha_inicio_etapa` y dejó la etapa donde estaba, mientras `seguimiento_fenologico` recibía dos filas que afirmaban un cambio que no había ocurrido. Los dos lados del dual-write ya se desincronizaron una vez en este proyecto.
+
+**Fundamentación teórica.** Es exactamente el problema de **atomicidad entre dos operaciones que no comparten transacción** que 13.5.2 analiza para WF5: el orquestador coordina llamadas independientes y una falla intermedia deja el sistema en un estado que ninguna de las dos operaciones contempla. Y vale la misma conclusión: como las dos escrituras van al **mismo Postgres**, no hace falta ninguna de las soluciones caras del catálogo (saga con compensación, outbox, reintento idempotente con clave de deduplicación) — alcanza con **una sola transacción de base**. Lo interesante metodológicamente es que el criterio se estableció en v30 y **nunca se propagó a WF3**, que tenía la misma forma: una decisión de diseño documentada en la sección de un workflow no se aplica sola a los demás, y ese es un costo real de tener el razonamiento organizado por workflow en vez de por patrón.
+
+**Fix propuesto — converge con 16.19.** Una `fn_registrar_avance_etapa(p_cultivo_id uuid, p_etapa_id int, p_etapas_especie_id int, p_diagnostico jsonb, p_confianza numeric, p_path_foto text)` que haga el UPDATE y el INSERT en una transacción y devuelva ambos ids. Con eso:
+
+- se cierra 16.23 (atomicidad),
+- se cierra **16.19** de arriba, porque el parámetro `jsonb` recibe el **objeto de diagnóstico completo** en lugar de la prosa concatenada, y con él vuelve `etapa_detectada` (que es la evidencia que B.1 y 16.20 necesitan),
+- WF3 pasa de dos nodos de escritura a uno.
+
+Criterios de seguridad a replicar de `fn_registrar_riego` (13.5.2, v30), no de `fn_registrar_telemetria`: **sin `SECURITY DEFINER`** (n8n llama con la Secret key = `service_role`, que ya pasa por encima del RLS) y con `REVOKE ALL FROM PUBLIC, anon, authenticated` explícito, porque Postgres otorga `EXECUTE` a `PUBLIC` por defecto. Y `Retry On Fail` **apagado** en el nodo que la llame: no es idempotente, un reintento de una respuesta perdida escribiría un segundo avance de etapa.
+
+**Estado: ✅ RESUELTO el 23/08** por `fn_registrar_evaluacion_fenologica` (ver "Solución aplicada"), que absorbió las tres escrituras en una transacción. La `fn_registrar_avance_etapa` que esta sección diseñaba **nunca se creó**: quedó superada por la superset antes de escribirse. *Historia del hallazgo, que es la parte útil:* **agravado el 20/08.** El fix de 16.21 agregó una **tercera** escritura independiente a la misma rama (`Marcar Foto Evaluada`), y esa tercera es justamente la que decide si el trabajo se puede reintentar. Lo que era "dos escrituras que pueden desincronizarse" pasó a ser "tres escrituras, una de las cuales destruye la posibilidad de recuperación de las otras dos". Ver **16.25**, que es donde vive el análisis. La `fn_registrar_avance_etapa` de esta sección sigue siendo válida, pero ya no alcanza sola: el candidato correcto pasó a ser la superset `fn_registrar_evaluacion_fenologica`.
+
+Nota metodológica, que es el verdadero hallazgo: **este ítem se agravó como efecto colateral de arreglar otro**. 16.21 y 16.23 estaban documentados en secciones separadas, se priorizaron por separado, y el fix del primero empeoró al segundo sin que nada lo señalara. Cuando el backlog está organizado por hallazgo y no por **la parte del sistema que cada hallazgo toca**, la interacción entre dos ítems abiertos es invisible hasta que uno se aplica. Es el mismo costo que 16.23 ya identificaba en su fundamentación —organizar el razonamiento por workflow en vez de por patrón— visto ahora desde la gestión del backlog en vez de desde la propagación de un criterio.
+
+---
+
+---
+
+### 16.24 — 🟢 `Obtener Orden Etapas` sin `limit` explícito
+
+**Origen:** auditoría del 18/08.
+
+La query a `/rest/v1/etapas_especie` manda `select=id,especie_id,etapa_id,orden,tipo_etapa(nombre_etapa)` y ningún `limit`, así que la cantidad de filas que vuelven depende del tope por defecto de PostgREST. Con 8 filas en el catálogo no pasa nada. El día que crezca lo suficiente, el nodo **trunca en silencio** y `Calcular Dias en Etapa` decide sobre un catálogo incompleto — misma familia que todo lo anterior: respuesta sintácticamente válida, semánticamente falsa, sin error.
+
+Vale notar que la guarda de 16.17 (`siguiente.id === cultivo.etapas_especie_id`) **no cubre este caso**: detecta duplicados, no ausencias. Un catálogo truncado a la mitad haría que `findIndex` no encuentre la etapa actual y `Calcular Dias en Etapa` haga `continue` silencioso (B.2), o que la última etapa presente parezca la terminal y el cultivo deje de evaluarse para siempre.
+
+**Fix:** agregar `limit` explícito a los query parameters del nodo. Un minuto de trabajo, sin riesgo.
+
+**Estado: ✅ APLICADO Y MEJORADO (20/08, verificado el 21/08).** Se agregó `limit=1000` al nodo **y**, además de lo que pedía la sección, `Calcular Dias en Etapa` arranca con una detección de truncado: si `Obtener Orden Etapas` devuelve ≥1000 filas, lanza excepción en vez de decidir sobre un catálogo posiblemente incompleto.
+
+Vale registrar por qué esa adición es la parte buena del fix. Un `limit` explícito no elimina el truncado silencioso: **lo mueve de un límite implícito de PostgREST a uno explícito nuestro**, que igual se puede alcanzar. Lo que lo elimina es comparar la cantidad devuelta contra el límite pedido, porque `count == limit` es la única señal disponible de "puede haber más". Es el mismo razonamiento por el que un cliente HTTP paginado nunca asume que la última página está completa: la ausencia de error no distingue "esto es todo" de "esto es lo que te dejé traer". El `throw` en vez del `continue` sigue el criterio de 16.16 — fallar fuerte cuando la alternativa es un dato incorrecto y creíble.
+
+---
+
+---
+
+### 16.25 — 🔴 `Marcar Foto Evaluada` consume la evidencia antes de que el resultado esté persistido (WF3)
+
+**Origen:** auditoría del 21/08, mirando la topología de la rama TRUE de `Diagnostico util?`.
+
+**El bug.** `Diagnostico util?` hace **fan-out en paralelo** desde su única salida TRUE:
+
+```
+Diagnostico util? ──TRUE──┬──→ Marcar Foto Evaluada           (UPDATE cultivo.ultima_foto_evaluada_path)
+                          └──→ Cambio de etapa? ──TRUE──→ Actualizar etapa → Persistir Seguimiento → Notificar → ...
+                                                 └FALSE──→ (nada)
+```
+
+`Marcar Foto Evaluada` es un **commit de "esta foto ya se usó"**: a partir de que se escribe, `Validacion de foto` va a saltear ese cultivo en todas las corridas siguientes hasta que llegue una foto nueva. Pero se escribe **sin ninguna garantía de que la consecuencia de esa evaluación se haya persistido**. Si `Actualizar etapa en cultivo` o `Persistir Seguimiento Fenologico` fallan —o n8n corta la ejecución en el medio— la foto queda marcada y **el avance de etapa se pierde de forma permanente**: la próxima corrida ve `ultima_foto_path === ultima_foto_evaluada_path` y no vuelve a mirar.
+
+**Por qué es de la categoría "daña el cultivo".** La planta sigue operando con los umbrales de humedad y NPK de la etapa anterior, que es exactamente el efecto que 16.20 previene desde el otro lado. Y 13.4.3 estableció que el ESP32 va a mandar foto **solo ocasionalmente**, así que la ventana de daño no es "hasta la próxima corrida" sino "hasta la próxima foto", que pueden ser días. El fallo además es **silencioso desde el punto de vista del dato**: no hay ninguna fila que registre que hubo un avance detectado y no aplicado.
+
+**Fundamentación teórica.** Es la elección entre **at-most-once y at-least-once delivery**, aplicada a la unidad de trabajo "evaluar una foto". Marcar el trabajo como hecho **antes** de que su efecto esté comprometido da semántica *at-most-once*: si algo falla en el medio, el trabajo se pierde y nadie lo reintenta. Marcarlo **después** da *at-least-once*: en el peor caso se re-evalúa una vez de más. La elección se decide por la **asimetría de costos** entre los dos modos de fallo, no por elegancia: acá el trabajo perdido es una decisión agronómica y el trabajo duplicado es una llamada a Gemini. Es el mismo razonamiento por el que un consumidor de una cola de mensajes hace el *ack* al final del procesamiento y no al principio, y por el que un consumidor de Kafka commitea el offset después de escribir el resultado. La regla general: **el acuse de recibo va después del efecto, nunca en paralelo con él**.
+
+Hay un segundo problema, más sutil, en el "en paralelo". El orden de ejecución entre las dos ramas de un fan-out en n8n lo determina el orden del array en `connections` — un **detalle de serialización, no un contrato**. Un diseño cuya corrección dependa de cuál de dos ramas corre primero es correcto por accidente. Aunque hoy el array ponga `Marcar Foto Evaluada` primero (que es el orden malo), el problema no es ese orden sino que exista una dependencia de orden no declarada.
+
+**Interacción con 16.23, que es lo que lo vuelve 🔴 y no 🟠.** Antes del 20/08 había dos escrituras que debían ocurrir juntas. Ahora hay **tres**, y la tercera es la que destruye la capacidad de recuperación de las otras dos. Sin `Marcar Foto Evaluada`, un dual-write roto se auto-reparaba: la corrida siguiente volvía a evaluar la misma foto y volvía a intentar el avance (con el costo de 16.21, pero con corrección eventual). Con la marca, esa reparación desaparece. **La deduplicación convirtió un fallo transitorio en uno permanente** — que es el precio general de agregar idempotencia sin agregar atomicidad.
+
+**Tres opciones de fix, de menor a mayor alcance:**
+
+1. **Serializar el fan-out (sin SQL).** `Diagnostico util?` TRUE → `Cambio de etapa?`; la marca pasa a ser la última consecuencia de cada rama: en la rama TRUE, inmediatamente después de `Persistir Seguimiento Fenologico` y **antes** de la cadena de Telegram (Telegram es presentación y no debe poder bloquear un commit de estado); en la rama FALSE, sola. Cuesta 15 minutos y cero riesgo sobre la base. Requiere **dos instancias del nodo**, porque n8n no permite converger dos ramas sin un `Merge` y un `Merge` acá reintroduce una trampa de cardinalidad — y dos instancias es un nodo duplicado que hay que editar en los dos lados, con el riesgo de renombre de 13.3.2. **Cierra:** la pérdida silenciosa. **Deja abierto:** 16.23, 16.28 y 16.27 enteros.
+2. **`fn_registrar_avance_etapa`**, tal como la especifica 16.23, más un `Marcar Foto Evaluada` suelto en las dos ramas. **Cierra:** 16.23 y **16.28 de regalo** (el parámetro `jsonb` recibe el objeto completo y con él vuelve `etapa_detectada`). **Deja abierto:** la marca sigue siendo una escritura fuera de la transacción, así que 16.25 se achica pero no cierra; y 16.27 queda igual.
+3. **`fn_registrar_evaluacion_fenologica` (la superset).** Una sola función que en una transacción (a) inserta el registro de la evaluación con el diagnóstico completo, (b) actualiza `ultima_foto_evaluada_path`, y (c) si corresponde, avanza la etapa. **Cierra:** 16.25, 16.23, 16.28, 16.19 y —por el contador de evaluaciones por path que habilita— también 16.27 y el resto de 16.21. WF3 pasa de tres nodos de escritura a uno.
+
+**Recomendación: la opción 3, con tabla `evaluacion_fenologica` aparte.** El cambio conceptual es que la unidad de trabajo persistida pase a ser **la evaluación** y no **la transición**, que es la raíz que 16.21 identificó y no llegó a resolver. La decisión que hay que tomar explícitamente es dónde viven los negativos: meterlos en `seguimiento_fenologico` ensucia la **historia clínica** —el artefacto más visible del producto y el que va en la tesis— con filas que dicen "miramos y no vimos nada", degradando una tabla que hoy se lee como una línea de tiempo de etapas. Una tabla aparte preserva esa semántica y es donde el contador de intentos cae natural, a costa de un objeto y una policy RLS más. Criterios de seguridad de la función a replicar de `fn_registrar_riego` (13.5.2, v30) y **no** de `fn_registrar_telemetria`: sin `SECURITY DEFINER` y con `REVOKE ALL FROM PUBLIC, anon, authenticated` explícito. `Retry On Fail` **apagado** en el nodo que la llame.
+
+**Estado: ✅ RESUELTO por la opción 3 (23/08), verificado en vivo en su camino principal.** Se creó la tabla `evaluacion_fenologica` y la función `fn_registrar_evaluacion_fenologica` — ver **"Solución aplicada"** más abajo, con el SQL, los cambios de n8n, el registro del test y lo que todavía no se probó.
+
+---
+
+---
+
+### 16.26 — 🟠 La condición "tiene foto" de `Validacion de foto` no puede dar falso: un `=` de más (WF3)
+
+**Origen:** auditoría del 21/08, leyendo las dos condiciones del IF.
+
+**El bug.**
+
+```json
+"leftValue": "=={{ $json.ultima_foto_path }}"
+```
+
+En n8n, el `=` inicial de un valor de parámetro es el **marcador de modo expresión**; lo que se evalúa es lo que queda, o sea el template `={{ $json.ultima_foto_path }}`, que produce la **cadena** `"=" + String(valor)`. Nunca es vacía: con `ultima_foto_path` en `null` da `"=null"`, con `undefined` da `"=undefined"`. El operador `notEmpty` devuelve **TRUE siempre**. La condición que existe para preguntar "¿este cultivo tiene foto?" no puede responder que no.
+
+**Es un artefacto de tipeo, no una convención.** Un barrido de los `leftValue` de los 5 workflows devuelve 17 valores distintos: 16 con un solo `=` y **este solo con dos**. Y es la **tercera aparición del mismo dedo** en el proyecto: el Bug C de 12.2.3 era exactamente esto en el campo `path_foto` de `Persistir Seguimiento Fenologico`, y dejó dos filas reales en `seguimiento_fenologico` con un path prefijado por `=` que no existe en Storage. Ver también 16.29.
+
+**Qué provoca hoy.** No corrompe datos, porque el bulkhead de 16.22 atrapa la descarga fallida aguas abajo y el ítem se filtra en `Foto Descargada`. Pero: (a) gasta una request a Storage y un ítem de fan-out por cada cultivo sin foto, **en cada una de las 3 corridas diarias**, que es costo por cliente y por día; (b) deja la segunda condición sosteniendo sola todo el ruteo, y esa condición compara con `typeValidation: strict` un `ultima_foto_path` que puede ser `null` contra un operador de tipo `string`. **Hay que confirmar en vivo si n8n levanta error de tipo ahí** — si lo levanta, un solo cultivo sin foto vuelve a abortar la corrida entera, o sea reintroduce 16.22 por la puerta de al lado.
+
+**Fundamentación teórica.** Una guarda que no puede evaluar a falso no es una guarda: es una afirmación disfrazada de pregunta. Es la **regla 6 del proyecto** —un test que no puede fallar no detecta nada— aplicada a una condición de ruteo en vez de a un caso de prueba, y el criterio operativo que se deriva es el mismo: **toda condición nueva debe verificarse ejecutando al menos una vez el caso que debería rechazar**. Marca además el límite exacto de `typeValidation: strict`, que este proyecto adoptó como detector de errores en 16.12: la validación estricta compara el **tipo** del valor resuelto contra el tipo del operador, y acá el tipo resuelto es `string`, que es el tipo correcto. Lo que está mal no es el tipo sino **qué expresión se está evaluando**, y ninguna validación de tipos puede detectar eso. Dicho de otra forma: los sistemas de tipos protegen contra valores mal tipados, no contra programas que evalúan algo distinto de lo que su autor cree.
+
+**Fix:** sacar un `=` (queda `={{ $json.ultima_foto_path }}`), y revisar la segunda condición contra `null`. Diez segundos, independiente de todo lo demás.
+
+**Estado: ✅ APLICADO.** Verificado contra el export del 24/08: `Validacion de foto` usa `={{ $json.ultima_foto_path }}` sin el `=` de más, y hay **0 ocurrencias** del patrón `"={{ =` en todo el JSON del workflow. La sección había quedado en "sin aplicar" por el sesgo que describe **Contradicciones**.
+
+---
+
+---
+
+### 16.27 — 🟠 La rama FALSE de `Diagnostico util?` no existe: 16.21 quedó abierto por el camino del error (WF3)
+
+**Origen:** auditoría del 21/08, al notar que `connections["Diagnostico util?"].main` tiene **un solo array**.
+
+**El bug.** `Diagnostico util?` rutea sobre `diagnostico_fenologico.diagnostico_fallido === false` y **su salida FALSE no está conectada a nada**. La foto se marca como evaluada únicamente en la rama TRUE. Entonces, si Gemini falla de forma **permanente** para esa imagen —respuesta sistemáticamente malformada, imagen que el modelo rechaza, cuota agotada, modelo retirado— `diagnostico_fallido` es `true` en cada corrida, nada se marca, y WF3 vuelve a descargar la foto de Storage y a mandarla a Gemini **3 veces por día, indefinidamente**. Es el bucle completo que 16.21 vino a cerrar, sobreviviendo intacto por el único camino donde además cada intento es un intento **inútil**.
+
+**Los dos costos, otra vez separados.** *Economía unitaria:* la deduplicación cubre el camino en que el sistema obtiene información y deja de cubrir el camino en que no obtiene nada — o sea que el gasto no acotado quedó exactamente donde el valor entregado es cero. *Soporte:* la rama FALSE es un **dead end silencioso**, la ejecución queda verde, y no hay ninguna fila, mensaje ni error que diga que un cultivo lleva días sin poder evaluarse. Es 16.15 sin aplicar en WF3, con la agravante de que acá no es solo observabilidad.
+
+**Fundamentación teórica.** Un reintento sin **política de terminación** no es resiliencia, es un bucle. El catálogo de resiliencia distingue el *retry* —acotado, con backoff y un tope— del **circuit breaker**, que existe justamente para el caso en que los reintentos dejaron de ser plausiblemente transitorios y hay que dejar de intentar. WF3 tiene hoy reintentos infinitos y sin backoff (el Schedule Trigger cada 8 h hace de bucle externo) y ningún estado que permita contar cuántos van, porque **no persiste los negativos**. Sin memoria de los intentos fallidos no se puede implementar ninguna política de terminación: el circuit breaker necesita un contador, y el contador necesita una tabla. Es la misma dependencia que 13.3.1 documentó para `falla_riego_persistente` — y el mismo motivo por el que ese circuit breaker sigue siendo código inalcanzable con `evento_riego` en `pendiente`.
+
+**Fix en dos tiempos:**
+
+1. ~~**Ahora, barato:** `Stop and Error` colgado de la salida FALSE de `Diagnostico util?`, en paridad exacta con `Diagnostico Fallido` de WF2.~~ **DESCARTADO el 23/08 — ver la corrección abajo.**
+2. **Con la decisión de 16.25:** el contador de evaluaciones por `(cultivo_id, ultima_foto_path)` sale gratis, y con él un tope real — *después de N intentos fallidos sobre la misma foto, marcarla como agotada*. Eso es lo que acota de verdad el gasto.
+
+**Alternativa descartada:** marcar la foto como evaluada también cuando el diagnóstico falla. Cierra el costo de un plumazo, pero descarta una foto perfectamente buena por un 503 transitorio de Gemini, y en un cultivo que manda foto cada varios días eso significa perder la única evidencia disponible de un avance de etapa por un error que se hubiera resuelto solo al intento siguiente. Confunde **"esta foto no sirve"** con **"esta vez no pude"**, que es precisamente la distinción que `Diagnostico util?` existía para hacer.
+
+---
+
+### 16.27.1 — Corrección (23/08): el `Stop and Error` era el fix equivocado para WF3
+
+Al ir a aplicarlo se vio que **`Stop and Error` es correcto en WF2 e incorrecto en WF3**, y la diferencia no es de estilo sino de **cardinalidad**.
+
+WF2 se dispara por webhook y procesa **un ítem por invocación**: abortar la ejecución afecta a ese diagnóstico y a nada más. WF3 se dispara por schedule y lleva **N cultivos de N clientes distintos en la misma corrida**: un `Stop and Error` por el fallo de uno mata la ejecución entera y los demás nunca se evalúan. O sea que el fix de observabilidad habría **reintroducido el destino compartido que el bulkhead de 16.22 acababa de eliminar**, en el mismo workflow y a tres secciones de distancia.
+
+La conclusión metodológica vale más que el fix: **un patrón de observabilidad no se copia entre workflows sin mirar la cardinalidad del que lo recibe.** El mismo nodo es una señal en un pipeline de un ítem y una bomba en uno de N. Es la contracara exacta de lo que 16.23 dice sobre propagar criterios entre workflows: propagar de más es tan riesgoso como no propagar.
+
+**Fix adoptado en su lugar:** la señal en WF3 es **un dato, no una ejecución roja**. Cada intento fallido queda como fila en `evaluacion_fenologica` con `resultado = 'diagnostico_fallido'`, consultable y contable, y al tercero pasa a `'agotada'`. La ejecución sigue en verde, los demás cultivos se procesan, y el operador tiene una consulta —no un color— para saber qué cultivos están trabados.
+
+**Estado: ✅ RESUELTO Y VERIFICADO EN VIVO (24/08).** La política de terminación de `fn_registrar_evaluacion_fenologica` (`p_max_intentos`, default 3) se ejerció por inyección de fallos con dos cultivos: dos corridas dejaron `diagnostico_fallido` **sin marcar la foto**, la tercera pasó a `agotada` y la marcó, y la cuarta **no agregó ninguna fila** porque `Validacion de foto` ya la filtraba. Ver la campaña de tests en "Solución aplicada". El bucle de 3 llamadas diarias indefinidas quedó acotado a 3 intentos por foto.
+
+**Lo que 16.27 deja sin resolver, y ahora es su propio hallazgo:** la terminación cubre el resultado `diagnostico_fallido`, no `etapa_no_coincide`. Ver **16.31**.
+
+---
+
+---
+
+### 16.28 — 🟡 `etapa_detectada_cruda` se calcula y se tira (WF3) — es 16.19 con un dato nuevo en juego
+
+**Origen:** auditoría del 21/08, cruzando la salida de `Parsear y decidir` contra los campos de `Persistir Seguimiento Fenologico`.
+
+`Parsear y decidir` ahora emite `etapa_detectada_cruda` y `etapa_no_coincide`, que son la evidencia que el fix de 16.20 produce. `Persistir Seguimiento Fenologico` **no escribe ninguno de los dos**: sigue guardando `diagnostico_ia` como `"{{ evidencia_visual }} - {{ justificacion }}"`, un string concatenado dentro de una columna `jsonb`, mientras WF2 guarda un objeto en la misma columna (16.19, ahora **confirmado contra la base**: la fila del 12/08 19:39 es texto plano, las otras son objetos).
+
+El costo concreto: **16.20 detecta el caso que B.1 necesita ver y el sistema lo olvida**. Cuando la IA nombre "Fructificación" y el fix bloquee el avance, `etapa_no_coincide` va a estar en `true` en el log de ejecución de n8n —que se purga— y en ninguna tabla. La señal de que el catálogo de etapas se quedó corto para una especie de fruto no se acumula, así que nunca va a haber evidencia agregada de cuántas veces pasó ni en qué especies. Un hallazgo que solo existe en el log de ejecución no es un hallazgo: es un evento que ya ocurrió.
+
+**Fundamentación.** Es *observability by design* aplicado al dato de dominio: la instrumentación tiene que persistir en el mismo lugar donde vive el hecho que califica, o queda fuera de alcance de cualquier consulta futura. Y refuerza la conclusión de 16.19: **la columna `jsonb` no es el problema, la heterogeneidad sí**. Un `jsonb` con dos formas distintas según el productor es un contrato sin definición, y ninguna consulta puede leerlo sin ramificar por quién lo escribió.
+
+**Fix:** cae solo con la opción 2 o 3 de 16.25, pasando el objeto de diagnóstico completo como parámetro `jsonb`. No conviene arreglarlo por separado.
+
+**Estado: ✅ RESUELTO (23/08), y con ello también 16.19.** `fn_registrar_evaluacion_fenologica` recibe `p_diagnostico jsonb` con el **objeto completo** y lo escribe tanto en `evaluacion_fenologica.diagnostico` como en `seguimiento_fenologico.diagnostico_ia`. Verificado en el test del 23/08: la fila registrada contiene `etapa_detectada: "Fructificación"`, `confianza: 0.98`, `cambio_confirmado: true`, `evidencia_visual`, `justificacion` y `diagnostico_fallido: false`, todo como objeto y no como prosa. **B.1 pasa de anécdota a dato consultable:** `select etapa_detectada, count(*) from evaluacion_fenologica where resultado = 'etapa_no_coincide' group by 1` es hoy la consulta que dice qué etapas del dominio le faltan al catálogo, y por especie. Queda pendiente el paso de higiene de datos: las 24 filas históricas de `seguimiento_fenologico` siguen mezclando las dos formas viejas, así que cualquier consulta sobre el histórico todavía tiene que ramificar por productor.
+
+---
+
+---
+
+### 16.29 — 🟢 `Marcar Foto Evaluada` tiene `"condition": "=eq"` y no admite reintento
+
+Dos detalles menores del nodo nuevo:
+
+- El filtro usa `"condition": "=eq"` mientras su hermano `Actualizar etapa en cultivo` usa `"condition": "eq"`. Acá el `=` inicial pone el campo en modo expresión y el resto se resuelve a la cadena literal `eq`, así que **funciona**. Pero es el mismo dedo de 16.26 y del Bug C de 12.2.3, en el tercer campo distinto: conviene normalizarlo a `"eq"` y, más en general, **anotar el doble `=` como patrón de defecto recurrente de este proyecto** — vale un grep de `"=={{` sobre los 5 JSON cada vez que se re-exportan. Ese grep es hoy la única verificación automática que existe contra esta familia de bug.
+- El nodo no tiene `retryOnFail`. A diferencia de sus vecinos, **este sí es idempotente**: es un `UPDATE` que asigna un valor fijo y calculado aguas arriba, así que aplicarlo dos veces da el mismo resultado. Bajo el criterio de v30 —los reintentos se habilitan según la idempotencia de la operación, no según su importancia— corresponde encenderlo, al contrario de `Actualizar etapa en cultivo`, que resetea `fecha_inicio_etapa` a `now()` y por lo tanto **no** es idempotente y debe quedar sin reintento. Es un buen ejemplo para el marco teórico de que la idempotencia es una propiedad del *efecto* de la operación y no de su verbo: los dos nodos son `UPDATE` sobre la misma tabla y solo uno admite reintento.
+
+**Estado:** identificado, **sin aplicar**. Aplicar junto con 16.25, ya que el nodo se toca igual.
+
+---
+
+---
+
+### 16.30 — 🟢 Deriva de modelo: WF4 quedó en `gemini-2.5-flash`
+
+WF2 y WF3 pasaron a `gemini-3.5-flash` el 20/08; WF4 sigue en `gemini-2.5-flash`. No rompe nada hoy porque WF4 está inactivo a propósito, pero es **deriva de configuración**: el día que se active va a razonar con un modelo distinto que sus hermanos, con distinta calibración de confianza y distinto costo por llamada, y nada en el sistema lo va a señalar.
+
+El fondo es que **el modelo está hardcodeado en la URL de cada nodo HTTP**, tres veces, mientras la API key sí está centralizada en una credencial compartida. O sea que el proyecto ya aprendió a centralizar el secreto y no centralizó el parámetro que decide la calidad y el costo de cada inferencia. Es la misma familia que los hardcodes de la Fase 12, y el mismo criterio de producto: cada cliente consume llamadas a Gemini, y el modelo es la variable que fija ese costo unitario — no debería requerir editar tres workflows para cambiarlo. Opciones cuando se retome: una variable de entorno de n8n, o una fila de configuración en Supabase leída al inicio de cada workflow (más caro, una consulta extra por corrida, pero cambiable sin tocar n8n).
+
+**Estado:** identificado, **sin aplicar**. Aplicar cuando se vaya a reactivar WF4, no antes.
+
+---
+
+---
+
+### 16.31 — 🟠 `etapa_no_coincide` es un estado absorbente: el cultivo queda trabado y nadie se entera
+
+**Origen:** el test N=2 del 24/08. El cultivo B estaba en **Vegetativo**, se le preguntó si había pasado a **Floración**, y Gemini contestó `etapa_detectada: "Fructificación"` con `confianza: 0.99` y `cambio_confirmado: true`. La planta **evidentemente pasó Vegetativo** —la foto tiene flores y frutos— y el sistema, correctamente, no la avanzó.
+
+**El problema no es esa corrida: es la siguiente, y todas las que vengan.** Llega una foto nueva; la planta sigue fructificando; Gemini vuelve a decir "Fructificación"; `etapa_no_coincide` otra vez. Y otra. **Una vez que un cultivo entra en `etapa_no_coincide` por una etapa ausente del catálogo, no sale nunca por sí solo.**
+
+No hay bucle de costo —la deduplicación de 16.21 lo corta bien, cada foto se evalúa una sola vez— pero tampoco hay avance **ni ninguna señal**. El cultivo queda operando con los umbrales de humedad y NPK de la etapa vieja mientras la planta está en otra, indefinidamente, con todas las ejecuciones en verde. Es la categoría "daña el cultivo", llegando por el lado opuesto al que 16.20 previene.
+
+**El contador de 16.27 no lo cubre:** cuenta `diagnostico_fallido`, no `etapa_no_coincide`. Y no debería cubrirlo con la misma política, porque el remedio es distinto: ante un fallo repetido de la IA lo correcto es **dejar de intentar**; ante una etapa que el catálogo no contempla, lo correcto es **avisarle a alguien**, porque el sistema no puede resolverlo solo.
+
+**Fundamentación teórica.** 16.20 cambió **falsos positivos por falsos negativos**, y fue la decisión correcta: el falso positivo daña (avanzar a Cosecha reduce el riego a propósito y arruina la planta) mientras el falso negativo, en principio, solo demora. Pero un falso negativo **indefinido y silencioso** deja de ser una demora y pasa a ser un error permanente. En términos de teoría de control, la guarda de 16.20 es un **lazo abierto**: rechaza la acción y no genera ninguna realimentación sobre el rechazo, así que el sistema no tiene forma de saber que está estancado. Y en términos de máquina de estados, `etapa_no_coincide` es un **estado absorbente** — probabilidad 1 de permanecer en él una vez alcanzado, dado el catálogo. Los estados absorbentes no son un problema en sí; el problema es no tener ninguna transición de salida, ni siquiera hacia un operador humano.
+
+Vale además distinguirlo de B.1 con la misma separación que la sección de 16.20 estableció: **B.1 es un hallazgo de datos** (falta "Fructificación" en el catálogo) y **16.31 es de control** (falta la señal). Agregar Fructificación hace que el caso deje de ocurrir *para el tomate*; 16.31 sigue haciendo falta para la primera especie de fruto que se cargue con el catálogo incompleto —pimiento, pepino, berenjena, frutilla— y sin señal nadie se entera hasta revisar a mano, que es exactamente cómo se descubrió las dos veces.
+
+**Fix propuesto, barato porque la tabla ya existe.** Contar los `etapa_no_coincide` consecutivos por cultivo y, al pasar de N, emitir **un** aviso por Telegram con el contenido real del problema: *"el sistema observa repetidamente una etapa (`etapa_detectada`) que no figura en el catálogo de esta especie"*. Es la misma forma que la terminación de 16.27, con dos diferencias deliberadas: el destino no es dejar de intentar sino **escalar a una persona**, y el aviso va **una sola vez** y no en cada corrida, para no caer en la fatiga de alertas de B.7 — un canal que satura se silencia, y un bot silenciado no avisa el día que importa.
+
+Con esto B.1 deja de depender de que alguien mire: `select etapa_detectada, count(*) from evaluacion_fenologica where resultado = 'etapa_no_coincide' group by 1` ya es la consulta que dice qué etapas del dominio le faltan al catálogo y en qué especies, y el aviso la convierte en algo que llega solo.
+
+**Estado:** identificado, **sin aplicar**. Depende de tener resuelto qué canal usa el aviso operativo, que es la misma decisión pendiente de 16.15 y B.3.
+
+---
+
+---
+
+### 16.32 — ❌ DESCARTADO · "un fallo de Telegram impide el riego" — hipótesis mía, refutada por el test y por la topología real
+
+**La hipótesis.** `Requiere Alerta?` hace fan-out desde su salida TRUE hacia tres ramas. Los dos nodos HTTP internos (`Trigger a WF2`, `Trigger WF5`) tienen `onError: continueRegularOutput`; **`Alerta Telegram` no tiene `onError`**, así que su default es Stop Workflow. Y por posición en el canvas —`executionOrder: v1` ordena de arriba hacia abajo— queda **en el medio**: `Dispara WF 2` (y = −224), `Alerta Telegram` (y = −32), `Dispara WF5` (y = 160). De ahí la hipótesis: si Telegram falla, la ejecución aborta y el riego nunca se dispara. Con la peor asimetría posible, **la presentación bloqueando la acción**.
+
+**La refutación, por inyección de fallos (24/08).** Se puso `chatId = 1` y se disparó una telemetría de sequía. Resultado contra el estado persistido: `lectura_sensores` 220 → **225**, `comando_dispositivo` 8 → **9**, `evento_riego` 8 → **9**, creados 2 segundos después de la lectura. **El riego se disparó igual.** La hipótesis, tal como estaba formulada, es falsa.
+
+**Cerrado por la topología real (canvas, 24/08).** Las tres salidas de `Requiere Alerta?` son **ramas paralelas independientes**: `Dispara WF 2 → Trigger a WF2`, `Alerta Telegram`, y `Dispara WF5 → Trigger WF5`. Un fallo en la rama de Telegram **no corta las otras dos**. La deducción a partir del orden en el array de `connections` y de las coordenadas del canvas era simplemente incorrecta: ese orden no determina un dominio de fallo compartido.
+
+**El fix que había propuesto habría sido peor que el problema.** Poner `onError: continueRegularOutput` en `Alerta Telegram` no protegía nada —no hay nada aguas abajo que proteger— y en cambio **habría silenciado un error real**: hoy, si Telegram falla, la ejecución queda marcada y el operador tiene una señal. Con `onError` en continue, el fallo pasa desapercibido. Es 16.15 al revés: agregar tolerancia a fallos donde no hay nada que tolerar solo compra pérdida de observabilidad.
+
+**Corrección de una afirmación mía en la primera redacción de esta sección:** decía que esto obligaba a revisar **16.22**, y no es así — son mecanismos distintos. 16.22 es un **nodo procesando N ítems** donde uno falla y arrastra al resto dentro de la misma cadena lineal; esto era sobre **ramas hermanas** de un fan-out. Que las ramas sean independientes no dice nada sobre los ítems dentro de un nodo. **16.22 queda intacto.**
+
+**Lo que sí queda, y es el valor de este ítem.** El hallazgo se escribió como 🔴 a partir de **leer el JSON y razonar sobre el modelo de ejecución**, sin ejercerlo. El usuario lo cuestionó antes de aceptarlo; la inyección de fallos costó dos minutos y lo refutó; y el diagrama del canvas lo cerró. **Un modelo mental del runtime es una hipótesis, no evidencia.** El proyecto tiene el precedente inverso en 16.14 —razonamiento correcto, confirmado por test— y eso es justamente lo que hace imposible distinguirlos sin probar: los dos se sentían igual de sólidos al escribirlos.
+
+Reglas que quedan: *ningún hallazgo entra al documento como 🔴 sin haber sido ejercido, si ejercerlo es barato*; y *antes de proponer un fix, verificar qué problema resuelve* — un `onError` de más no es neutro, cuesta observabilidad.
+
+**Estado: ❌ descartado.** No hay nada que aplicar. Se conserva la sección porque el episodio es material para el marco teórico, no porque quede trabajo.
+
+---
+
+---
+
+### 16.33 — 🟠 Un dispositivo con dos cultivos activos pierde uno en silencio (WF1)
+
+`Resolver Cultivo` consulta `vista_cultivos_activos` filtrando por `dispositivo_mac` con **`limit: 1`**, y `Motor de Inferencia` lo lee con `.first()`. **Nada en el esquema impide que un dispositivo tenga dos cultivos activos**: `cultivo.dispositivo_id` no tiene restricción de unicidad (verificado en `pg_constraint`) y la vista no ordena por ningún campo.
+
+**Y ese caso es el más natural del producto, no uno raro.** El usuario cosecha el tomate, planta otra cosa en la misma maceta con el mismo ESP32, y da de alta un cultivo nuevo sin desactivar el anterior. A partir de ahí la telemetría se atribuye a **cualquiera de los dos**, sin orden determinístico, y todo lo demás sigue coherente sobre la premisa equivocada: los umbrales de la especie que no es, el riego calculado sobre el volumen de maceta que no es, y la historia clínica de la planta que no es. Sin un solo error.
+
+**Fundamentación.** Es un **invariante de dominio que no está expresado en el esquema**. "Un dispositivo mide un cultivo activo" es verdad en el mundo físico y no está escrito en ningún lado del modelo. El `limit: 1` no implementa esa regla: **la oculta**, convirtiendo una violación del invariante en un resultado plausible y silencioso. Es la misma familia que 16.24 —un límite que no se compara contra nada no protege, disimula— y el mismo criterio que 16.25 dejó establecido: los invariantes van en la capa que no se puede esquivar, porque una regla en n8n protege a los ítems que cruzan ese nodo y una regla en Postgres protege también a los caminos que todavía no se escribieron (WF6, una app, un alta manual).
+
+**Fix propuesto:**
+
+```sql
+create unique index uq_cultivo_activo_por_dispositivo
+  on public.cultivo (dispositivo_id) where active;
+```
+
+Con eso el alta del segundo cultivo falla **en el momento del alta**, donde el usuario puede entenderlo y corregirlo, en vez de degradar en silencio durante meses. Verificar antes que ningún dato existente lo viole. Vale además pensar el mensaje de error de cara al usuario: "este dispositivo ya está asignado a otro cultivo activo" es una frase de onboarding, no un error técnico.
+
+**Estado:** identificado, **sin aplicar**. Requiere SQL en producción con confirmación previa (regla 2).
+
+---
+
+---
+
+### 16.34 — 🟠 `fn_registrar_telemetria` arma el JSON por concatenación (WF1)
+
+El `jsonBody` del nodo es texto con expresiones interpoladas:
+
+```
+"p_humedad": {{ $json.humedad }},
+```
+
+Si alguno de los cinco valores no viene, el cuerpo queda `"p_humedad": ,` y **deja de ser JSON válido**: el nodo falla y la telemetría no se registra.
+
+Lo llamativo es que **la función está diseñada para aceptar lecturas parciales** — sus cinco parámetros son `DEFAULT NULL` justamente para eso. El diseño contempla el sensor de pH roto y el nodo que la llama no puede expresarlo: el contrato de la base es más amplio que el del cliente que la consume.
+
+**Fundamentación.** Es el mismo principio que 16.25 dejó establecido para `Registrar Evaluacion`: **nunca construir un formato estructurado concatenando texto**. Es la razón de ser de las *prepared statements*, y la inyección SQL es solo su consecuencia más famosa; el error de fondo es mezclar datos con estructura. Acá el formato es JSON y el "atacante" es un sensor que no reportó.
+
+**Fix:** armar el objeto en `Consolidar datos` y mandar `={{ JSON.stringify($json.rpc_telemetria) }}`, exactamente el patrón que WF3 ya usa.
+
+**Cuándo muerde:** hoy no, porque el simulador siempre manda los cinco campos — **sesgo del caso feliz en los datos de prueba**, el mismo de 13.4.3. Muerde el día que llegue hardware real con un sensor fallando, que es una condición operativa normal y no una excepción.
+
+**Estado: ✅ APLICADO Y VERIFICADO CONTRA LA BASE (31/08).** El nodo pasó a armar el cuerpo como objeto y a serializarlo con `JSON.stringify`. Ejercido con una telemetría deliberadamente parcial (sin pH): se escribieron **exactamente 4 filas** en `lectura_sensores` y ninguna de pH. Con el código anterior, el mismo escenario perdía la lectura entera.
+
+---
+
+---
+
+### 16.35 — 🟡 `tiene_actuador_riego` sin `!!`: cuarta aparición del mismo patrón (WF1)
+
+En la rama de lectura sospechosa el Motor emite `tiene_actuador_riego: !!cultivo.tiene_actuador_riego`. En la salida principal emite `cultivo.tiene_actuador_riego` **crudo**. `Dispara WF5` lo lee con `typeValidation: strict` como booleano, y `dispositivo.tiene_actuador_riego` es anulable.
+
+Es el bug de **16.12**, repetido en **v23** y en el **Bug 4 de 13.3.3**, apareciendo por cuarta vez. Y es además una violación del contrato de salida uniforme **dentro del mismo nodo**: las dos ramas no solo tienen que devolver los mismos campos, sino **con los mismos tipos**. Probabilidad baja porque la columna tiene `DEFAULT false`; costo del fix, dos caracteres.
+
+Que el mismo defecto reaparezca cuatro veces en distintos nodos y sesiones sugiere que la revisión caso por caso no alcanza: lo que corresponde es **normalizar en el borde** —todo booleano que salga de la base se fuerza con `!!` una sola vez, en el productor— en vez de defenderse en cada consumidor.
+
+**Estado: ✅ APLICADO (31/08).** Se optó por normalizar en el borde —una copia con *spread* en el punto de entrada del dato— en lugar de agregar el `!!` en la rama que faltaba: arregla las dos ramas de una vez y elimina la necesidad de futuros parches. **Sin ejercitar por separado**; viajó en el mismo pegado que 16.34 y 16.36.
+
+---
+
+---
+
+### 16.36 — 🟢 `Requiere Alerta?` sigue ruteando sobre el string `estado` (WF1)
+
+```
+$('Motor de Inferencia').item.json.estado  [string:notEquals]  'OK'
+```
+
+13.4.2 estableció el criterio —*las decisiones de ruteo leen booleanos de dominio; los strings son para las personas*— y se aplicó a los tres IF nuevos de 13.4, pero **este quedó afuera**. Es menos frágil que un `contains`, porque `'OK'` funciona como centinela y no como substring. Pero si alguien cambia ese literal, **las alertas dejan de dispararse y con ellas todo lo que cuelga de esa rama: WF2 y el riego**.
+
+El Motor ya expone el hecho de dominio: `total_alertas > 0`. Es otro caso de "un criterio establecido que no se propagó del todo", la misma forma que 16.23 y que 16.15 aplicado en WF2 y no en WF3.
+
+**Estado: ✅ APLICADO Y VERIFICADO EN VIVO (31/08).** `Requiere Alerta?` rutea sobre `requiere_alerta`, un hecho de dominio calculado en el productor, y ya no sobre el string `estado`. Verificado en la misma corrida que cerró 16.34: la alerta de Telegram llegó, lo que solo es posible si el campo existe y el IF lo evalúa.
+
+---
+
+---
+
+### 16.37 — 🔴 Un cultivo en una etapa sin umbrales se reporta sano indefinidamente (WF1)
+
+**Origen:** sesión paralela de base de conocimiento del 24/08. Verificado contra el estado real antes de incorporarlo.
+
+`vista_conocimiento_experto` hace **INNER JOIN** contra `parametro_etapa` (confirmado con `pg_get_viewdef`):
+
+```sql
+FROM especie_planta ep
+  JOIN etapas_especie ee ON ep.id = ee.especie_id
+  JOIN tipo_etapa te ON ee.etapa_id = te.id
+  JOIN parametro_etapa pe ON ee.id = pe.etapa_especie_id   -- INNER
+```
+
+Una etapa sin fila en `parametro_etapa` **no devuelve nulos: no devuelve nada.** Y a partir de ahí:
+
+1. `Conocimiento Experto` (WF1) tiene `alwaysOutputData: true` → ante cero filas emite **un ítem vacío `{}`**.
+2. `Motor de Inferencia` hace `const reglas = $('Conocimiento Experto').first().json` → `{}`.
+3. `sensor.humedad < reglas.humedad_min` es `20 < undefined` → **`false`**. Y `20 > undefined` **también** es `false`.
+4. Lo mismo con pH; en NPK la tolerancia se calcula sobre `undefined` y produce `NaN`.
+5. `estadoGlobal` se queda en `'OK'`. Sin alerta, sin WF2, sin WF5.
+
+**Un cultivo en una etapa sin umbrales se reporta sano indefinidamente, con todas las ejecuciones en verde.** `detalle_metricas` queda con `rango: "undefined% - undefined%"` y `estado: 'OK'`. Es la categoría que este documento define como la peor: no una caída, **una fila que miente**.
+
+**Fundamentación teórica — el silencio simétrico de la comparación relacional.** Lo que hace este bug invisible no es que la comparación falle, sino que **no falla**: en JavaScript toda relacional contra `undefined` da `false` **en los dos sentidos**. Un umbral ausente no produce "fuera de rango" ni "dentro de rango": produce ausencia de conclusión, indistinguible de la conclusión "todo bien". Es la misma familia que `Number(null) === 0` (16.34) y que el booleano anulable sin `!!` (16.12, 16.35): **una coerción que nunca lanza es una coerción que puede mentir**, y el lenguaje ofrece un valor plausible donde correspondía una excepción.
+
+**Y el agravante de método, que es lo más instructivo del hallazgo.** `alwaysOutputData` se agregó en 13.3.3 como defensa contra el Bug 3 —un nodo que devuelve cero ítems corta la rama en silencio—. Acá esa misma defensa convierte un *"no hay dato"* en un *"no hay problema"*: el ítem vacío viaja aguas abajo como si fuera información. **Una protección contra un fallo silencioso creó otro fallo silencioso, de signo contrario.** El principio general que queda: **`alwaysOutputData` sin validación positiva del contenido aguas abajo no es una defensa, es un cambio de síntoma** — garantiza que la cadena siga, no que lo que la recorre signifique algo.
+
+#### Corrección de la urgencia respecto del handoff
+
+El handoff lo fechó como *"🔴 antes del 28/08"*, razonando que al abrirse la ventana de evaluación WF3 avanzaría el cultivo a **Cosecha**, que es justamente la etapa sin `parametro_etapa`. **Eso no es lo que pasa, y está ejercido.** `Parsear y decidir` exige `etapaCoincide`: la etapa que nombra Gemini tiene que ser igual a `etapa_siguiente`. La foto del cultivo demo produce `"Fructificación"`, la etapa esperada es `"Cosecha"`, no coinciden, y el resultado es `etapa_no_coincide` → **no avanza**. Es exactamente lo que ocurrió el 23/08 y otra vez en el test N=2 del 24/08: **dos ejercicios, mismo resultado**.
+
+**Pero la corrección agrava el hallazgo en vez de aliviarlo.** `vista_cultivos_activos` usa `LEFT JOIN` contra `etapas_especie` y `tipo_etapa`, así que un cultivo de **Albahaca en Germinación o Plántula** —las dos etapas sin `parametro_etapa`— **sí aparece en la vista**, llega a `Conocimiento Experto`, ese nodo devuelve cero filas, y el cultivo entra en ceguera. Sin esperar nada.
+
+El riesgo no tenía fecha: tenía un **disparador**, y el disparador es **el alta de un cultivo**, la acción más común del producto. Con la lente comercial, el escenario es que **el primer cultivo que carga un cliente nuevo puede ser el ciego**, con el sistema diciéndole que todo está bien mientras la planta se muere. Un riesgo con fecha se administra; uno que se activa con el primer alta, no.
+
+**Nota de método:** *fechar un riesgo es una afirmación sobre el sistema y hay que verificarla igual que cualquier otra*. Acá la fecha era falsa en las dos direcciones a la vez: tarde para el disparador real (existe hoy) y temprano para el que se creía (nunca llega).
+
+#### Fix aplicado en el batch de la sesión 9
+
+Guarda de **validación positiva** al principio de `Motor de Inferencia`, con el contrato de salida uniforme completo y `estado: 'Sin Umbrales - Configuracion Incompleta'`. Tres decisiones de diseño, cada una con su razón:
+
+1. **Se chequean humedad y pH, no los ideales de NPK.** El bucle de NPK ya tiene su propia guarda explícita (`if (check.ideal === null) continue`): su ausencia es un *skip declarado*, no un accidente de coerción. La incompletitud parcial de NPK queda como **B.12**.
+2. **La guarda va ANTES que la de lectura sospechosa.** Cuando dos guardas compiten, se reporta la de condición **permanente**: un sensor desconectado se vuelve a anunciar en la lectura siguiente, un hueco de configuración enmascarado no se anuncia nunca. El corolario también explica por qué B.12 se difiere: una condición permanente que se notifica en cada lectura es fatiga de alertas (B.7), y la diferencia entre 16.37 y B.12 es que 16.37 describe un sistema que **no puede funcionar** —transitorio, alguien lo va a arreglar— y B.12 un estado degradado que puede tolerarse meses.
+3. **`umbrales` se emite con `null` explícitos y no ausente.** Un `undefined` ahí reintroduciría, en el consumidor, la misma clase de fallo que la guarda viene a evitar.
+
+**Composición con 16.36, que es donde esto casi se rompe.** El handoff cerraba su fix con *"y que `Requiere Alerta?` lo trate como alerta"* — verdadero mientras ese IF ruteara sobre `estado !== 'OK'`, y **falso desde que 16.36 lo pasó a rutear sobre `requiere_alerta`**. Sin el `requiere_alerta: true` explícito en esta rama, la alerta de configuración incompleta **no se dispararía nunca**: dos fixes correctos por separado, componiendo el silencio que ambos venían a eliminar. Es la primera vez que el proyecto produce un defecto de composición **por concurrencia entre autores** y no por un fix no ejercido.
+
+**Estado: 🟡 GUARDA APLICADA (31/08), SIN EJERCITAR.** El código está pegado en `Motor de Inferencia` y re-exportado. **No se pudo probar**: no existe hoy ningún cultivo en una etapa sin umbrales, así que la rama es inalcanzable con los datos actuales. Cargar `parametro_etapa` de Cosecha y agregar Fructificación (**B.1**) es lo que habilita la prueba — y a la vez elimina el caso para el tomate. Hasta entonces la guarda está aplicada a ciegas.
+
+#### Hipótesis abierta, deliberadamente sin numerar
+
+Leyendo el Motor apareció otra cosa, y se deja como **hipótesis y no como hallazgo**, aplicando la regla que dejó 16.32.
+
+La rama de `lecturaSospechosa` **no devuelve `foto_base64`** (ni `etapas_especie_id`), pero sí devuelve `tiene_foto: fotoPlausible`. Y `Hay foto nueva?` rutea sobre `tiene_foto` **sin mirar `lectura_sospechosa`**. O sea: sonda desenterrada (los cinco valores en 0) **más** cámara funcionando —el escenario que la propia observación del nodo describe como "frecuente después de un trasplante"— mandaría el ítem a `Preparar Foto binaria`, que leería `$json.foto_base64` = `undefined`. Y `Subir Foto a Storage` **no tiene `onError`**, así que su default es Stop Workflow. Si eso es así, **la lectura sospechosa nunca se persiste y la alerta nunca se manda**: se pierde justo el dato que avisa que el sensor está desconectado.
+
+**Por qué no se arregló junto con el resto, aunque el fix sea una línea:** uniformar `foto_base64` en las guardas **destruye la capacidad del test de discriminar**. Con el fix aplicado, una corrida exitosa no distingue "la hipótesis era falsa" de "la hipótesis era cierta y el fix la tapó", y el proyecto pierde la evidencia de si el defecto existía. Se ejerce primero —un cURL con los cinco valores en 0 y una foto válida— y se arregla después. **La secuencia importa: un fix aplicado antes del test convierte al test en una tautología.**
+
+---
+
+---
+
+### 16.38 — 🟠 La base no impide que el hueco de umbrales vuelva a aparecer
+
+**Origen:** handoff del 24/08, punto 1.4. Verificado.
+
+`etapas_especie` y `parametro_etapa` tienen **solo la PK**. No hay unicidad en `(especie_id, orden)`, ni en `(especie_id, etapa_id)`, ni en `parametro_etapa.etapa_especie_id`.
+
+Vale notar que **16.17 —el catálogo duplicado que costó una sesión entera— habría sido imposible con un único en `(especie_id, etapa_id)`**. Se compensó con una guarda en el Code node de `Calcular Dias en Etapa`; la base lo haría cumplir sin que ningún camino lo pueda esquivar. Es el mismo argumento por el que 16.25 eligió un `CHECK` sobre un IF, y el mismo que 16.33 hace sobre `cultivo(dispositivo_id)`: **un IF se puede romper en silencio, una restricción de la base no**.
+
+Consulta de detección — **hoy devuelve tres filas**, verificado el 24/08:
+
+```sql
+select ee.id, ep.nombre_comun, te.nombre_etapa
+from etapas_especie ee
+join especie_planta ep on ep.id = ee.especie_id
+join tipo_etapa te on te.id = ee.etapa_id
+left join parametro_etapa pe on pe.etapa_especie_id = ee.id
+where pe.id is null;
+-- Tomate Cherry / Cosecha (ee 8) · Albahaca / Germinación (12) · Albahaca / Plántula (11)
+```
+
+Ojo con el orden si se aplica junto a B.1: el `UPDATE etapas_especie SET orden = 6` de la reordenación tiene que correr **antes** del `INSERT` de Fructificación con `orden = 5`, o el único parcial sobre `(especie_id, orden)` lo rechaza. Es una restricción que hoy no existe y por eso el script actual no se rompe — pero se rompería el día que se agregue, que es justamente lo que propone esta sección.
+
+**Estado:** identificado, **sin aplicar**. Requiere SQL en producción con confirmación previa (regla 2), y verificar antes que ningún dato existente lo viole.
+
+---
+
+---
+
+### 16.39 — 🟠 Una lectura de sensor desconectado que además trae foto se pierde entera, y en silencio (WF1)
+
+**Origen:** hipótesis planteada durante la auditoría de WF1 del 24/08 y deliberadamente dejada **sin numerar** hasta ejercerla. **Ejercida y confirmada el 31/08/2026**, con verificación contra el estado persistido.
+
+**Qué se encontró.** Las dos ramas de guarda de `Motor de Inferencia` —`Lectura Sospechosa` y la nueva `Sin Umbrales` de 16.37— emiten `tiene_foto: fotoPlausible` pero **no emiten `foto_base64`**. `Hay foto nueva?` rutea únicamente sobre `tiene_foto`, así que un ítem sin carga útil entra igual al camino de la foto.
+
+La cadena completa, verificada nodo por nodo:
+
+1. Los cinco valores llegan en 0 → `lecturaSospechosa` es `true` → se devuelve por la rama de guarda, **con `tiene_foto: true` y sin `foto_base64`**.
+2. `Hay foto nueva?` evalúa `tiene_foto` y manda el ítem a `Preparar Foto binaria`.
+3. `Preparar Foto binaria` **no valida nada**: hace `const fotoBase64 = $json.foto_base64` y arma el paquete binario con `data: undefined`. En JavaScript eso **no es un error**, así que el nodo Code **termina en verde**.
+4. `Subir Foto a Storage` intenta subir un binario que no existe y falla. Su `onError` es el **default (detener workflow)**, así que la ejecución muere ahí.
+5. `Consolidar datos` y `fn_registrar_telemetria` **nunca corren**. `Esta en mantenimiento` y `Requiere Alerta?` tampoco.
+
+**Registro del test (31/08).** Escenario: los cinco valores en 0 más una foto válida de 67 KB, contra el cultivo real en Floración —que **sí** tiene umbrales, para aislar esta rama de la de 16.37—.
+
+| Verificación | Esperado si la hipótesis es cierta | Real |
+|---|---|---|
+| Nodo donde se corta | `Subir Foto a Storage` | ✅ `Subir Foto a Storage` |
+| Telegram | ninguno | ✅ ninguno |
+| `lectura_sensores` | sin filas nuevas | ✅ 220, 0 en los últimos 20 min |
+| `seguimiento_fenologico` | sin cambios | ✅ 24 |
+| `ultima_foto_path` | sin cambios | ✅ foto del 20/08 |
+| Objeto huérfano de 0 bytes en Storage | posible variante | ✅ no ocurrió — falla antes de crear nada |
+
+**Por qué importa, con el criterio del producto.** No daña el cultivo: la rama deja `hay_sequia` en `false`, así que no hay riego. Lo que destruye es **la señal que avisa que el sensor está desconectado** — y la observación del propio nodo describe ese escenario como *"frecuente después de un trasplante"*. El usuario mueve la planta, la sonda queda floja, y el sistema **se queda callado** en vez de quejarse. Para alguien que no sabe de tecnología, silencio se lee como salud. Es la definición exacta de la peor categoría del plan: no una caída, una ausencia creíble.
+
+Y hay un agravante de soporte: la ejecución queda **roja en `Subir Foto a Storage`**, o sea que el operador que mire n8n va a diagnosticar un problema de Storage cuando la causa está tres nodos antes, en un contrato de salida incompleto. El error nombra el síntoma, no la causa.
+
+#### Fundamentación
+
+**1 · El contrato de salida uniforme solo es peligroso donde hay un consumidor.** La auditoría mostró que a las dos ramas de guarda les faltan **dos** campos respecto del camino normal: `foto_base64` y `etapas_especie_id`. El segundo no rompe nada, porque **ningún nodo de WF1 lo lee**. El primero rompe, porque `Preparar Foto binaria` lo consume. La conclusión práctica corrige la formulación de 13.3.3: la pregunta útil no es *"¿todas las salidas tienen los mismos campos?"* sino *"¿está presente en todos los caminos cada campo que algún consumidor lee?"*. La primera versión produce ruido; la segunda encuentra este bug.
+
+**2 · Rutear sobre una afirmación en vez de sobre el dato.** `tiene_foto` es una **afirmación sobre el mundo** ("el ESP32 mandó una foto"), no una garantía sobre el ítem que viaja. Es el mismo error de categoría que 13.4.2 corrigió en la otra dirección: allá se ruteaba sobre presentación en vez de sobre un hecho de dominio; acá se rutea sobre un hecho de dominio verdadero cuya carga útil no acompaña. **Un booleano que describe un dato no sustituye a la verificación de que el dato está.** La forma correcta es validación positiva sobre la carga, no sobre la etiqueta.
+
+**3 · `undefined` en un campo binario no es un error de JavaScript.** Por eso `Preparar Foto binaria` reporta éxito habiendo producido basura. Es el reverso exacto de la regla del proyecto de *verificar contra el estado persistido y no contra el output del nodo*: acá el nodo se verifica a sí mismo y se aprueba. Un lenguaje que no distingue "ausente" de "presente y vacío" traslada esa distinción al programador, y si el programador no la escribe, no existe.
+
+**4 · Un `onError` por defecto en un nodo del camino principal convierte un fallo de rama en un fallo total.** `Subir Foto a Storage` no está en un ramal lateral: está **en el medio** del camino que lleva a la persistencia de la telemetría. Es la misma forma que 16.22 en WF3 —una foto rota abortaba la corrida de todos los cultivos— y merece la misma medicina: aislar el fallo y decidir explícitamente aguas abajo.
+
+#### Fix propuesto, en dos capas
+
+**(a) Cerrar el contrato.** Agregar `foto_base64: fotoBase64` y `etapas_especie_id: cultivo.etapas_especie_id` a las dos ramas de guarda de `Motor de Inferencia`. Resuelve el caso de hoy y restituye el principio.
+
+**(b) Defensa en profundidad, porque (a) no escala sola.** (a) arregla las dos ramas que existen; la rama número cuatro que alguien agregue en seis meses reintroduce el bug idéntico. Que `Preparar Foto binaria` **falle fuerte y con nombre propio** si `foto_base64` no está:
+
+```js
+const fotoBase64 = $json.foto_base64;
+if (!fotoBase64) {
+  throw new Error(
+    'Preparar Foto binaria: llego un item con tiene_foto=true pero sin foto_base64. ' +
+    'Es un contrato de salida incompleto en Motor de Inferencia, no un problema de Storage. ' +
+    `estado="${$json.estado}" lectura_sospechosa=${$json.lectura_sospechosa}`
+  );
+}
+```
+
+El costo de esta capa es una excepción; el beneficio es que el mensaje **nombra la causa** en vez del síntoma, que es exactamente el ticket de soporte que este bug genera hoy.
+
+**Alternativa descartada: poner `onError: continueRegularOutput` en `Subir Foto a Storage` y nada más.** Dejaría pasar la telemetría, sí, pero `Consolidar datos` leería igual un `path_foto_evento` de un objeto que nunca se subió, y escribiría en la base **un puntero a un archivo inexistente** — que es el escenario de B.10. Tolerar el error sin validación positiva aguas abajo no elimina la corrupción: la mueve de sitio y la vuelve permanente.
+
+#### Nota de método, para el marco teórico
+
+**16.32 y 16.39 son el mismo experimento con resultados opuestos, y por eso valen juntos.** Los dos nacieron como deducciones sobre el modelo de ejecución de n8n, los dos eran baratos de ejercer, y los dos se ejercieron antes de tocar nada. Uno quedó **refutado** y el otro **confirmado**. La práctica que el proyecto adoptó tras 16.32 —*ningún hallazgo entra como cierto sin ejercerlo si ejercerlo es barato*— no es un filtro para descartar hipótesis: es un procedimiento que **también las promueve**, y con evidencia de las dos mitades de la afirmación (dónde se cortó **y** que no escribió nada). Un test que solo hubiera mirado el color de la ejecución habría confirmado la mitad barata y dejado abierta la que importa.
+
+Vale también el orden: el batch de la sesión 9 dejó escrito *"no apliques el fix de una línea antes de correr esto"*, y tenía razón. Con `foto_base64` ya agregado a las guardas, esta corrida habría dado verde y **no habría distinguido "la hipótesis era falsa" de "era cierta y el fix la tapó"**. Un fix aplicado antes del test convierte al test en una tautología.
+
+**Estado:** confirmado y verificado en vivo (31/08), **fix sin aplicar**. Las dos capas se pueden pegar en un solo ciclo junto con cualquier otro cambio a WF1.
+
+---
+
+### 16.40 — 🔴 Un JWT `service_role` quedó en texto plano dentro del plan
+
+**Origen:** barrido de secretos previo a publicar el repositorio en un servidor remoto (18/09/2026).
+
+**Qué se encontró.** El documento contenía, **cuatro veces en texto plano**, el JWT de rol `service_role` del proyecto de base de datos. Aparecía en las tablas de configuración de cabeceras de dos secciones distintas del diseño de nodos, donde en su momento se documentó qué pegar en cada campo.
+
+El payload, decodificado:
+
+```json
+{"iss":"supabase","ref":"<proyecto>","role":"service_role",
+ "iat":1777310473,"exp":2092886473}
+```
+
+`service_role` **omite por completo las políticas de seguridad a nivel de fila**. No es una credencial acotada: es la llave maestra de la base. La fecha de expiración es el año 2036.
+
+**Por qué sobrevivió a 16.1.** La migración de credenciales sí se hizo, y se verificó — pero **se verificó sobre los archivos equivocados**. El registro de aquella sesión dice literalmente que se corrió una búsqueda «sin hardcodes de key legacy en los 4 JSON». Los workflows quedaron limpios; **el documento que los describe, no**. La verificación cubrió el artefacto que se ejecuta y omitió el artefacto que se lee.
+
+Es una variante del sesgo que este proyecto ya tiene documentado: se comprueba lo que se cambió, no todo lo que contenía la cosa cambiada. Y tiene una consecuencia de método: **el alcance de una verificación de secretos es el conjunto de archivos que se publican, no el conjunto de archivos que se editaron.**
+
+**Por qué no llegó a ser una fuga.** El repositorio nunca tuvo servidor remoto: la decisión de mantenerlo local, tomada por otras razones —un solo desarrollador, un solo entorno, ningún secreto *conocido*—, resultó ser la barrera que contuvo este. El historial que sí lo contenía fue eliminado al reconstruir el repositorio desde cero. **El secreto nunca salió de la máquina.**
+
+La lección incómoda es que esa contención fue **accidental**: ninguna de las razones por las que se difirió el servidor remoto era esta. Una decisión conservadora tomada por motivos correctos protegió contra un riesgo que nadie había identificado, y eso no es un método — es suerte con buen argumento.
+
+**Acciones, en orden:**
+
+1. **Verificar en el panel del proveedor si las claves heredadas siguen habilitadas.** El registro del proyecto afirma que se deshabilitaron, pero esa afirmación no fue verificada contra el panel al momento de este hallazgo, y una afirmación de estado no verificada es exactamente lo que este documento trata como sospechoso.
+2. **Si están habilitadas, rotarlas antes que cualquier otra cosa.** No es una tarea de mantenimiento: mientras esa clave sea válida, quien la tenga tiene la base completa.
+3. **Ocurrencias redactadas en el documento** (aplicado). El valor no se reemplaza por otro: se elimina. La configuración real vive en el almacén de credenciales del orquestador, que es donde corresponde.
+4. **Repositorio privado** cuando se publique.
+
+**Estado:** redactado del documento el 18/09. **Pendiente: verificar el estado de las claves heredadas en el panel y rotarlas si siguen activas.**
+
+---
+
+## Fase 17 · Trazabilidad y validación de la base de conocimiento
+
+> **Origen:** sesión paralela del 24/08, volcada acá con una corrección de método en el paso 4. Es material directo de marco teórico y a la vez una funcionalidad del producto.
+
+### 17.0 — El problema de fondo
+
+Al buscar bibliografía para el Anexo II apareció un problema que no es documental sino conceptual: **`parametro_etapa.ideal_n/p/k` guarda un valor en mg/kg que varía por etapa fenológica, y esa magnitud no existe publicada en ninguna fuente.** Se revisaron FAO, MAPA (España), ITACYL, IFAPA y CDFA.
+
+La razón es que la agronomía no expresa el dato así:
+
+- Los **umbrales de suficiencia del suelo** se publican en mg/kg (ppm) y **no varían por etapa**: describen un estado de fertilidad, no un objetivo móvil.
+- Lo que **sí varía por etapa** es la **absorción del cultivo**, y se publica en kg/ha, en kg por tonelada de fruto, o en unidades fertilizantes por hectárea.
+
+O sea que la columna, tal como está, es una **construcción propia**. Eso no la invalida —es una decisión de diseño razonable para un motor de reglas— pero hoy no tiene procedencia declarada, y **un número sin origen es exactamente lo que no se puede defender** cuando alguien pregunta de dónde sale el umbral. Buscar la fuente perfecta ya se hizo y no está. Lo que sigue es cómo cerrar el hueco **por construcción en lugar de por cita**.
+
+La idea central de toda la fase: **no buscar una cita que contenga el número, sino documentar el procedimiento que lo produce.** Un umbral derivado por un método reproducible es defendible; un número tabulado sin origen no lo es, aunque parezca más sólido.
+
+### 17.1 — Estado verificado de la base de conocimiento (24/08)
+
+```
+tipo_etapa: 5 filas — Germinación(1) Plántula(2) Vegetativo(3) Floración(4) Cosecha(5)
+            (NO existe Fructificación)
+
+Tomate Cherry (especie_id 3)
+  ee_id  etapa          orden  días  humedad    pH         N    P    K
+  6      Germinación    1      10    80–95      6.0–7.0    10   10   10
+  7      Plántula       2      15    70–85      6.0–6.5    20   15   15
+  10     Vegetativo     3      40    60–75      6.0–6.8    50   30   30
+  9      Floración      4      20    50–65      6.2–6.8    30   50   60
+  8      Cosecha        5      30    — SIN PARAMETRO_ETAPA —
+
+Albahaca (especie_id 4)
+  12     Germinación    1      7     — SIN PARAMETRO_ETAPA —
+  11     Plántula       2      12    — SIN PARAMETRO_ETAPA —
+  13     Vegetativo     3      45    60–80      6.0–7.0    40   20   20
+  (no tiene Floración ni Cosecha: terminal por diseño, ver B.11)
+
+tipos_metricas declara N, P y K en mg/kg.
+parametro_etapa NO declara unidad en ninguna parte.
+```
+
+**Dos observaciones sobre los datos actuales, las dos a revisar antes de que el sistema riegue en serio:**
+
+1. **Floración tiene humedad 50–65, más baja que Vegetativo (60–75).** Según FAO 56 el Kc del tomate es máximo justo en ese tramo (Kc_med ≈ 1,15). Puede ser deliberado —hay manejo que restringe agua en floración para favorecer el cuajado— pero si fue un valor puesto al pasar, conviene revisarlo.
+2. **El K puede estar corto.** CDFA fija el mínimo de K intercambiable en **135 ppm** y los valores de la tabla van de 10 a 60. Aun descontando que el K intercambiable de laboratorio no es directamente comparable con lo que reporta un sensor de sustrato, la diferencia es de más del doble. **Es el valor que más merece análisis.**
+
+### 17.2 — Paso 1: declarar la semántica de la unidad
+
+Hoy `ideal_n` no dice qué mide. Antes de discutir si vale 40 u 80 hay que fijar qué es:
+
+> `ideal_n/p/k` expresan la **lectura del nodo sensor en mg/kg**, en la escala en que el dispositivo la reporta, y **no** una concentración de laboratorio ni de solución nutritiva.
+
+Con eso declarado, las referencias externas dejan de tener que justificar el **valor absoluto** —que depende del instrumento— y pasan a justificar la **forma de la curva**, que es lo que efectivamente sostienen. Es barato y va primero: `COMMENT ON COLUMN` en las tres columnas más un párrafo en el marco teórico.
+
+### 17.3 — Paso 2: justificar la forma de la curva con las fuentes
+
+Esto sí está publicado y es citable:
+
+| Afirmación | Fuente |
+|---|---|
+| El tomate absorbe **menos del 30 % del N antes del cuaje**; el grueso va entre fructificación temprana y fruto rojo | CDFA (2015) |
+| La demanda de **K es máxima durante el desarrollo del fruto** | Yara; CDFA (2015) |
+| El **P** se requiere sobre todo en fases tempranas | Yara |
+| Umbrales de suficiencia del suelo: nitrato-N > 16 ppm · Olsen-P > 20 ppm · K intercambiable ≥ 135 ppm | CDFA (2015) |
+| Plan de abonado del tomate **semana a semana** desde el trasplante (UF/ha) | IFAPA (2016) |
+| La demanda **hídrica** cae al final del ciclo (Kc_fin < Kc_med) | FAO 56, Cuadro 12 |
+| pH y función de N, P, K | FAO/IFA (2002) |
+
+Redacción para la tesis: *"umbral operativo de decisión, derivado de la curva de absorción publicada y acotado por los rangos de suficiencia de CDFA (2015)"* — **nunca** *"valor ideal según FAO"*, que es lo que no se puede sostener.
+
+### 17.4 — Paso 3: registrar la procedencia en el propio dato
+
+```sql
+alter table parametro_etapa
+  add column fuente text,          -- p.ej. 'CDFA 2015 + curva de absorcion (Yara)'
+  add column criterio text;        -- como se derivo este valor concreto
+```
+
+No es higiene académica solamente. En un producto que emite recomendaciones agronómicas, **poder responder "por qué este umbral" es una funcionalidad**, no un adorno: es lo que separa una recomendación de una orden. Y encaja con el principio de que **la definición vive en el productor** — hoy el criterio de derivación vive en la cabeza de quien cargó la fila, que es el peor lugar posible.
+
+### 17.5 — Paso 4: análisis de sensibilidad (con la corrección de método)
+
+No hay forma de validar los umbrales con un ensayo agronómico en el tiempo disponible. Pero sí se puede responder una pregunta más útil y perfectamente alcanzable:
+
+> **¿Cuánto cambian las decisiones del sistema si el umbral cambia?**
+
+Un resultado plano ("entre 50 y 60 la decisión cambia en un 4 % de los casos") **defiende el sistema entero**: muestra que la conclusión no depende de haber acertado el número exacto. Un resultado abrupto es igual de valioso, porque identifica dónde hay que invertir en calibración. En los dos casos se pasa de *"¿está bien el 50?"* —pregunta que no se puede contestar— a *"¿cuánto importa el 50?"* —que sí—.
+
+> [!WARNING]
+> **Corrección de método respecto del handoff.** La propuesta original barría el umbral sobre las **filas de `lectura_sensores`** (225 al momento del handoff, 220 tras la limpieza de la sesión 9). **Eso no mide lo que se quiere medir.** Las lecturas son **todas sintéticas**, y buena parte fueron construidas a mano para caer en escenarios específicos —sequía, óptimo, la zona "leve" de 16.11—. Una curva sobre esa distribución mide **la distribución del simulador**, que fue elegida para ejercitar ramas del código, no para representar un cultivo. Presentarla como evidencia empírica sería un error metodológico visible.
+>
+> **Lo correcto es barrer sobre una grilla sintética declarada** —uniforme sobre el rango plausible del sensor— y decirlo así. Es más honesto, más defendible, no depende de datos que no existen, y además responde mejor la pregunta: lo que interesa es la sensibilidad de **la regla de decisión**, que es una propiedad del sistema, no de la muestra. El histórico sirve para otra cosa —caracterizar qué escenarios se probaron— y conviene reportarlo por separado.
+
+```sql
+-- Sensibilidad de la decision de riego al umbral, sobre grilla sintetica declarada.
+-- La grilla es uniforme en el rango plausible del sensor (0-100 % de humedad),
+-- por eso el resultado es una propiedad de la REGLA y no de la muestra historica.
+select u as umbral_humedad_min,
+       count(*) filter (where h < u) as lecturas_que_dispararian_riego,
+       round(100.0 * count(*) filter (where h < u) / count(*), 1) as pct
+from generate_series(0, 100, 1) h,
+     generate_series(45, 65, 5) u
+group by u order by u;
+```
+
+Es, además, material directo de marco teórico: **análisis de sensibilidad de un sistema de inferencia basado en reglas frente a la incertidumbre de sus parámetros.**
+
+### 17.6 — Paso 5: declarar la limitación del instrumento
+
+**A verificar antes de afirmar nada:** la trazabilidad metrológica de la lectura NPK de un sensor 7-en-1 de bajo costo. Se buscó y **no se encontró** una validación independiente concluyente. **No afirmar que el sensor es exacto ni que no lo es sin esa lectura.**
+
+Sea cual sea el resultado, la posición del trabajo es sólida y conviene escribirla así: la arquitectura es **agnóstica a la calidad del instrumento**. La base de conocimiento es un componente reemplazable; si mañana hay un sensor mejor calibrado o un análisis de laboratorio, **cambian los datos y no cambia una línea de código**. Eso es precisamente lo que compra el desacoplamiento, y es un argumento a favor del diseño, no una excusa.
+
+Conviene además cruzarlo con lo que 16.37 dejó establecido: **la base de conocimiento es ejecutable**. Que sea reemplazable sin tocar código es la ventaja; que un `INSERT` en ella sea un deploy es el costo. Las dos afirmaciones son la misma propiedad vista desde los dos lados, y decirlas juntas es más fuerte que decir solo la conveniente.
+
+### 17.7 — Bibliografía incorporada al Anexo II (punto VIII)
+
+1. **Allen, Pereira, Raes y Smith (2006)** — *Evapotranspiración del cultivo*, Estudio FAO Riego y Drenaje 56. ISBN 92-5-304219-2. → riego, Kc del tomate (Cuadro 12). https://www.fao.org/3/x0490s/x0490s.pdf
+2. **CDFA (2015)** — *Guía para la fertilización del tomate*, FREP. → **umbrales de suelo en ppm/mg-kg** y absorción por etapa. Es la única fuente encontrada en las unidades del sistema. https://apps1.cdfa.ca.gov/FertilizerResearch/docs/Tomate_Esp.html
+3. **FAO (2013)** — *El cultivo de tomate con BPA en la agricultura urbana y periurbana*. ISBN 978-92-5-307780-9. https://www.fao.org/4/i3359s/i3359s.pdf
+4. **FAO e IFA (2002)** — *Los fertilizantes y su uso*, 4.ª ed. ISBN 92-5-304414-4. https://openknowledge.fao.org/handle/20.500.14283/x4781s
+5. **Salvatierra Bellido, Viqueira Pina y Real Moreno (2016)** — *Guía de planificación del fertirriego en tomate para industria*, IFAPA.
+6. **Schonwald y Pescio (2015)** — *Mi casa, mi huerta*, Ediciones INTA. ISBN 978-987-521-591-7.
+
+**Fuera del Anexo, para consulta:** INIA Uruguay, *Fichas de cultivo de especies aromáticas* (albahaca) — https://ainfo.inia.uy/digital/bitstream/item/8778/1/Fpta-11-p.205-225.pdf
+
+### 17.8 — Checklist Fase 17
+
+- [ ] Declarar la unidad de `ideal_n/p/k` con `COMMENT ON COLUMN` (17.2) — 🟠 barato
+- [ ] Escribir el párrafo de marco teórico sobre derivación de umbrales (17.2 + 17.3)
+- [ ] Columnas `fuente` / `criterio` en `parametro_etapa` (17.4) — 🟡
+- [ ] Análisis de sensibilidad sobre grilla sintética declarada (17.5) — 🟡 alto valor para la tesis
+- [ ] Revisar el **K** (10–60 contra 135 ppm de CDFA) y la humedad de **Floración** (17.1) — 🟡
+- [ ] Leer sobre validación de sensores NPK de bajo costo y escribir la limitación (17.6) — 🟢
+
+## Backlog — Mejoras futuras diferidas
+
+Ítems identificados pero diferidos a propósito — no son deuda técnica olvidada, son decisiones conscientes de priorización. Reunidos acá para no perderlos de vista.
+
+Van en orden de `B.1` a `B.12`, y se leen **antes** de reportar algo como hallazgo nuevo: varias de estas entradas ya registran un intento anterior descartado por el mismo motivo. Antes de proponer una tabla, un nodo o una credencial nueva, revisar esta sección (regla 9).
+### B.1 — 🟡 Etapa "Fructificación" faltante en el catálogo (afecta especies de fruto)
+
+**Origen:** hallazgo del 05/08/2026 al confirmar `IA Vision Fenologica` (WF3) en vivo — ver v17 en el changelog y 12.5. **Reconfirmado y agravado el 17/08** (ver abajo).
+
+> [!IMPORTANT]
+> **Confirmación empírica y agravante (17/08/2026).** Durante el test N=2 de 16.16, Gemini volvió a devolver `etapa_detectada: "Fructificación"` con `confianza: 0.95`, y su justificación explicita el problema: *"La imagen muestra claramente la formación y desarrollo de frutos verdes… Esta fase es un paso intermedio y esencial antes de la cosecha"*. Como el catálogo solo ofrece "Cosecha" como etapa siguiente, el sistema **avanzó la planta directamente a Cosecha, salteándose por completo el desarrollo del fruto**.
+>
+> Dos consecuencias que no estaban anotadas:
+>
+> 1. **El dato se pierde.** `etapa_detectada` no se persiste en ningún lado, porque WF3 guarda `diagnostico_ia` como string concatenado de `evidencia_visual` y `justificacion` (ver 16.19). El sistema tiene, en cada corrida, la evidencia de que su propio catálogo está incompleto — y la descarta. Arreglar 16.19 hace que esta evidencia quede registrada automáticamente.
+> 2. **Impacta directamente en Fase 15.** Fructificación y Cosecha tienen necesidades de N/P/K claramente distintas: una planta marcada como "Cosecha" mientras en realidad está fructificando va a recibir la recomendación de fertirriego equivocada. Mientras Fase 15 no esté implementada el daño es informativo; en cuanto lo esté, pasa a ser una recomendación agronómica incorrecta emitida con confianza. **Esto sube B.1 de 🟡 a precondición de Fase 15.**
+
+**Qué pasó:** con una foto real de Tomate Cherry con frutos verdes abundantes, Gemini identificó correctamente la etapa como "Fructificación" — pero esa etapa no existe en `tipo_etapa` (catálogo actual: Germinación, Plántula, Vegetativo, Floración, Cosecha). Como el sistema le pidió confirmar contra "Cosecha" (la única opción siguiente disponible), Gemini terminó confirmando `cambio_confirmado: true` hacia Cosecha con fruta todavía verde — un salto de etapa prematuro y agronómicamente incorrecto.
+
+**Alcance:** afecta a cualquier especie de fruto que se agregue a futuro (tomate, pimiento, berenjena, pepino, frutilla, etc.), donde hay una fase de cuajado/desarrollo de fruto agronómicamente distinta de la floración y de la cosecha (necesidades de agua/K típicamente más altas que en Cosecha, donde muchas veces se reduce el riego a propósito para concentrar azúcares). No afecta a hortalizas de hoja/raíz (lechuga, espinaca, zanahoria), que van razonablemente de Vegetativo a Cosecha sin escalón intermedio.
+
+**Hallazgo relacionado (mismo origen, ya urgente por sí solo):** `parametro_etapa` de "Cosecha" para Tomate Cherry está **completamente `NULL`** (humedad, pH, N, P, K) — nunca se cargó porque ningún cultivo había llegado ahí antes de hoy. Si un cultivo llega a Cosecha de verdad tal como está la base ahora, `Calcular Diagnóstico` (WF4, 16.11) haría una división por cero (`anchoRango = max - min = null - null = 0`) y devolvería "seria" en todo, sin sentido.
+
+
+> [!WARNING]
+> **Corrección (24/08, sesión 9): la consecuencia descrita arriba es incorrecta.** El párrafo afirma que un cultivo que llegue a Cosecha haría *"una división por cero en `Calcular Diagnóstico` (WF4) y devolvería 'seria' en todo"*. **Verificado contra el JSON real: no es así.** El nodo `Conocimiento Experto` de **WF4 no tiene `alwaysOutputData`**, así que ante las cero filas que devuelve el INNER JOIN de `vista_conocimiento_experto` **la rama se corta en ese nodo** y `Calcular Diagnostico` nunca llega a ejecutarse. No hay división por cero: WF4 simplemente no hace nada, en silencio.
+>
+> **El daño real está en WF1, es peor, y no estaba anotado en ninguna parte** — ver **16.37**.
+>
+> **Nota de método (no se borra el rastro, a propósito).** La consecuencia de B.1 se dedujo del esquema **sin mirar el tipo de join de la vista ni el flag `alwaysOutputData` de cada nodo consumidor**. El mismo hueco de datos produce **efectos opuestos en dos workflows** según un flag de configuración de un nodo: en WF4 corta la rama, en WF1 la deja pasar con un objeto vacío. Es la versión "de datos" de la lección de 16.32 — el modelo mental no es evidencia — y agrega un matiz propio: **la consecuencia de un hallazgo de datos no se puede deducir del esquema**, porque depende de cómo cada consumidor está configurado para reaccionar ante la ausencia.
+
+**Fix propuesto (no ejecutado, a definir cuándo se retoma):**
+
+> [!CAUTION]
+> **El catálogo es ejecutable: este `INSERT` es un deploy, no una carga de datos.** Hoy el cultivo demo **no avanza** a Cosecha porque `etapaCoincide` compara `"Fructificación"` contra `"Cosecha"` y no coinciden (16.20). **En cuanto se agregue Fructificación, `etapa_siguiente` pasa a ser Fructificación, `etapaCoincide` da `true`, y el cultivo avanza solo** en la primera corrida de WF3 posterior. O sea que una fila nueva en `tipo_etapa` cambia el comportamiento de un lazo de control activo, sin tocar una línea de código ni un workflow.
+>
+> **Fundamentación:** en un sistema experto basado en reglas, **la base de conocimiento es parte del programa**. `tipo_etapa`, `etapas_especie` y `parametro_etapa` no son datos de referencia inertes: son las reglas que el motor ejecuta. Un `INSERT` ahí merece el mismo cuidado que un cambio de nodo —revisión, orden de aplicación, verificación contra el estado persistido— y **nunca debe aplicarse el alta del catálogo sin sus `parametro_etapa` en la misma transacción**, porque ese estado intermedio es exactamente el escenario de 16.37 construido a mano. La versión producto del mismo hecho es más incómoda: el día que el onboarding permita que el usuario cargue una especie, **el usuario va a estar haciendo deploys**.
+>
+> **El script del handoff no es ejecutable como está:** usa `:ee_fruct`, que es un bind de `psql` y no existe en el editor SQL de Supabase, y comenta *"debería dar 6"* sobre un `RETURNING id`, que es una suposición sobre el estado de una secuencia y no un hecho. Reescribir con CTEs encadenados que resuelvan **por nombre** (`select id from tipo_etapa where nombre_etapa = 'Fructificación'`), lo que además lo hace re-ejecutable.
+>
+> **Valores propuestos por el handoff, a revisar antes de aplicar** (respetan la escala de las filas existentes y el patrón de absorción publicado: K máximo en fructificación, N y P bajando hacia cosecha, menos agua al final del ciclo):
+> - Fructificación (nueva, `orden` 5, 35 días): humedad 60-75 · pH 6.0-6.8 · N 40 · P 40 · K 80
+> - Cosecha (`ee_id` 8, pasa a `orden` 6): humedad 45-60 · pH 6.0-6.8 · N 20 · P 25 · K 50
+>
+> Ver además el punto 9 de Fase 17: el K de toda la tabla puede estar corto respecto de la referencia de CDFA.
+
+1. Agregar `Fructificación` como fila nueva en `tipo_etapa` (catálogo global).
+2. Agregar fila en `etapas_especie` para Tomate Cherry entre Floración (orden 4) y Cosecha, reordenando `orden` (Cosecha pasa a orden 6).
+3. Completar `parametro_etapa` de Fructificación **y** de la Cosecha vacía, con valores de referencia FAO — mismo criterio que las etapas ya cargadas.
+4. Evaluar si otras especies de fruto que se agreguen a futuro necesitan el mismo ajuste (probablemente sí, por diseño).
+
+**Estado:** anotado a pedido del usuario (05/08/2026) — "buscalos después cuando lleguemos a esa parte". Los datos FAO de Fructificación/Cosecha quedan pendientes de investigar cuando se retome este punto.
+
+> [!NOTE]
+> **Cruce con 16.20 (18/08).** Este ítem y **16.20** describen el mismo episodio del 17/08 desde dos capas distintas y **hay que arreglar los dos**. B.1 es un hallazgo de **datos**: el catálogo no modela una etapa que el dominio tiene. 16.20 es un hallazgo de **control**: `debe_actualizar` no compara `etapa_detectada` contra `etapa_siguiente`, así que el sistema avanza a la etapa que asumió y no a la que la IA observó. Agregar Fructificación baja la frecuencia del caso; sin el fix de 16.20, cualquier otra discrepancia entre lo detectado y lo esperado vuelve a producir un salto de etapa incorrecto y creíble.
+
+---
+
+### B.2 — 🟢 Caso silencioso: etapa actual no encontrada en el catálogo de la especie
+
+**Origen:** discutido el 05/08/2026 al repasar el rediseño de 12.5.
+
+Si `cultivo.etapa_actual` no matchea ninguna etapa del catálogo de su propia especie (dato inconsistente — typo, o cultivo con la especie mal seteada), `Calcular Dias en Etapa` hace `continue` silencioso, igual que el caso normal de "no toca evaluar todavía". Con 1 cultivo no importa; si se escala a muchos cultivos en paralelo, esto podría tapar un problema real de configuración sin que nadie lo note. Mismo criterio que 16.8 (diferido): severidad baja, no rompe nada, solo dificulta notar un caso mal configurado. Mejora futura: loguear o alertar distinto este caso del de "sin novedad".
+
+---
+
+### B.3 — 🟢 Centralización del `chatId` de Telegram (diferida)
+
+Ver 16.9. El usuario está evaluando reemplazar las notificaciones de Telegram por una app propia — no tiene sentido invertir en centralizar el `chatId` (n8n Variables, o credencial dedicada) hasta que esa decisión más grande esté tomada.
+
+---
+
+### B.4 — 🟢 Limpieza cosmética 16.9 pendiente
+
+Header `Content-Type ` con espacio en `Request a Gemini` (WF4); ~~nodo `Send a text message` sin renombrar en WF3~~ **✅ hecho — el export del 18/08 ya lo trae como `Notificar Cambio de Etapa`**; y **`Get many rows` en WF5** (12/08), que quedó con el nombre por defecto de n8n — sugerido `Obtener Ultimo Riego`, igual que su homónimo de WF1, para que el criterio de nombres sea uniforme entre workflows si algún día se copia código entre ellos (13.3.2). Ninguno bloquea nada ni rompe referencias (auditado el 12/08: 0 referencias rotas) — resolver la próxima vez que se abra cada workflow por otro motivo.
+
+---
+
+### B.5 — 🟢 Sensor de nivel bajo de agua en el reservorio (distinguir causa de "Falla de Riego")
+
+**Origen:** discutido el 06/08/2026 al repasar la parte física del riego (bomba, manguera, reservorio).
+
+Hoy el mecanismo de "Falla de Riego" (13.3/13.7) solo puede detectar que algo anda mal *indirectamente*: riega, la humedad no sube, y después de varios intentos escala una alerta genérica — pero no puede distinguir si la causa es que se acabó el agua del reservorio, la bomba se rompió, hay una fuga, o el sustrato no retiene agua. Un sensor de nivel simple (un flotante, componente barato) conectado a otro pin del ESP32 podría exponer un booleano de "tanque vacío" que el sistema chequee antes de intentar regar, dando una alerta mucho más específica y accionable ("se acabó el agua, rellená el tanque" en vez de "algo está fallando, revisá todo").
+
+**Estado:** anotado a pedido del usuario (06/08/2026) — deferido a propósito hasta terminar de desarrollar toda la orquestación (Fases 13-15 completas), para mantener un trabajo lineal en vez de intercalar hardware nuevo a mitad de camino. No bloquea nada del diseño actual — `comando_dispositivo`/`evento_riego` no necesitan ningún cambio de esquema para incorporar esto más adelante.
+
+
+---
+
+---
+
+### B.6 — 🟢 Validación de forma de `path_foto` a nivel de base
+
+**Origen:** hallazgo del 11/08 (ver 12.2.3, Bug C) — WF3 grabó durante dos semanas paths con un `=` literal adelante, sin que nada lo detectara.
+
+`path_foto` (y `cultivo.ultima_foto_path`) son identificadores con estructura conocida (`{cultivo_id}/{timestamp}.jpg`) transportados como texto plano, sin ninguna validación en ningún punto del camino. Un `CHECK` en la base —o un `CHECK` laxo, del tipo "no puede empezar con `=`"— convertiría una corrupción silenciosa en un error en el primer INSERT. **Diferido a propósito:** un `CHECK` estricto mal calibrado hoy rompería escrituras válidas por una razón distinta de la que se quiere prevenir, y el pipeline de fotos todavía está cambiando (ver 12.6). Se retoma cuando el formato del path esté estabilizado.
+
+---
+
+### B.7 — 🟠 Fatiga de alertas: el sistema notifica por nivel, no por transición
+
+**Origen:** discutido el 11/08 al testear 13.4, a partir de la pregunta del usuario sobre qué pasa en producción cuando WF2 y WF5 se disparan sobre la misma lectura.
+
+> [!NOTE]
+> **Recalibrado el 12/08 tras una corrección del usuario.** La versión original de este ítem asumía telemetría **cada 15 minutos**, cadencia que nunca se decidió y que el usuario descartó por consumo y rendimiento: ni el diagnóstico visual ni los nutrientes del suelo cambian de forma apreciable en 15 minutos, así que una cadencia razonable es de varias horas. **Los 15 minutos aplican solo al recheck post-riego** (13.6, paso 4), que es una lectura extra y excepcional — ahí sí la variable de interés (humedad) se mueve rápido, justamente porque se acaba de echar agua. Con la cadencia real, la magnitud del problema baja de "12 avisos en 3 horas" a unos pocos por episodio, y con ella la prioridad de este ítem: sigue siendo correcto resolverlo, deja de ser urgente. Se conserva el análisis original abajo como el escenario de peor caso.
+
+**El problema.** Cada lectura se evalúa como si fuera la primera: el sistema no tiene memoria de haber avisado. Una sequía que dure 3 horas, con telemetría cada 15 minutos, produciría **12 alertas de Telegram, 12 diagnósticos de Gemini y 12 ciclos de riego** por un único problema. Las consecuencias son de tres tipos: costo (cuota de Gemini gastada en rediagnosticar lo mismo), riesgo físico (el riego repetido, hoy contenido solo por el cooldown de 15 min — ver 13.7.1), y sobre todo **erosión de la confianza del usuario**: un canal que satura se silencia, y un bot silenciado no avisa el día que importa. En un producto que se vende, la alerta que el cliente no lee vale lo mismo que la alerta que el sistema no mandó.
+
+**El concepto.** Falta distinguir **el estado** del **cambio de estado**. Hoy el sistema notifica por nivel (*level-triggered*): mientras la condición se cumpla, avisa. Debería notificar por transición (*edge-triggered*): avisar al entrar en `Sequía` y al salir, no en cada muestra intermedia — la misma distinción que en el manejo de interrupciones por nivel vs. por flanco en hardware. La contraparte de teoría de control es la **histéresis**: el umbral para salir de la alarma debe ser distinto del umbral para entrar, de modo que una humedad oscilando alrededor del límite no genere un tren de avisos (el mismo razonamiento por el que un termostato no enciende y apaga la calefacción cada 10 segundos). En términos de operaciones, es el problema de *alert fatigue*, y su solución estándar combina deduplicación por clave (`cultivo` + `estado`), ventana de silencio, y notificación explícita de recuperación.
+
+**Esbozo de solución (no diseñada en detalle):** una columna de estado notificado por cultivo (`cultivo.ultimo_estado_notificado` + `notificado_en`), leída por `Motor de Inferencia` desde `vista_cultivos_activos` — que ya se consulta— y escrita después de notificar. El IF de alerta pasa a preguntar "¿cambió el estado respecto del último notificado, o venció la ventana de silencio?" en vez de "¿el estado es distinto de OK?". Toca los tres workflows que notifican, por eso no se hace sobre la marcha.
+
+**Estado:** identificado el 11/08, **diferido a propósito** — no afecta la demo (donde cada escenario se dispara a mano una vez) y sí requiere diseño cuidadoso para no suprimir alertas que sí importan. Prioridad alta apenas haya telemetría periódica real.
+
+---
+
+### B.8 — 🟢 Los mensajes de Telegram no se leen como una sola historia
+
+**Origen:** mismo análisis del 11/08 (ver B.7).
+
+Ante una sequía, el agricultor recibe hoy dos o tres mensajes independientes —la alerta del sistema experto, el diagnóstico de la IA, el aviso de riego iniciado— sin relación explícita entre ellos y sin orden garantizado, porque las tres ramas salen en paralelo del mismo IF. Leídos juntos son confusos: no queda claro si el sistema ya resolvió el problema o si el agricultor tiene que hacer algo. Debería leerse como una sola narrativa: *detecté esto · ya hice aquello · vos hacé esto otro*. Cosmético para una demo, relevante para el producto: la calidad percibida de un sistema de monitoreo es, en buena medida, la calidad de sus mensajes. Se resuelve consolidando en un mensaje único, o encadenando las notificaciones en vez de emitirlas en paralelo.
+
+---
+
+### B.9 — 🟡 `fn_registrar_telemetria` es `SECURITY DEFINER` y ejecutable por `anon`
+
+**Origen:** verificado el 11/08 en `pg_proc` al crear `fn_registrar_riego` con el criterio opuesto (ver 13.5.2). Ya había aparecido antes como hallazgo del advisor de seguridad de Supabase (v19), sin acción.
+
+La función combina las dos cosas que no deberían ir juntas: se ejecuta con los privilegios de su dueño (`SECURITY DEFINER`, o sea que pasa por encima del RLS de `lectura_sensores`) y su ACL incluye `PUBLIC`, `anon` y `authenticated`. Cualquiera con la Publishable key —que hoy vive en n8n y mañana viviría en una app de cliente— puede insertar lecturas arbitrarias para cualquier `cultivo_id`/`dispositivo_id`.
+
+**Impacto actual: bajo.** El riego no se dispara desde la tabla sino desde el webhook de WF1, así que una lectura falsa contamina el histórico y podría ensuciar los promedios de WF4, pero no acciona la bomba. **Impacto futuro: alto**, si en algún momento algo pasa a reaccionar a inserciones en `lectura_sensores` (un trigger, un Realtime, o WF4 tomando decisiones de actuación).
+
+**Fix propuesto:** `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` y `GRANT` solo a `service_role`, igual que `fn_registrar_riego`. Requiere confirmar antes que ningún nodo la llame con la Publishable key — del relevamiento del 11/08, `fn_registrar_telemetria` en WF1 usa la credencial `Sup S` (Secret), así que el cambio no debería romper nada. **Diferido** por ser un cambio de permisos en producción a horas de una demo; se aplica junto con el paquete de 16.13.
+
+---
+
+### B.10 — 🟡 La foto que no se descarga sigue sin deduplicar
+
+`Foto Descargada` (16.22) filtra los ítems cuya imagen no se pudo bajar, así que **nunca llegan a `Registrar Evaluacion`** y no dejan fila en `evaluacion_fenologica`. Un `ultima_foto_path` que apunte a un objeto inexistente o corrupto reproduce entonces el bucle de 16.21 completo: descarga fallida 3 veces por día, para siempre, sin registro ni tope.
+
+El esquema ya lo soporta sin cambios estructurales: alcanza con agregar `'descarga_fallida'` al `CHECK` de `resultado` y conectar la salida FALSE de `Foto Descargada` a una llamada a la RPC con ese valor, reusando el mismo contador de intentos. Diferido hasta tener el camino de fallo de 16.27 probado, para no apilar dos escenarios sin verificar.
+
+---
+
+---
+
+### B.11 — 🟢 Una etapa terminal legítima es indistinguible de un catálogo truncado
+
+**Origen:** handoff del 24/08, punto 1.3. Verificado contra el código.
+
+Se había planteado que un cultivo de **Albahaca en Vegetativo** —última etapa de su catálogo— rompería WF3 o mandaría `undefined` a Gemini. **El código lo refuta.** `Calcular Dias en Etapa` tiene:
+
+```js
+const hayEtapaSiguiente = idxActual < etapasEspecie.length - 1;
+if (hayEtapaSiguiente && diasEnEtapa >= ventanaEvaluacion) { ... }
+```
+
+El cultivo se saltea limpiamente: sin excepción, sin llamada a Gemini, sin costo.
+
+**Lo agronómico también está bien.** En albahaca de hoja la cosecha es de **cortes sucesivos** (primer corte a 20-30 cm, después cada 10-15 días, 3-5 meses de vida útil) y la floración se **evita a propósito** porque reduce la producción de hoja y cambia el aroma. Vegetativo no es una etapa incompleta: **es el estado final por diseño**. (Matiz: en albahaca para aceite esencial sí se deja florecer y se hace corte único en sumidad florida — INIA Uruguay —, así que el criterio depende del **destino del cultivo**, no solo de la especie. Eso es un dato de modelo que hoy no existe en el esquema.)
+
+**Lo que queda, y es de observabilidad:** el skip es **indistinguible** de "todavía no toca evaluar". Y el comentario de 16.24, tres líneas más arriba en el mismo nodo, ya nombra el riesgo: *"que la última etapa presente parezca la terminal y el cultivo deje de evaluarse para siempre"*. Un catálogo truncado y una etapa terminal legítima producen hoy **el mismo comportamiento**, que es el patrón de 16.33 otra vez: un estado válido y un estado inválido colapsados en la misma observación.
+
+**Propuesta:** `es_terminal boolean not null default false` en `etapas_especie`, en `true` para Albahaca/Vegetativo, y que WF3 registre `etapa_terminal` en `evaluacion_fenologica` en vez de saltear en silencio — reusando la tabla que 16.25 ya creó.
+
+**No borrar Albahaca:** es el único caso que ejercita la ruta multi-especie, y borrarla esconde el caso en vez de modelarlo — el mismo movimiento que 16.33 critica del `limit: 1`.
+
+**Estado:** identificado, **diferido**. Prioridad baja.
+
+---
+
+### B.12 — 🟢 Incompletitud parcial de NPK: el bucle la saltea de forma declarada, pero nadie se entera
+
+**Origen:** derivado de 16.37 al decidir el alcance de su guarda (24/08).
+
+16.37 falla fuerte cuando faltan los umbrales de **humedad o pH**. Cuando lo que falta son los **ideales de N/P/K**, el bucle de NPK ya tiene su propia guarda (`if (check.ideal === null) continue`), así que no hay coerción mentirosa: el skip es explícito. Pero tampoco deja señal, y el cultivo queda evaluado **parcialmente** sin que nadie lo sepa. Es el caso de `parametro_etapa` de Cosecha, que está `NULL` en las cinco columnas.
+
+**Por qué se difiere, y es la parte interesante.** El fix obvio —contar los ideales faltantes y levantar la alerta— produce **fatiga de alertas** (B.7): es una condición **permanente**, así que se notificaría en cada lectura, para siempre, hasta que alguien cargue el dato. La distinción con 16.37 es exactamente esa: 16.37 describe un sistema que **no puede funcionar** para ese cultivo —alguien lo va a arreglar, y mientras tanto el ruido es proporcional al daño—, mientras que una tabla de NPK incompleta es un **estado degradado tolerable** que puede durar meses. Un canal que satura se silencia, y un bot silenciado no avisa el día que importa.
+
+**Se resuelve junto con B.7**, cuando la notificación pase de por nivel a por transición: ahí el aviso se emite una vez al detectar la incompletitud y no en cada muestra. Hasta entonces, la incompletitud es consultable con la query de 16.38.
+
+**Estado:** identificado, **diferido a propósito**, bloqueado por B.7.
+
+---
+
+### B.13 — 🟠 El volumen `n8n_storage` es un punto único de fallo sin respaldo
+
+**Origen:** revisión de versionado del 27/08/2026, al decidir qué se puede versionar y qué no.
+
+`docker-compose.yaml` monta un único volumen, `n8n_storage:/home/node/.n8n`, y **no define `N8N_ENCRYPTION_KEY`**. Cuando esa variable falta, n8n genera la clave sola en el primer arranque y la guarda **dentro del propio volumen**. En la configuración por defecto ahí viven también la base SQLite con los workflows y las credenciales cifradas.
+
+La consecuencia es que ese volumen concentra tres cosas a la vez: los workflows, las credenciales y la clave que las descifra. **Si se pierde, no se pierden solo las credenciales: se pierde todo, y las credenciales no se recuperan ni con un backup de la base**, porque sin la clave el cifrado es irreversible. Habría que rehacerlas a mano en más de 20 nodos de los 5 workflows.
+
+Git no cubre esto y no puede cubrirlo: los JSON exportados traen la *referencia* a la credencial (`id` + `nombre`), no su contenido — que es justamente lo que hace seguro versionarlos (16.1).
+
+Dos medidas, en orden de costo:
+
+1. **Fijar `N8N_ENCRYPTION_KEY` explícitamente** en el entorno (fuera del repo, por `.env` ya cubierto por `.gitignore`). Desacopla la clave del volumen: con la clave a mano, un backup de la base sí es restaurable.
+2. **Respaldar el volumen** (`docker run --rm -v n8n_storage:/data -v <destino>:/backup alpine tar czf /backup/n8n_storage.tgz -C /data .`), con la misma cadencia que el cierre de sesión.
+
+**Comparación de gravedad, con el criterio del producto:** perder el plan es perder documentación reconstruible; perder este volumen es perder el sistema. Es un riesgo mayor que cualquiera de los hallazgos 🔴 abiertos, y a diferencia de ellos no daña el cultivo — pero sí termina el proyecto.
+
+**Estado:** identificado el 27/08, **sin aplicar**. Requiere tocar `docker-compose.yaml` y reiniciar n8n, lo cual **invalida las credenciales existentes si se fija la clave después del primer arranque** — hay que exportar/rehacer credenciales o extraer la clave actual del volumen antes de fijarla. No hacerlo sobre la marcha.
+
+---
+
+### B.14 — 🟠 n8n corre con `image: n8nio/n8n:latest`, sin versión fijada
+
+**Origen:** sesión 10 (31/08/2026), a partir de la pregunta de si convenía actualizar n8n estando 16 versiones atrás.
+
+`docker-compose.yaml` declara `image: n8nio/n8n:latest`. La consecuencia es que **actualizar no es una decisión: es un efecto secundario**. Cualquier `docker compose pull`, o un recreate del contenedor por el motivo que sea, trae la imagen más nueva que haya en ese momento. El salto de 16 versiones puede ocurrir sin que nadie lo haya decidido, en el peor momento posible.
+
+**Por qué acá pesa más que en un proyecto cualquiera.** Este sistema no depende de la API de n8n, depende de su **semántica de ejecución**, y el documento entero es un catálogo de esos detalles: qué hace `alwaysOutputData` ante cero ítems (16.37), cuándo un nodo HTTP corre una vez por ítem y cuándo no (16.17), qué significa `typeValidation: strict` en un IF (16.12), cuál es el `onError` por defecto de un nodo del camino principal (16.39), cómo se comporta el batching contra una API con límite de tasa (16.18). Ninguno de esos está garantizado por contrato: son comportamientos observados. Un salto de versión puede cambiar cualquiera **sin romper nada visiblemente**, que es la peor forma de romperse en este proyecto.
+
+Y no hay red: la verificación es enteramente manual y cuesta una sesión por workflow.
+
+**Fix, en dos pasos y en este orden:**
+
+1. **Fijar la versión que hoy está corriendo** (`docker exec n8n_server n8n --version`) y reemplazar `:latest` por esa etiqueta exacta. Costo: una línea. A partir de ahí, actualizar vuelve a ser un acto deliberado.
+2. **Recién entonces** evaluar el salto de versión, con el respaldo del volumen ya hecho (**B.13**, que es precondición y no recomendación) y con un plan de re-verificación: repetir los dos tests de la sesión 10 —telemetría parcial sin pH, y sensor en 0 con foto— que hoy tienen resultado conocido y sirven de línea de base.
+
+**Relación con B.13.** Los dos apuntan al mismo punto ciego: el runtime de n8n es la única pieza del sistema que **no está versionada ni respaldada**, mientras que los workflows, el plan y el SQL sí lo están desde la sesión 9. Un `docker compose up -d` desafortunado puede cambiar el runtime y perder las credenciales en el mismo movimiento.
+
+**Estado:** identificado el 31/08, **sin aplicar**. El paso 1 es barato y no requiere reiniciar nada; el paso 2 no debe hacerse antes de B.13.
+
+---
+
+## Anexos
+
+Material de referencia de las Fases 1 a 11. Se conserva sin editar; el estado vigente de todo lo que aparece acá está en **1 · Estado Actual**.
+### A.1 · Checklist final (Fases 1 a 11)
+
+**Base de Datos (Fase 1):**
+- [ ] SQL 1.1: ALTER TABLE cultivo + etapa_actual_id
+- [ ] SQL 1.2: Vista cultivos_activos recreada
+- [ ] SQL 1.3: tipos_metricas poblada (7 métricas)
+- [ ] SQL 1.4: RPC fn_registrar_telemetria creada
+- [ ] SQL 1.5: usuario + dispositivo + cultivo creados
+- [ ] SQL 1.6: Verificación de las 3 queries ✅
+
+**Telegram (Fase 2):**
+- [ ] Bot creado con @BotFather, token guardado
+- [ ] Chat ID obtenido
+- [ ] Credencial Telegram en n8n
+
+**Gemini (Fase 7):**
+- [ ] API Key creada en Google AI Studio
+- [ ] Foto demo subida a Supabase Storage
+- [ ] Foto convertida a Base64
+
+**WF1 — Pipeline Telemetría (Fase 4):**
+- [ ] Nodo 1: Webhook (POST, path: `telemetria`)
+- [ ] Nodo 2: Resolver Cultivo (Supabase, filtro `dispositivo_mac`)
+- [ ] Nodo 3: Conocimiento Experto (HTTP Request GET, `{{ 'eq.' + $json.campo }}`)
+- [ ] Nodo 4: Motor de Inferencia (Code JS)
+- [ ] Nodo 5: Persistir Lectura (HTTP Request POST RPC)
+- [ ] Nodo 6: IF (estado ≠ OK)
+- [ ] Nodo 7: Alerta Telegram
+- [ ] Nodo 8: Trigger WF2 (HTTP Request POST a `/webhook/diagnostico-ia`)
+- [ ] Test OK ✅ | Test Sequía ✅ | Test Estrés ✅
+- [ ] Workflow activado (toggle ON)
+
+**WF2 — Diagnóstico IA Emergencia (Fase 8):**
+- [ ] Nodo 1: Webhook (`diagnostico-ia`)
+- [ ] Nodo 2: AI Vision Gemini (HTTP Request POST)
+- [ ] Nodo 3: Parsear Respuesta IA (Code)
+- [ ] Nodo 4: Persistir Diagnóstico (HTTP Request POST)
+- [ ] Nodo 5: Telegram Diagnóstico IA
+- [ ] Test: cURL sequía → 2 mensajes Telegram ✅
+- [ ] Workflow activado (toggle ON)
+
+**WF3 — Validación Fenológica (Fase 9):**
+- [ ] Nodo 1: Schedule (diario 8 AM)
+- [ ] Nodo 2: Obtener Cultivos Activos (Supabase)
+- [ ] Nodo 3: Calcular Días en Etapa (Code)
+- [ ] Nodo 4: IF skip
+- [ ] Nodo 5: AI Vision Fenológica (Gemini)
+- [ ] Nodo 6: Parsear y Decidir (Code)
+- [ ] Nodo 7: IF cambió
+- [ ] Nodo 8: Actualizar Etapa (HTTP Request PATCH)
+- [ ] Nodo 9: Persistir seguimiento_fenologico
+- [ ] Nodo 10: Telegram cambio de etapa
+- [ ] Test manual ✅
+- [ ] Workflow activado (toggle ON)
+
+**WF4 — Análisis Preventivo (Fase 10):**
+- [ ] Nodo 1: Schedule (cada 6 horas)
+- [ ] Nodo 2: Obtener Cultivos Activos (Supabase)
+- [ ] Nodo 3: Obtener Lecturas + Conocimiento (Code)
+- [ ] Nodo 4: Conocimiento Experto (HTTP Request)
+- [ ] Nodo 5: AI Análisis Preventivo (Gemini, sin imagen)
+- [ ] Nodo 6: Parsear Respuesta (Code)
+- [ ] Nodo 7: IF recomendación
+- [ ] Nodo 8: Telegram Reporte Preventivo
+- [ ] Test manual ✅
+- [ ] Workflow activado (toggle ON)
+
+---
+
+
+### A.2 · Resumen final del pipeline
+
+| # | Workflow | Nodos | Trigger | IA | Estado |
+|---|----------|-------|---------|----|----|
+| WF1 | Pipeline Telemetría | 8 (+2 con Fase 13) | Webhook (event-driven) | Motor de reglas JS | ✅ Funcionando |
+| WF2 | Diagnóstico IA Emergencia | 5 | Webhook (triggered by WF1) | Gemini 2.0 Flash (visión) | ✅ Funcionando |
+| WF3 | Validación Fenológica | 10 (+3 con Fase 14) | Schedule (diario) | Gemini 2.0 Flash (visión) | ✅ Funcionando |
+| WF4 | Análisis Preventivo | 8 | Schedule (6hs) | Gemini 2.0 Flash (texto) | ✅ Funcionando |
+| WF5 | Control de Riego (Fase 13) — único actuador físico | 8 | Webhook (triggered by WF1) | — (regla + fórmula) | 🆕 Diseñado, no implementado |
+
+**Total: 5 workflows (4 en producción + 1 diseñado), ~44 nodos, 3 prompts IA con Gemini gratis, 1 motor de reglas, 1 motor de dosificación de agua, 1 motor de recomendación de fertirriego (sin actuador — Fase 15 vive dentro de WF1).**
+
+**Próximos pasos inmediatos (histórico, ver Estado Actual arriba para el orden real vigente):** Fase 16 (rotar claves expuestas + arreglar los 2 bugs de WF4) → 12.2 → 12.3 → 12.5 → Fase 11 (testing integral) → 12.4 (necesita el ESP32 físico) → Fase 13, 14 y 15 (las tres se pueden programar y testear enteras sin hardware — ver nota sobre el simulador de ESP32 en 13.6).
+
+</details>
+
+---
+
+
+### A.3 · Archivos a crear (tras aprobación)
+
+| Archivo | Contenido |
+|---------|-----------|
+| `d:\tesis\supabase\01_ajustes_schema.sql` | Scripts 1.1 a 1.4 (ALTER TABLE + vista + RPC) |
+| `d:\tesis\supabase\02_seed_data.sql` | Script 1.5 (datos demo) |
+| `d:\tesis\test\test_escenarios.ps1` | Los 3 cURL de prueba |
+
+---
+

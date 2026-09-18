@@ -1,0 +1,45 @@
+d/`0R#k<1&q7.!bzXQ-_dh8{L{z77*znCu9${,oq5gn6<\ug&H
+
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Headers @{ "X-Device-Key" = "TU_VALOR_SECRETO" } -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":25.0,"ph":6.5,"n":45,"p":32,"k":28}'
+
+Escenarios tomados con TomateCherry en estado Vegetativo
+
+
+Escenario OK
+Todos los valores dentro de rango. No dispara alerta.
+
+powershell
+
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":62.4,"ph":6.5,"n":45,"p":32,"k":28}'
+Verificar:
+
+n8n: flujo completa, IF toma rama FALSE
+Supabase: SELECT * FROM lectura_sensores ORDER BY fecha_hora DESC LIMIT 5; → 5 filas nuevas
+Telegram: NO llega mensaje
+
+
+
+Escenario SEQUÍA 
+Humedad = 25% (mínimo aceptable = 60%). Dispara alerta.
+
+powershell
+
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":25.0,"ph":6.5,"n":45,"p":32,"k":28}'
+Verificar:
+
+n8n: IF toma rama TRUE
+Telegram: llega DIAGNÓSTICO: Sequía con observación de déficit hídrico del 35%
+Supabase: 5 filas nuevas
+
+
+Escenario ESTRÉS QUÍMICO 
+pH = 4.0 (mínimo aceptable = 6.0). Dispara alerta.
+
+powershell
+
+Invoke-RestMethod -Uri "http://localhost:5678/webhook-test/telemetria" -Method POST -ContentType "application/json" -Body '{"dispositivo_mac":"24:0A:C4:A1:B2:C3","planta":"Tomate Cherry","humedad":65.0,"ph":4.0,"n":45,"p":32,"k":28}'
+Verificar:
+
+n8n: IF toma rama TRUE
+Telegram: llega DIAGNÓSTICO: Estrés Químico con observación de pH ácido
+Supabase: 5 filas nuevas

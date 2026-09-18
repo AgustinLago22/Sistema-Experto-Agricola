@@ -1,0 +1,365 @@
+{
+  "name": "WF4 -  Análisis Preventivo de Rutina",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "eb51c258-05c6-447e-9ce3-036075a46788",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "vista_cultivos_activos",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "06b869af-ef74-4d93-9d9f-47481e82ecee",
+      "name": "Obtener Cultivos Activos",
+      "credentials": {
+        "supabaseApi": {
+          "id": "sJVcT4pS6ARNkz8e",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/vista_conocimiento_experto",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "planta",
+              "value": "={{ 'eq.' + $json.planta }}"
+            },
+            {
+              "name": "etapa",
+              "value": "={{ 'eq.' + $json.etapa_actual }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        832,
+        0
+      ],
+      "id": "67101476-7892-4852-911b-6c7c87cfd906",
+      "name": "Conocimiento Experto",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J8vy7JWdc4WnIbqa",
+          "name": "Supa P"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const geminiResponse = $('Request a Gemini').first().json; // confirmá el nombre real con autocompletado\nconst calculado = $('Calcular Diagnostico').first().json.diagnostico_calculado;\nconst cultivoData = $('Obtener lecturas y conocimiento').first().json;\n\nlet textoGemini;\ntry {\n  const rawText = geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\n  const cleaned = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  textoGemini = JSON.parse(cleaned);\n} catch (e) {\n  textoGemini = { tendencia: 'desconocida', recomendaciones_preventivas: [], mensaje_agricultor: 'No se pudo generar el detalle (falla de IA), pero el sistema detectó nivel de alerta: ' + calculado.nivel_alerta };\n}\n\nconst diagnostico = {\n  estado_optimo: calculado.estado_optimo,\n  nivel_alerta: calculado.nivel_alerta,\n  desviaciones_leves: calculado.desviaciones.map(d => d.metrica),\n  tendencia: textoGemini.tendencia || 'estable',\n  recomendaciones_preventivas: textoGemini.recomendaciones_preventivas || [],\n  mensaje_agricultor: textoGemini.mensaje_agricultor || ''\n};\n\nreturn [{ json: { ...cultivoData, diagnostico } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "8c698f71-be3c-464c-9433-7811a89fadb4",
+      "name": "Parsear Respuesta de Gemini"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c7613583-de2e-4cf1-a0fd-560137300669",
+              "leftValue": "={{ $json.diagnostico.estado_optimo }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1664,
+        0
+      ],
+      "id": "e773b6ca-b8e8-4715-b389-be17868905f1",
+      "name": "Hay recomendacion?"
+    },
+    {
+      "parameters": {
+        "chatId": "5593622386",
+        "text": "=📊 REPORTE PREVENTIVO — ANÁLISIS RUTINA\n🌱 Cultivo: {{ $json.planta }}\n🌀 Etapa: {{ $json.etapa_actual }}\n📈 Tendencia: {{ $json.diagnostico.tendencia }}\n⚠️ Desviaciones detectadas:\n{{ $json.diagnostico.desviaciones_leves.join('\\n• ') }}\n💡 Recomendaciones:\n{{ $json.diagnostico.recomendaciones_preventivas.join('\\n• ') }}\n👨‍🌾 {{ $json.diagnostico.mensaje_agricultor }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1872,
+        -96
+      ],
+      "id": "bda10825-e642-4dbb-8cee-c8e59ceab2bb",
+      "name": "Reporte preventivo",
+      "webhookId": "d3ff80d8-136d-4f6e-b13d-33def1039e09",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/vista_promedios_recientes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "cultivo_id",
+              "value": "={{ 'eq.' + $json.cultivo_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "fb95f14c-c09d-401a-a2f9-9960f61b7e38",
+      "name": "Consultar Promedios",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "J8vy7JWdc4WnIbqa",
+          "name": "Supa P"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cultivo = $('Obtener Cultivos Activos').first().json;\nconst promedios = $input.first().json;\n\n// Si no hay lecturas recientes, no tiene sentido analizar\nif (!promedios || !promedios.humedad_promedio) {\n  return [{ json: { skip: true } }];\n}\n\nreturn [{\n  json: {\n    ...cultivo,\n    humedad_promedio: promedios.humedad_promedio,\n    ph_promedio: promedios.ph_promedio,\n    n_promedio: promedios.n_promedio,\n    p_promedio: promedios.p_promedio,\n    k_promedio: promedios.k_promedio,\n    total_lecturas: promedios.total_lecturas\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "83e6efa7-14c9-4a72-8bec-b99a1c9a4dca",
+      "name": "Obtener lecturas y conocimiento"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    \"contents\": [\n      {\n        \"parts\": [\n          {\n            \"text\": `Actuá como un experto en fisiología vegetal. Ya se calculó el diagnóstico técnico de este cultivo con datos objetivos. Tu única tarea es redactar recomendaciones prácticas y un mensaje claro para el agricultor — NO cambies ni reinterpretes las categorías ni el estado general, son un cálculo ya validado.\n\nCULTIVO: ${$json.planta} en fase ${$json.etapa}\n\nDIAGNÓSTICO CALCULADO (explicalo, no lo modifiques):\n${JSON.stringify($json.diagnostico_calculado, null, 2)}\n\nTAREA: Para cada métrica en \"desviaciones\", generá una recomendación práctica y breve de ajuste. Con los datos disponibles, indicá también una tendencia aproximada (estable/mejorando/empeorando, a tu mejor criterio ya que no hay historial). Si \"desviaciones\" está vacío, decilo así: no hay ajustes necesarios.\n\nRESPONDÉ EXCLUSIVAMENTE en JSON:\n{\"tendencia\": \"estable|mejorando|empeorando\", \"recomendaciones_preventivas\": [], \"mensaje_agricultor\": \"resumen simple\"}`\n          }\n        ]\n      }\n    ],\n    \"generationConfig\": { \"temperature\": 0.3, \"responseMimeType\": \"application/json\" }\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1248,
+        0
+      ],
+      "id": "316b3234-8c24-4f74-a85e-ba8f8adb8144",
+      "name": "Request a Gemini",
+      "retryOnFail": true,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "CvqQva9wKhAA1ltK",
+          "name": "Gemini"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ideal = $('Conocimiento Experto').first().json; // de 'Conocimiento Experto': planta, etapa, humedad_min/max, ph_min/max, ideal_n/p/k\nconst promedios = $('Obtener lecturas y conocimiento').first().json; // humedad_promedio, ph_promedio, n_promedio, p_promedio, k_promedio\n\nconst UMBRAL_LEVE = 10;\n\nfunction evaluarRango(valorActual, min, max) {\n  if (valorActual == null) return { categoria: 'sin_dato', desviacion_pct: null };\n  if (valorActual >= min && valorActual <= max) return { categoria: 'optimo', desviacion_pct: 0 };\n  const anchoRango = max - min;\n  const distancia = valorActual < min ? (min - valorActual) : (valorActual - max);\n  const desviacion_pct = Math.round((distancia / anchoRango) * 1000) / 10;\n  return { categoria: desviacion_pct <= UMBRAL_LEVE ? 'leve' : 'seria', desviacion_pct };\n}\n\nfunction evaluarIdeal(valorActual, idealValor) {\n  if (valorActual == null || !idealValor) return { categoria: 'sin_dato', desviacion_pct: null };\n  const desviacion_pct = Math.round((Math.abs(valorActual - idealValor) / idealValor) * 1000) / 10;\n  return { categoria: desviacion_pct === 0 ? 'optimo' : (desviacion_pct <= UMBRAL_LEVE ? 'leve' : 'seria'), desviacion_pct };\n}\n\nconst metricas = {\n  humedad: { ...evaluarRango(promedios.humedad_promedio, ideal.humedad_min, ideal.humedad_max), actual: promedios.humedad_promedio, min: ideal.humedad_min, max: ideal.humedad_max },\n  ph:      { ...evaluarRango(promedios.ph_promedio, ideal.ph_min, ideal.ph_max), actual: promedios.ph_promedio, min: ideal.ph_min, max: ideal.ph_max },\n  n:       { ...evaluarIdeal(promedios.n_promedio, ideal.ideal_n), actual: promedios.n_promedio, ideal: ideal.ideal_n },\n  p:       { ...evaluarIdeal(promedios.p_promedio, ideal.ideal_p), actual: promedios.p_promedio, ideal: ideal.ideal_p },\n  k:       { ...evaluarIdeal(promedios.k_promedio, ideal.ideal_k), actual: promedios.k_promedio, ideal: ideal.ideal_k },\n};\n\nconst categorias = Object.values(metricas).map(m => m.categoria);\nconst hayGrave = categorias.includes('seria');\nconst hayLeve = categorias.includes('leve');\n\nconst diagnostico_calculado = {\n  estado_optimo: !hayGrave && !hayLeve,\n  nivel_alerta: hayGrave ? 'seria' : (hayLeve ? 'leve' : 'optima'),\n  metricas,\n  desviaciones: Object.entries(metricas)\n    .filter(([_, m]) => m.categoria === 'leve' || m.categoria === 'seria')\n    .map(([nombre, m]) => ({ metrica: nombre, ...m }))\n};\n\nreturn [{ json: { ...ideal, ...promedios, diagnostico_calculado } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "a826d9aa-a31a-4d62-874f-37e8748eec88",
+      "name": "Calcular Diagnostico"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Obtener Cultivos Activos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Cultivos Activos": {
+      "main": [
+        [
+          {
+            "node": "Consultar Promedios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conocimiento Experto": {
+      "main": [
+        [
+          {
+            "node": "Calcular Diagnostico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Respuesta de Gemini": {
+      "main": [
+        [
+          {
+            "node": "Hay recomendacion?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay recomendacion?": {
+      "main": [
+        [
+          {
+            "node": "Reporte preventivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Promedios": {
+      "main": [
+        [
+          {
+            "node": "Obtener lecturas y conocimiento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener lecturas y conocimiento": {
+      "main": [
+        [
+          {
+            "node": "Conocimiento Experto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request a Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parsear Respuesta de Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Diagnostico": {
+      "main": [
+        [
+          {
+            "node": "Request a Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "86d253b0-2469-49ad-9594-acd3163ce020",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "Xqp1u6DBpbqyg57N",
+  "tags": []
+}
