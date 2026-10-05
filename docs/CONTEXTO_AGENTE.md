@@ -1,8 +1,8 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Generado el 23/09/2026** (plan v52). Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 05/10/2026** (plan v56, cierre de la sesión 14). Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
-> Este archivo existe para que un agente pueda trabajar **sin leer `implementation_plan.md`**, que tiene 6.100 líneas y 650 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
+> Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.350 líneas y ~690 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
 > **Este archivo es una foto, y envejece.** Fue escrito después de una ronda de cuatro revisiones externas que corrieron en paralelo leyendo la versión anterior. Tres de ellas numeraron hallazgos nuevos usando el "último número" que este archivo declaraba, y chocaron entre sí. La lección quedó registrada como regla, abajo: **no asignes números de hallazgo.**
 
@@ -14,7 +14,7 @@
 
 1. Este archivo, entero (~40 KB).
 2. `WORKFLOWS/WF1.json` — es el corazón del sistema y donde está casi todo el trabajo abierto.
-3. `WORKFLOWS/WF3.json` — el segundo en importancia, con una anomalía sin resolver.
+3. `WORKFLOWS/WF3.json` — el segundo en importancia. Re-exportado el 01/10 con el prompt nuevo (16.42).
 4. WF2, WF4, WF5 **solo si la tarea los toca.** WF4 está apagado a propósito.
 
 **No leas `implementation_plan.md` entero.** Si necesitás el detalle de un hallazgo, abrí solo esa sección — el **mapa del final** dice dónde está cada una.
@@ -117,9 +117,11 @@ Schedule (8h) → Obtener Cultivos Activos → Obtener Orden Etapas [executeOnce
 
 **Ventana de evaluación:** solo evalúa si `diasEnEtapa >= duracion_estimada_dias * 0.8`, y solo si **hay etapa siguiente** en el catálogo (si no, saltea en silencio — ver B.11).
 
+**Prompt (desde el 01/10, 16.42):** no tiene transiciones escritas a mano. `Obtener Orden Etapas` trae `criterio_visual` del catálogo, `Calcular Dias en Etapa` pasa `criterio_etapa_actual` y `criterio_etapa_siguiente` (y corta con error si alguno llega vacío), e `IA Vision Fenologica` pregunta solo por esa transición. `cambio_confirmado` = "la planta ya dejó la etapa actual"; si ve otra etapa, la nombra (señal de 16.31). El contrato de respuesta no cambió: `Parsear y decidir` es el mismo.
+
 **`Registrar Evaluacion`** llama a `fn_registrar_evaluacion_fenologica`, que escribe tabla + avance de etapa **en una sola transacción**. Reemplazó tres escrituras sueltas. Tiene política de terminación (`p_max_intentos`, default 3).
 
-**Deduplicación:** `Validacion de foto` exige `ultima_foto_path` no vacío **y** distinto de `ultima_foto_evaluada_path`, para no re-analizar la misma foto cada 8 h para siempre.
+**Deduplicación — tiene DOS capas:** `Validacion de foto` exige `ultima_foto_path` no vacío **y** distinto de `ultima_foto_evaluada_path`; y la RPC tiene su propia clave de idempotencia `(cultivo_id, path_foto)` y devuelve `duplicado` si la foto ya tiene conclusión. **Limpiar la marca a mano no hace reevaluar** (la RPC frena igual). Regla: **para reevaluar, se manda una foto nueva por WF1; la marca no se toca a mano.**
 
 ### WF4 — `Análisis Preventivo de Rutina` · 10 nodos · **APAGADO a propósito**
 
@@ -148,7 +150,7 @@ Webhook → Get many rows [alwaysOutputData] → Verificar Cooldown → Cooldown
 | `dispositivo` | El ESP32 | `mac_address`, `tiene_actuador_riego`, `caudal_bomba_ml_s` |
 | `lectura_sensores` | Telemetría, **formato largo** | `metrica_id`, `valor`, `fecha_hora` — **una fila por métrica**, así que una lectura completa son 5 filas |
 | `tipos_metricas` | Catálogo de métricas | id 1=Humedad, 3=pH, 4=Nitrógeno, 5=Fósforo, 6=Potasio |
-| `especie_planta` / `tipo_etapa` / `etapas_especie` / `parametro_etapa` | **La base de conocimiento** | `etapas_especie` ordena las etapas por especie; `parametro_etapa` guarda los umbrales de cada una |
+| `especie_planta` / `tipo_etapa` / `etapas_especie` / `parametro_etapa` | **La base de conocimiento** | `etapas_especie` ordena las etapas por especie y guarda `criterio_visual` (**NOT NULL**: cómo se reconoce en una foto la entrada a esa etapa); `parametro_etapa` guarda los umbrales de cada una |
 | `evento_riego` | Riegos | `resultado` (`pendiente`/…), `fecha_recheck`, `humedad_recheck`, `comando_id` → FK a `comando_dispositivo` |
 | `comando_dispositivo` | Órdenes para el ESP32 | `tipo_comando`, `duracion_segundos`, `estado` |
 | `seguimiento_fenologico` | Historia clínica (la escribe WF2) | `diagnostico_ia jsonb`, `path_foto` |
@@ -160,18 +162,11 @@ Webhook → Get many rows [alwaysOutputData] → Verificar Cooldown → Cooldown
 
 > ⚠️ **`vista_conocimiento_experto` hace INNER JOIN contra `parametro_etapa`.** Una etapa sin umbrales no devuelve nulos: **no devuelve nada**. Es la raíz del hallazgo 16.37.
 
-**Base de conocimiento cargada hoy:**
+**Base de conocimiento cargada hoy:** una sola especie, **Tomate Cherry (especie 3)**, con 6 etapas, todas con umbrales y con criterio visual. La tabla está en §7.
 
-```
-Tomate Cherry (especie 3)                     Albahaca (especie 4)
-  Germinación  10d  80-95  6.0-7.0  10/10/10    Germinación   7d  — SIN UMBRALES —
-  Plántula     15d  70-85  6.0-6.5  20/15/15    Plántula     12d  — SIN UMBRALES —
-  Vegetativo   40d  60-75  6.0-6.8  50/30/30    Vegetativo   45d  60-80  6.0-7.0  40/20/20
-  Floración    20d  50-65  6.2-6.8  30/50/60    (no tiene más etapas: terminal por diseño)
-  Cosecha      30d  — SIN UMBRALES —
-```
+**La Albahaca (especie 4) se dio de baja el 01/10, por decisión de alcance:** el modelo supone un **ciclo lineal** (etapas en orden hasta una cosecha final) y la albahaca es de cosecha continua. El tomate cherry también se aparta un poco (crecimiento indeterminado: flores y frutos conviven), y los criterios visuales lo contemplan.
 
-**3 etapas sin umbrales.** No existe "Fructificación" en el catálogo, así que el tomate salta de Floración a Cosecha (B.1).
+**Cargar una especie nueva** = por cada etapa: orden y duración (`etapas_especie`), umbrales (`parametro_etapa`) y `criterio_visual`. Un buen criterio se ve en una foto, describe la **entrada** a la etapa y dice qué puede coexistir. Se redactaron sobre los estadios BBCH. Agregar una especie es cargar conocimiento, no tocar n8n.
 
 ---
 
@@ -221,33 +216,34 @@ Esto es lo más valioso del paquete. Cada línea costó al menos una sesión de 
 
 ---
 
-## 7 · Estado verificado el 23/09/2026
+## 7 · Estado verificado el 05/10/2026
 
 Consultado contra Supabase, no asumido.
 
 | Dato | Valor |
 |---|---|
-| Cultivos activos | 1 — Tomate Cherry - Demo Tesis, **Floración desde el 12/08 19:39 UTC** |
-| Días en etapa | **42** (la etapa dura 20) |
-| `lectura_sensores` | 220 · **última del 20/08 18:47 UTC** |
+| Cultivos activos | 1 — Tomate Cherry - Demo Tesis, **Fructificación desde el 23/09 23:18 UTC** (avanzó por WF3) |
+| Próxima evaluación de etapa posible | **25/10** (ventana = 80 % de 40 días, ver 16.65) |
+| `lectura_sensores` | 230 · última del 01/10 23:10 UTC (de un test) |
 | `evento_riego` | 8 — **las 8 con `resultado = pendiente`** |
 | `comando_dispositivo` | 8 — **ninguno consumido por nadie** |
-| `evaluacion_fenologica` | **1** — la primera del proyecto, del 19/09 |
-| `ultima_foto_evaluada_path` | `null` — se limpió a propósito el 23/09 |
-| Etapas del tomate sin umbrales | **0** (eran 1) |
-| Fructificación en el catálogo | **sí**, cargada el 23/09 |
+| `evaluacion_fenologica` | **3** — 11 `etapa_no_coincide` (19/09), 12 `avanza` (23/09), 13 `no_avanza` (01/10, test) |
+| `seguimiento_fenologico` | 25 |
+| Especies | **1** (la Albahaca se dio de baja el 01/10) |
+| Etapas sin umbrales | **0** |
+| Claves JWT heredadas de Supabase | **deshabilitadas** (16.40 cerrado) |
 
-**Workflows:** WF1 ✅ · WF2 ✅ · WF3 ✅ · WF4 ⬜ (a propósito) · WF5 ✅
+**Workflows:** WF1 ✅ · WF2 ✅ · WF3 ✅ (re-exportado 01/10) · WF4 ⬜ (a propósito) · WF5 ✅
 
 > ⚠️ **El cultivo no existe físicamente.** No hay planta, ni sensor, ni temporada. Lo validado es la lógica de control del software, no el modelo agronómico. No confundas las dos cosas al razonar sobre este sistema, y no propongas "verificarlo con la planta".
 
-### La anomalía de WF3 está cerrada — no era un bug
+### WF3 decide bien en los dos sentidos, verificado en vivo
 
-Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h, y `evaluacion_fenologica` en 0 con la ventana abierta. **La causa era que el contenedor de n8n estuvo apagado**, y el Schedule Trigger de n8n **no recupera las corridas que se pierde**. No hay bug de workflow. Quedó como hallazgo **16.64**.
+- **23/09 — primer `avanza` de punta a punta pasando por el modelo:** Floración → Fructificación, 0,98. Las tres escrituras de la transacción con el mismo timestamp.
+- **01/10 — `no_avanza` con el prompt nuevo:** la foto de demo tiene frutos verdes y el criterio de Cosecha pide cambio de color. La `evidencia_visual` del modelo reproduce el criterio del catálogo, o sea que el criterio llegó al modelo.
+- **Antes:** la "anomalía" de agosto/setiembre no era un bug: el contenedor de n8n estuvo apagado y el Schedule Trigger no recupera corridas perdidas (**16.64**). El 23/09 los logs de Supabase mostraron cero pedidos de n8n en 24 h: posible segundo episodio, **no confirmado**.
 
-**El 19/09 a las 20:01 UTC WF3 evaluó por primera vez en la historia del proyecto.** El modelo devolvió `"Fructificación"` con 0,95 contra una `etapa_siguiente` de "Cosecha" → `etapa_no_coincide`, sin avance y sin aviso. Eso verificó **16.42** (era hipótesis), confirmó **16.31 en producción** y mostró **16.25** en vivo.
-
-### Catálogo del Tomate Cherry, vigente desde el 23/09
+### Catálogo del Tomate Cherry, vigente desde el 23/09 (criterio visual desde el 01/10)
 
 | # | Etapa | Días | Humedad | pH | N | P | K | K:N |
 |---|---|---|---|---|---|---|---|---|
@@ -258,6 +254,8 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 | 5 | **Fructificación** | 40 | 60–75 | 6.0–6.8 | 25 | 40 | 60 | 2.40 |
 | 6 | Cosecha | 30 | 45–60 | 6.0–6.8 | 20 | 30 | 45 | 2.25 |
 
+Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = cotiledones abiertos · Vegetativo = ≥4 hojas verdaderas, sin botones · Floración = racimos con flores amarillas, sin frutos · **Fructificación = frutos cuajados verdes (puede haber flores)** · **Cosecha = frutos con cambio de color**. El texto exacto está en la base.
+
 > **Las columnas de `parametro_etapa` NO tienen unidad declarada.** La literatura publica % de capacidad de campo o ppm en solución; esta escala no es ninguna de las dos. Los valores nuevos se derivaron de fuentes citadas transfiriendo **dirección y magnitud relativa**, nunca el número. Si vas a discutir un umbral, discutí la forma de la curva, no el valor absoluto. Ver Fase 17 del plan.
 
 > **Trampa de esquema, para no perder tiempo:** `cultivo.etapa_actual_id` apunta a **`tipo_etapa.id`**, no a `etapas_especie.id`, pese al nombre. Para llegar a la duración hay que pasar por `etapas_especie` filtrando por `especie_id` **y** `etapa_id`. Y la FK en `parametro_etapa` se llama `etapa_especie_id`, en singular.
@@ -266,7 +264,7 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 
 ## 8 · Hallazgos abiertos
 
-**El registro tiene 64 hallazgos (`16.1`–`16.65`, con `16.50` sin asignar a propósito) y 23 diferidos (`B.1`–`B.23`).** Nomenclatura: `16.x` = hallazgo de auditoría · `B.x` = diferido a propósito.
+**El registro tiene 64 hallazgos numerados (`16.1`–`16.65`, con `16.50` sin asignar a propósito), 1 hallazgo nuevo todavía sin número, y 23 diferidos (`B.1`–`B.23`).** Nomenclatura: `16.x` = hallazgo de auditoría · `B.x` = diferido a propósito.
 
 > [!IMPORTANT]
 > **Numeración estable, y NO la asignes vos.** Los números no se reasignan nunca, ni siquiera los que quedan libres — un hueco es inocuo, reusar un número no lo es. **Si encontrás algo nuevo, describilo SIN número** y dejá que se le asigne al integrarlo al plan. Este archivo es una foto y puede estar desactualizado respecto del registro: el último número que ves acá no es necesariamente el último que existe. **El número lo da el registro, no el hallazgo.**
@@ -278,12 +276,11 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 | **16.46** | WF5 · WF1 | Riegos consecutivos sin tope: el cooldown de 15 min es el único freno y el circuit breaker es inalcanzable | **Es el único que daña el cultivo con el código actual.** Precondición de conectar una bomba |
 | **16.51** | WF5 | Volumen de maceta y caudal se inventan cuando faltan (`\|\| 10`, `\|\| 50`) | El tope de seguridad de 30 s está expresado **en tiempo**, así que hereda el caudal inventado y deja pasar el doble de volumen |
 | **16.63** | Lazo de riego | El lazo está abierto en **dos** lugares: nadie consume `comando_dispositivo` y nadie hace el recheck | El lado de entrega **nunca se ejerció ni con el simulador**, pese a que 13.6 afirma que toda la Fase 13 se puede probar sin hardware |
-| **16.40** | Seguridad | Un JWT `service_role` estuvo en texto plano en el plan | Redactado, pero **falta verificar en el panel si las claves heredadas siguen habilitadas** y rotarlas |
-| **16.37** | WF1 | Cultivo en etapa sin umbrales se reporta sano | Guarda aplicada, **nunca ejercida**. Hoy solo se puede probar con la especie 4 |
+| **16.37** | WF1 | Cultivo en etapa sin umbrales se reporta sano | Guarda aplicada, **nunca ejercida**, y ya **sin datos reales que la ejerzan** (la especie 4 se borró). Aplicar 16.38 hace el hueco imposible por construcción |
 
-> ✅ **Cerrados el 23/09:** **B.1** (Fructificación cargada) y **16.41** (Cosecha con umbrales), en una sola transacción como exigía 16.42. La advertencia que decía "no cargar una sin la otra" ya se cumplió.
+> ✅ **Cerrados:** **B.1** y **16.41** (23/09, catálogo completo) · **16.40** (01/10, claves JWT heredadas deshabilitadas) · **16.42** (01/10, criterio visual desde el catálogo, test en vivo).
 >
-> ⚠️ **Lo que quedó suelto:** 16.42 sigue abierto **y ahora sin atenuante** — el catálogo se movió, el prompt de WF3 no. Sigue sin nombrar ni Floración → Fructificación ni Fructificación → Cosecha.
+> 🟢 **Hallazgo nuevo, SIN número:** el camino `duplicado` de `fn_registrar_evaluacion_fenologica` devuelve `foto_marcada: true` sin marcar la foto. Solo alcanzable si alguien limpia la marca a mano. **El fix se escribió y se descartó a propósito** (`SQL/sesion14_fix_rpc_duplicado_marca_foto.sql`, marcado DESCARTADO): agregaba código para defender una redundancia. La marca es un caché de "¿existe una evaluación no fallida para esta foto?"; la solución de fondo es **derivarla y quitar la columna**, no programada. **No lo vuelvas a proponer como fix incremental.**
 
 ### 🟠 — los que bloquean la venta
 
@@ -296,8 +293,7 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 | **16.44** | Todos | El silencio del dispositivo no existe como estado: 34 días sin lecturas y cero avisos |
 | **16.43** | WF1 · WF2 | Una foto sin alerta de umbral no la analiza nadie |
 | **16.39** | WF1 | Sensor desconectado + foto: la lectura se pierde entera y sin aviso. Confirmado en vivo 31/08, fix de 2 capas escrito |
-| **16.42** | WF3 | Floración → Cosecha inalcanzable (ver advertencia arriba) |
-| **16.33 · 16.38 · 16.61** | BD | Faltan restricciones: dos cultivos por dispositivo, el hueco de umbrales, y la tercera |
+| **16.33 · 16.38 · 16.61** | BD | Faltan restricciones: dos cultivos por dispositivo, el hueco de umbrales (**16.38 ya destrabado**: 0 etapas sin umbrales), y la tercera |
 | **16.31 · 16.15** | WF3 | `etapa_no_coincide` es estado absorbente · la degradación no deja señal operativa |
 | **B.13 · B.14** | Infra | El volumen `n8n_storage` no está respaldado · n8n corre con `:latest` |
 | **B.17** | Arquitectura | Falta la capa de tendencia: el sistema ve estados, no procesos. Los datos ya existen, falta quien los lea |
@@ -312,10 +308,12 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 - **Observabilidad de la planta:** `16.65` (la ventana de evaluación es el 80 % de la duración: Fructificación deja **32 días ciegos**), `16.43` (una foto sin alerta no la mira nadie), `B.17` (falta la capa de tendencia). Los tres son lo mismo visto de costado: **el sistema solo observa cuando sospecha, y sospecha por un único criterio.**
 - **Resto:** `16.8`, `16.9`, `16.21`, `16.29`, `B.2`–`B.6`, `B.8`, `B.10`–`B.12`, `B.15`, `B.16`, `B.18`.
 
-### Dos reglas que salieron de esta ronda
+### Reglas que salieron de las últimas rondas
 
 1. **Cuando una corrección establece un criterio, propagalo a todos los consumidores**, no solo al que mostró el síntoma (`16.56`). La construcción de cuerpos por interpolación se corrigió en WF1 y en WF3 y sobrevivió en WF5 dos meses.
 2. **Un identificador único no se garantiza con una convención escrita, se garantiza con un registro que lo asigne** (`16.25`, reconfirmado por el choque de numeración de esta ronda).
+3. **No se mantiene sincronizado a mano lo que se puede derivar** (sesión 14). Antes de proponer código que mantenga dos datos de acuerdo, preguntá si uno se puede calcular del otro. Agustín valora explícitamente que agregar más a veces es menos.
+4. **Un mecanismo de dos capas no se resetea tocando una** (v53): limpiar la marca de WF3 dio verde y no reevaluó nada.
 
 **13.7.1 — el recheck de riego.** No tiene número de hallazgo porque es una fase sin implementar, pero es la mitad de 16.63: el sistema ordena regar y nadie confirma que el riego ocurrió. Las 8 órdenes están en `pendiente` desde siempre, así que el circuit breaker de `falla_riego_persistente` **es código inalcanzable**.
 
@@ -325,15 +323,13 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 
 `docs/revisiones/REVISION_04_hoja_de_ruta.md` organiza lo que queda en **tres carriles** —lo que bloquea la tesis, lo que bloquea la venta, y la deuda tolerable— y define un **mínimo viable para un primer cliente**. Ese mínimo descansa en tres defensas independientes contra el mismo riesgo (regar de más): el recheck (13.7.1), el tope duro por ventana (16.46) y **la válvula local de 30 segundos en el firmware**, la única que sigue funcionando si n8n, la red o Supabase se caen. Son capas separadas a propósito.
 
-1. **Verificar la reevaluación de WF3.** El 23/09 se limpió `ultima_foto_evaluada_path` para que vuelva a mirar la foto con el catálogo nuevo. Lo esperado: `resultado = 'avanza'` y el cultivo en Fructificación. Sería **la primera vez que el camino `avanza` corre de punta a punta pasando por el modelo**. Si sale otra cosa, es hallazgo nuevo.
-2. 🔴 **16.40** — verificar en el panel de Supabase si las claves heredadas siguen habilitadas, y rotarlas.
-3. **16.42** — agregar al prompt de WF3 las dos transiciones que ahora existen. El catálogo se movió sin él.
-4. **B.13 y B.14** — respaldar el volumen `n8n_storage` y fijar la versión del orquestador. Ahí viven los workflows, las credenciales y la clave que las descifra; no hay `N8N_ENCRYPTION_KEY` en el compose, así que **si se pierde el volumen las credenciales no se recuperan ni con backup.**
-5. **Escribir el contrato del webhook (B.22)**, con tiempo de dispositivo y secuencia (16.47) y temperatura y conductividad (16.48). **Es la tarea con ventana de cierre:** después de grabar firmware, cambiar el contrato cuesta una actualización en campo.
-6. **Cerrar el lazo con simulador**: 13.7.1 (recheck), 16.63 (entrega y acuse) y 16.46 (tope duro por ventana).
-7. **16.38** — el índice que impide que el hueco de umbrales vuelva ya no tiene violaciones en el tomate, pero sigue bloqueado por las dos etapas sin umbrales de la especie 4.
-8. **Endurecer WF5**: 16.51, 16.52, 16.55, 16.53.
-9. **No encender WF4** hasta resolver 16.57, 16.58, 16.59, 16.49, 16.60 y 16.30.
+1. **16.38** — la restricción que impide que vuelva el hueco de umbrales. Ya no la bloquea nada. SQL con confirmación (regla 2).
+2. **B.13 y B.14** — respaldar el volumen `n8n_storage` y fijar la versión del orquestador. Ahí viven los workflows, las credenciales y la clave que las descifra; no hay `N8N_ENCRYPTION_KEY` en el compose, así que **si se pierde el volumen las credenciales no se recuperan ni con backup.**
+3. **Escribir el contrato del webhook (B.22)**, con tiempo de dispositivo y secuencia (16.47) y temperatura y conductividad (16.48). **Es la tarea con ventana de cierre:** después de grabar firmware, cambiar el contrato cuesta una actualización en campo.
+4. **Cerrar el lazo con simulador**: 13.7.1 (recheck), 16.63 (entrega y acuse) y 16.46 (tope duro por ventana).
+5. **Endurecer WF5**: 16.51, 16.52, 16.55, 16.53.
+6. **No encender WF4** hasta resolver 16.57, 16.58, 16.59, 16.49, 16.60 y 16.30.
+7. **Pendientes chicos:** confirmar si hubo un segundo episodio de 16.64; sacar el duplicado `implementation_plan.md` de la raíz del repo (el vigente es `docs/`); verificar las referencias BBCH antes de citarlas (17.3).
 
 ---
 
@@ -343,12 +339,12 @@ Durante tres semanas el proyecto sospechó que WF3 estaba roto: activo, cada 8 h
 
 ```powershell
 # Telemetría normal (una línea — su terminal no acepta multilínea)
-$body = @{dispositivo_mac="24:0A:C4:A1:B2:C3"; planta="Tomate Cherry"; humedad=55.0; n=45; p=32; k=28} | ConvertTo-Json; Invoke-RestMethod -Uri "http://localhost:5678/webhook/telemetria" -Method POST -ContentType "application/json" -Headers @{ "X-Device-Key" = "LA_CLAVE" } -Body $body
+$body = @{dispositivo_mac="24:0A:C4:A1:B2:C3"; planta="Tomate Cherry"; humedad=68.0; ph=6.4; n=25; p=40; k=60} | ConvertTo-Json; Invoke-RestMethod -Uri "http://localhost:5678/webhook/telemetria" -Method POST -ContentType "application/json" -Headers @{ "X-Device-Key" = "LA_CLAVE" } -Body $body
 ```
 
 Para incluir foto: agregar `foto_base64=(Get-Content "D:\tesis\test\foto_demo_base64.txt" -Raw).Trim()`.
 
-**Umbrales vigentes (Tomate Cherry / Floración):** humedad 50–65 · pH 6.2–6.8 · N ideal 30 (tolerable 21–39) · P ideal 50 (35–65) · K ideal 60 (42–78). La tolerancia NPK es ±30 %.
+**Umbrales vigentes (Tomate Cherry / Fructificación):** humedad 60–75 · pH 6.0–6.8 · N ideal 25 (tolerable 17,5–32,5) · P ideal 40 (28–52) · K ideal 60 (42–78). La tolerancia NPK es ±30 %. **Ojo: humedad 55 o 58 ahora es Sequía y dispara WF5.** Lectura sana de referencia: `humedad=68.0; ph=6.4; n=25; p=40; k=60`.
 
 **Reglas de testing no negociables:**
 
@@ -357,6 +353,7 @@ Para incluir foto: agregar `foto_base64=(Get-Content "D:\tesis\test\foto_demo_ba
 - **Verificá contra la base, no contra el verde del nodo.**
 - **Los datos que crea un test son parte del test: limpiarlos es parte de haberlo terminado.** Hay dos scripts de referencia en `SQL/`.
 - **Un fix aplicado antes del test convierte al test en una tautología.** Si la hipótesis es que algo falla, ejercela **antes** de arreglarla.
+- **Para probar WF3 hay que abrir la ventana a mano:** atrasar `fecha_inicio_etapa` y mandar una foto nueva por WF1; al terminar, restaurar la fecha. Modelo de script: `SQL/sesion14_test_16.42_criterio_visual.sql`.
 - **Los objetos de Storage no se borran por SQL.** `delete from storage.objects` borra la fila de metadatos y deja el archivo huérfano. Se borran desde el dashboard.
 
 ---
@@ -364,22 +361,22 @@ Para incluir foto: agregar `foto_base64=(Get-Content "D:\tesis\test\foto_demo_ba
 ## 11 · Reglas de trabajo con Agustín
 
 1. **Todo prolijo.** Es una tesis y un futuro producto.
-2. **No toques tablas, columnas, políticas RLS ni datos** sin explicar antes qué y por qué, y esperar confirmación explícita.
+2. **No toques tablas, columnas, políticas RLS ni datos** sin explicar antes qué y por qué, y esperar confirmación explícita. **Forma de trabajo vigente:** los cambios de esquema o destructivos se escriben como script versionado en `SQL/` (con estado previo, reverso y bloque de verificación), **los ejecuta Agustín en el SQL Editor**, y el agente verifica por MCP en modo lectura. En la sesión 14 el control de permisos bloqueó la ejecución directa por MCP.
 3. **Verificá el estado real antes de asumir.** El documento y los JSON pueden estar desactualizados respecto de lo que corre en vivo. Ya hubo varios casos de drift.
 4. **Verificá contra el estado persistido, no contra el output del nodo.**
 5. **No tiene navegador en n8n.** Proponé el cambio exacto —nodo, campo, expresión, código completo para pegar— y él lo aplica y reporta.
-6. **Al terminar algo, actualizá `implementation_plan.md`:** changelog, **Tablero**, **Hallazgos abiertos**, **Cierre de sesión**, y la sección numerada que corresponda. Lo diferido a propósito va al backlog. **Nada queda flotando en la conversación.**
+6. **Al terminar algo, actualizá `docs/implementation_plan.md`:** changelog, **Tablero**, **Hallazgos abiertos**, **Cierre de sesión**, y la sección numerada que corresponda. Lo diferido a propósito va al backlog. **Nada queda flotando en la conversación.**
 7. **Antes de proponer una tabla, nodo o credencial nueva**, revisá si el backlog ya registra un intento anterior descartado por el mismo motivo.
 8. **Decile cuando se equivoque.** Prefiere que discutas una decisión antes de implementarla.
 9. **Explicá el razonamiento conceptual detrás de cada decisión**, nombrando el patrón o principio cuando exista. Es material para el marco teórico de la tesis.
-10. **El proyecto está versionado con git** (local, sin remoto). Ritual de cierre: re-exportar los workflows tocados **sobrescribiendo `WORKFLOWS/WFn.json`** (nombre estable, nunca con fecha), actualizar el plan, y commitear. Si `git status` no queda limpio, hay algo sin documentar.
+10. **El proyecto está versionado con git** (local, sin remoto). Desde el agente, usá `git --no-optional-locks` para leer estado: un `git status` normal dejó una vez trabado `.git/index.lock`. Ritual de cierre: re-exportar los workflows tocados **sobrescribiendo `WORKFLOWS/WFn.json`** (nombre estable, nunca con fecha), actualizar el plan, y commitear. Si `git status` no queda limpio, hay algo sin documentar.
 11. **No inventes números de hallazgo.** Describí lo que encontrás y dejá que el número se asigne al integrarlo al plan. Ver la advertencia de *Hallazgos abiertos*.
 
 ---
 
 ## 12 · Mapa del plan, si hace falta profundizar
 
-`implementation_plan.md` (v52, 6.270 líneas). **Abrí solo la sección que necesites.**
+`docs/implementation_plan.md` (v56, ~6.350 líneas). **Abrí solo la sección que necesites.** (Hay una copia vieja en la raíz del repo: ignorala.)
 
 | Buscás | Andá a |
 |---|---|
@@ -395,7 +392,9 @@ Para incluir foto: agregar `foto_base64=(Get-Content "D:\tesis\test\foto_demo_ba
 | La RPC transaccional de riego | `13.5.3` |
 | La RPC transaccional de WF3 | `9.14` |
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
-| Trazabilidad de la base de conocimiento y bibliografía | `Fase 17` |
+| Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
+| El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
+| Lo hecho en la sesión 14 | Changelog **v53 a v56** y **Cierre de sesión** |
 
 **Las cuatro revisiones externas** (setiembre 2026, hechas por un agente que leyó este archivo y los workflows pero **no** el plan). Sus conclusiones ya están integradas al plan; los archivos quedan porque tienen el razonamiento completo:
 
