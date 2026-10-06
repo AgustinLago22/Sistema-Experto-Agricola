@@ -1,6 +1,9 @@
 services:
   n8n:
-    image: n8nio/n8n:latest
+    # Versión fijada a propósito (B.14). Con :latest, actualizar era un efecto
+    # secundario de cualquier pull o recreate. Subir de versión es un acto
+    # deliberado: respaldo previo (B.13) y re-verificación de los workflows.
+    image: n8nio/n8n:2.19.5
     container_name: n8n_server
     restart: always
     ports:
@@ -10,8 +13,15 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - NODE_ENV=production
+      # Clave que cifra las credenciales (B.13). Vive en .env, fuera de git.
+      # Es la MISMA que n8n generó en el primer arranque: cambiarla deja las
+      # credenciales irrecuperables. Si falta, compose se niega a arrancar.
+      - "N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?Falta N8N_ENCRYPTION_KEY en .env - ver B.13}"
     volumes:
       - n8n_storage:/home/node/.n8n
 
 volumes:
   n8n_storage:
+    # Nombre fijado (B.13). Sin esto, el nombre real se deriva de la carpeta
+    # del proyecto: renombrar D:\tesis haría arrancar n8n sobre un volumen vacío.
+    name: tesis_n8n_storage
