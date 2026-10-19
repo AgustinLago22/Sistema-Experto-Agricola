@@ -58,7 +58,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const TIEMPO_ABSORCION_MIN = 15; // minutos de espera tras un riego antes de reintentar\n\nconst ultimoRiego = $input.first().json;\nconst ahora = new Date();\n\nif (ultimoRiego && ultimoRiego.fecha_inicio) {\n  const minutosDesdeUltimo = (ahora - new Date(ultimoRiego.fecha_inicio)) / 60000;\n  if (minutosDesdeUltimo < TIEMPO_ABSORCION_MIN) {\n    return [{ json: { cooldown_activo: true, minutos_restantes: Math.ceil(TIEMPO_ABSORCION_MIN - minutosDesdeUltimo) } }];\n  }\n}\nreturn [{ json: { cooldown_activo: false, minutos_restantes: 0 } }];"
+        "jsCode": "// ============================================================\n// VERIFICAR COOLDOWN — WF5\n// Última actualización: 16/10/2026 (sesión 16) — 13.7.2\n// ------------------------------------------------------------\n// El tiempo de absorción ya NO se define acá. Lo define `vista_ultimo_riego`\n// (columna `absorcion_completa`, 15 min), que es la misma columna que usa el\n// recheck del Motor de WF1. Una sola definición: si mañana el piloto dice que\n// son 25 minutos, se cambia en un lugar y los dos consumidores quedan de acuerdo.\n// ============================================================\nconst ultimoRiego = $input.first().json;\n\n// `{}` de alwaysOutputData = este cultivo nunca regó.\nconst hayRiego = !!(ultimoRiego && ultimoRiego.fecha_inicio);\n\n// Validación positiva: si hay un riego, la vista tiene que decir si se absorbió.\n// Sin ese dato no se riega: regar de más no se corrige, regar de menos sí.\nif (hayRiego && typeof ultimoRiego.absorcion_completa !== 'boolean') {\n  throw new Error('vista_ultimo_riego no trae absorcion_completa: falta aplicar SQL/sesion16_lazo_riego.sql. No se riega sin saber si el riego anterior se absorbió.');\n}\n\nreturn [{ json: { cooldown_activo: hayRiego && ultimoRiego.absorcion_completa === false } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -154,17 +154,73 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "=💧 RIEGO AUTOMÁTICO INICIADO\n\n📍 Cultivo: {{ $('Calcular Dosis').item.json.planta }}\n💧 Humedad: {{ $('Calcular Dosis').item.json.humedad }}% → objetivo {{ $('Calcular Dosis').item.json.humedad_objetivo }}%\n⏱️ Pulso: {{ $('Calcular Dosis').item.json.duracion_segundos }}s (~{{ $('Calcular Dosis').item.json.dosis_ml }}ml)\n\nSe re-chequeará la humedad en ~15 min.",
+        "text": "= RIEGO AUTOMÁTICO INICIADO\n\n📍 Cultivo: {{ $('Calcular Dosis').item.json.planta }}\n💧 Humedad: {{ $('Calcular Dosis').item.json.humedad }}% → objetivo {{ $('Calcular Dosis').item.json.humedad_objetivo }}%\n⏱️ Pulso: {{ $('Calcular Dosis').item.json.duracion_segundos }}s (~{{ $('Calcular Dosis').item.json.dosis_ml }}ml)\n\n🔁 Riego {{ $('Registrar Riego').item.json.riegos_en_ventana }} de {{ $('Registrar Riego').item.json.max_riegos }} permitidos en {{ $('Registrar Riego').item.json.ventana_horas }} h.\nSe re-chequeará la humedad en ~15 min.",
         "additionalFields": {}
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        1248,
+        1456,
         96
       ],
       "id": "1b587b53-4b46-4952-bd89-04e82bec5855",
       "name": "Enviar Mensaje de riego",
+      "webhookId": "d68c62a6-97c0-41e3-8482-020f686697be",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0c595525-85bc-406c-afef-a9d46152d260",
+              "leftValue": "={{ $('Registrar Riego').item.json.registrado }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1216,
+        112
+      ],
+      "id": "5826b429-7bd7-41f7-a4ec-607ce13f70b2",
+      "name": "Riego Registrado?"
+    },
+    {
+      "parameters": {
+        "chatId": "5593622386",
+        "text": "=  RIEGO AUTOMÁTICO FRENADO POR TOPE DE SEGURIDAD\n\n📍 Cultivo: {{ $('Calcular Dosis').item.json.planta }}\n💧 Humedad actual: {{ $('Calcular Dosis').item.json.humedad }}%\n🔁 Ya hubo {{ $('Registrar Riego').item.json.riegos_en_ventana }} riegos automáticos en las últimas {{ $('Registrar Riego').item.json.ventana_horas }} h (tope: {{ $('Registrar Riego').item.json.max_riegos }}).\n\nNo se mandó una orden nueva. Si la maceta sigue seca después de tantos riegos, algo no anda bien: revisar que el sensor esté bien enterrado, que no haya fugas y que el agua llegue a la maceta.\nEl riego automático vuelve solo cuando los riegos viejos salen de la ventana de {{ $('Registrar Riego').item.json.ventana_horas }} h.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1456,
+        272
+      ],
+      "id": "aa734390-0f2c-4def-8c6f-3de315a1b5b9",
+      "name": "Aviso Tope de Riego",
       "webhookId": "d68c62a6-97c0-41e3-8482-020f686697be",
       "credentials": {
         "telegramApi": {
@@ -236,7 +292,25 @@
       "main": [
         [
           {
+            "node": "Riego Registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Riego Registrado?": {
+      "main": [
+        [
+          {
             "node": "Enviar Mensaje de riego",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aviso Tope de Riego",
             "type": "main",
             "index": 0
           }
@@ -249,7 +323,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "14b5e6d8-11bd-4c58-9e5f-6a5799c26e08",
+  "versionId": "2e5dd8c6-bb22-4d05-95f6-65ff7d488111",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

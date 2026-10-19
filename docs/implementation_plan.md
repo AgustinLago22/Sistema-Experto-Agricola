@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v58)
+# Sistema Experto Agrícola — Plan de Implementación (v60)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -44,19 +44,19 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 
 | WF | `active` | Última auditoría | Hallazgos abiertos | Lo que falta |
 |---|---|---|---|---|
-| **WF1** — Pipeline Telemetría | ✅ `true` | 31/08 | **16.39** 🟠 · 16.33 🟠 · 16.37 🟡 (sin ejercitar) | Batch de la sesión 9 **aplicado y re-exportado el 31/08**. 16.34 y 16.36 cerrados y verificados contra la base; 16.35 y 16.37 aplicados sin ejercitar |
+| **WF1** — Pipeline Telemetría | ✅ `true` | 19/10 | **16.39** 🟠 · 16.33 🟠 · 16.52 🟠 · 16.37 🟡 (sin ejercitar) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. Próximo: la revisión de cada lectura al entrar (contrato, paso 2) |
 | **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 21/08 | 16.15 🟠 (aplicado acá, falta en WF3) | Nada bloqueante |
 | **WF3** — Validación Fenológica | ✅ `true` | 01/10 | 16.31 🟠 (**confirmado en producción**) · ~~16.42~~ ✅ (01/10) · 16.21 🟡 (a medias) · **hallazgo nuevo sin número** 🟢 (`duplicado` miente) | ✅ **01/10: 16.42 cerrado** — criterio visual desde el catálogo, test `no_avanza` ✅. **23/09: primer `avanza` de punta a punta pasando por el modelo** (Floración → Fructificación, 0,98, evaluación id 12). Anomalía anterior cerrada: no era un bug → **16.64** |
 | **WF4** — Análisis Preventivo | ⬜ `false` **a propósito** | parcial (16.3/16.4, 05/08) | 16.30 🟢 | Sin ESP32 no hay telemetría fresca. Es una decisión, no un pendiente |
-| **WF5** — Control de Riego | ✅ `true` | ❌ nunca auditado | — | Auditarlo. Riego + cooldown validados en vivo (12/08) |
+| **WF5** — Control de Riego | ✅ `true` | 19/09 (primera auditoría) · 19/10 (13.7.2) | 16.51 🔴 · 16.55 🟠 · 16.53 · 16.56 · 16.62 🟡 · dosis entregada 🟢 | **19/10: tope duro en la base + `Riego Registrado?` + `Aviso Tope de Riego`**, 9 nodos. Endurecer: 16.51, 16.55 |
 
-**Verificado en los exports (WF1 del 31/08, el resto del 24/08):** WF1 18 nodos · WF2 7 · WF3 17 (0 huérfanos) · WF4 10 · WF5 7. Gemini en `gemini-3.5-flash` en WF2 y WF3; **WF4 quedó en `2.5`** (16.30).
+**Verificado en los exports (WF1 y WF5 del 19/10, WF3 del 01/10, WF2 y WF4 del 24/08):** WF1 19 nodos · WF2 7 · WF3 17 (0 huérfanos) · WF4 10 · WF5 9. Gemini en `gemini-3.5-flash` en WF2 y WF3; **WF4 quedó en `2.5`** (16.30).
 
 | Fase | Estado |
 |---|---|
 | **Fase 11** — Testing integral | ✅ Cerrada (05/08). Los 3 escenarios de WF4 validados de punta a punta |
 | **Fase 12** — Migración a producción | 🟡 12.1 ✅ · 12.2 ✅ · 12.3 ✅ · 12.5 ✅ · **12.4 pendiente**, bloqueado por el ESP32 físico · 12.6 diferido |
-| **Fase 13** — Riego Automático | 🟢 Funcionando de punta a punta (12/08). **Pendiente 13.7.1** — el recheck: es la última precondición antes de conectar una bomba real. WF6 (13.13) sin construir |
+| **Fase 13** — Riego Automático | 🟢 **Lazo cerrado del lado del sistema (19/10, v60):** recheck, freno con rearme y tope duro, verificados en vivo (13.7.2). Falta el consumidor de `comando_dispositivo` (16.63) y WF6 (13.13) |
 | **Fase 14** — Anticipación de Etapa (NPK/pH) | 🆕 Diseñada, sin implementar |
 | **Fase 15** — Recomendación de Fertirriego | 🆕 Rediseñada (06/08, ver 15.1.1), sin implementar |
 | **Fase 16** — Registro de Hallazgos | 🟡 38 hallazgos · 18 resueltos · 1 descartado · **19 abiertos** (ver **Hallazgos abiertos**) |
@@ -83,9 +83,10 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.45** | 🟡 | WF4 | El prompt le pide al modelo que invente la tendencia | Corregir al reactivar WF4 |
 | **B.15 · B.16** | 🟡 | BD | No existe cierre de ciclo ni reinicio de maceta | Diferidos |
 | **B.18** | 🟢 | Hardware | Sin temperatura, humedad ambiente ni luz | Diferido, bloqueado por hardware |
-| **16.46** | 🔴 | WF5·WF1 | Riegos consecutivos sin tope; el circuit breaker es inalcanzable | **Precondición de conectar una bomba** |
+| ~~**16.46**~~ | ✅ | WF5·WF1 | Riegos consecutivos sin tope; el circuit breaker era inalcanzable | **Cerrado 19/10 (13.7.2, v60):** tope en `fn_registrar_riego` + recheck en el Motor, verificados en vivo |
 | **16.51** | 🔴 | WF5 | Volumen y caudal inventados; el tope de 30 s hereda el invento | Hacerlos precondición de `tiene_actuador_riego` |
-| **16.63** | 🔴 | Lazo de riego | Abierto en dos lugares: entrega y recheck | Nadie consume `comando_dispositivo` |
+| **16.63** | 🔴 | Lazo de riego | Abierto en dos lugares: entrega y recheck | **Recheck cerrado 19/10 (13.7.2).** Sigue abierta la entrega: nadie consume `comando_dispositivo` |
+| **sin número** | 🟢 | WF5 · BD | `dosis_ml` es la dosis calculada, no la entregada después del tope de 30 s | Encontrado en el test del 19/10 (13.7.2). Compone con 16.51 |
 | **16.47** | 🟠 | Contrato·BD | Sin tiempo de dispositivo ni secuencia | **Definido en el contrato (13/10, v58):** `ts`, `arranque_id` (asignado por el servidor), `seq`. Falta implementarlo (pasos 1 y 4 del contrato) |
 | **16.52** | 🟠 | WF1 | El Motor decide sobre el valor crudo: `""` → sequía | Normalizar antes del primer consumidor que decide |
 | **16.55** | 🟠 | WF5 | Ejecuta lo que le mandan sin verificar contra la base | Compone con B.23 |
@@ -114,7 +115,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.30** | 🟢 | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | Aplicar al reactivar WF4 |
 | **B.2 · B.3 · B.4 · B.5 · B.6 · B.8 · B.11 · B.12** | 🟢 | varios | Ver Backlog | Diferidos a propósito |
 
-**Bloqueantes reales, en orden:** `13.7.1` + `16.63` (el lazo de riego, abierto en sus dos extremos — última precondición antes de una bomba real) → `16.46` (el tope duro, que no depende de que llegue ninguna lectura) → `16.33` + `16.38` (que la base impida que los huecos vuelvan).
+**Bloqueantes reales, en orden:** ~~`13.7.2` + `16.46`~~ ✅ 19/10 → `16.63` (la entrega: que alguien consuma `comando_dispositivo`) → `16.33` + `16.38` (que la base impida que los huecos vuelvan).
 
 > **Cerrados el 23/09:** `B.1` (Fructificación cargada) y `16.41` (Cosecha con umbrales). `16.38` —el índice que impide que el hueco vuelva— **ya no tiene violaciones en el tomate**, pero sigue bloqueado por las dos etapas sin umbrales de la especie 4.
 
@@ -122,35 +123,37 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 
 ### Cierre de sesión y próximos pasos
 > [!IMPORTANT]
-> **Cierre de la sesión 14 (23/09 → 05/10) — el ciclo de etapas corrió de punta a punta en los dos sentidos, y el conocimiento visual pasó del prompt al catálogo.** *Reemplaza al bloque de la sesión 13, que queda en Historial de sesiones.* Detalle completo en el changelog **v53 a v56**.
+> **Cierre de la sesión 16 (16/10 → 19/10): el lazo de riego quedó cerrado del lado del sistema, y verificado en vivo.** *Reemplaza al bloque de la sesión 15, que pasa al Historial de sesiones.* El detalle completo está en **13.7.2** y en el changelog **v59 y v60**.
 >
 > **Qué se cerró:**
 >
-> 1. **Primer `avanza` de punta a punta pasando por el modelo (v53).** Floración → Fructificación, 0,98, evaluación 12, las tres escrituras de la transacción con el mismo timestamp. El primer intento devolvió `duplicado`: limpiar `ultima_foto_evaluada_path` no alcanza, porque la RPC tiene su propia clave de idempotencia `(cultivo_id, path_foto)`. Se resolvió por el camino real, con una foto nueva por WF1.
-> 2. **16.40 ✅ (v54).** Claves JWT heredadas deshabilitadas, confirmado por el usuario y por MCP.
-> 3. **Baja de la Albahaca (v54), decisión de alcance.** El modelo supone un **ciclo lineal** hasta una cosecha final; la albahaca es de cosecha continua. Tiene que figurar en el marco metodológico como límite declarado. Destraba **16.38**; deja **16.37** sin forma de ejercerse con datos reales.
-> 4. **16.42 ✅ (v54–v55).** Columna `etapas_especie.criterio_visual` (`NOT NULL` + `CHECK`), criterios redactados sobre los estadios BBCH, y WF3 los toma del catálogo: pregunta solo por la transición del cultivo, sin lista escrita a mano y con un ejemplo de respuesta sin valores. **Test `no_avanza` ✅** (evaluación 13): la `evidencia_visual` del modelo reproduce el criterio de Cosecha, que el prompt viejo no contenía. Es la separación **base de conocimiento / motor de inferencia** de un sistema experto: agregar una especie pasa a ser cargar conocimiento, no programar.
-> 5. **Hallazgo nuevo sin número (🟢):** el camino `duplicado` de la RPC afirma `foto_marcada: true` sin marcar. **Fix escrito y descartado (v56)** por agregar código para defender una redundancia; la solución de fondo es derivar la marca, no parcharla.
+> 1. **13.7.2 ✅. Cierra 16.46, 13.7.1 y la mitad de 16.63 que corresponde al control del riego.** El control ("recheck") del último riego se evalúa en el Motor con la misma lectura, antes de decidir, y tiene tres resultados (`exitoso` / `insuficiente` / `fallo_sistema`). Lo guarda el nodo nuevo `Registrar Recheck de Riego`. El freno se activa solo cuando el riego **no tuvo efecto**, y se suelta por evidencia: cuando se vuelve a ver la maceta húmeda. El tope duro (4 riegos automáticos en 6 h) vive dentro de `fn_registrar_riego`. Los tiempos de absorción y de vencimiento del control viven en un solo lugar, `vista_ultimo_riego`. El mensaje de falla distingue "la placa no tomó la orden" de "la tomó y la humedad no subió".
+> 2. **El diseño de 13.7.1 tenía tres defectos, encontrados leyendo la topología antes de construirlo:** el freno seguía sin activarse nunca por el orden de los nodos; confundía "no alcanzó" con "no tuvo efecto"; y no tenía rearme. Se corrigieron antes de escribir una línea en n8n.
+> 3. **Test en vivo, seis caminos con filas en la base:** tope, freno en la misma lectura y persistido, diagnóstico según el estado de la orden, rearme, espera de 15 min y `exitoso`. Datos del test limpiados.
+> 4. **Hallazgo nuevo sin número (🟢):** `dosis_ml` guarda la dosis calculada, no la entregada después del tope de 30 s.
 >
-> **Estado verificado al cierre (05/10):** cultivo en **Fructificación** desde el 23/09 23:18 UTC, foto marcada · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 25 · `lectura_sensores` 230 (última 01/10) · `evento_riego` 8, **las 8 `pendiente`** · `comando_dispositivo` 8 · 1 especie, 6 etapas, todas con umbrales y criterio. `WF3.json` re-exportado el 01/10; el resto sin cambios.
+> **Estado verificado al cierre (19/10):** cultivo en **Fructificación** desde el 23/09 23:18 UTC · `lectura_sensores` 230 (última 01/10) · `evento_riego` 8 y `comando_dispositivo` 8: son los de agosto, siguen en `pendiente` y su control ya venció, así que no frenan nada · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 25. **WF1 19 nodos y WF5 9 nodos, exportados el 19/10** y cruzados contra el código.
 >
-> **Ojo al probar:** los umbrales vigentes de WF1 son los de **Fructificación** (humedad 60–75, pH 6.0–6.8, N 25, P 40, K 60). **Humedad 55 o 58 ahora es Sequía y dispara WF5.** Una lectura sana: humedad 68, pH 6.4, N 25, P 40, K 60. La próxima evaluación de etapa posible es el **25/10** (16.65).
+> **Ojo al probar:**
 >
-> **Arrancar la sesión 15 por acá:**
+> - **Simulador mínimo de PowerShell:** la función `T($h)` (en 13.7.2, en `SQL/sesion16_test_lazo_riego_en_vivo.sql`). Un **403** significa que la clave está mal; está en la credencial `ESP32 Telemetra Key`. "Execute workflow" no hace falta: WF1 está activo y escucha en `/webhook/`.
+> - **Tests de riego:** antes de empezar, anotar el `max(id)` de `evento_riego`, `comando_dispositivo` y `lectura_sensores`, y limpiar por encima de esos números. Hay que limpiar también **entre escenarios**, porque el tope cuenta los riegos de las últimas 6 h. Para no esperar 15 min reales, se usa el **ATRASAR** (el último riego, 20 min hacia atrás).
+> - **Humedad entre 53 y 59 después de regar desde 50 es `insuficiente`**, y vuelve a regar. **Menos de 3 puntos de suba es `fallo_sistema`**, y frena.
+> - **La ventana de WF3 abre el 25/10 a las 23:18 UTC** (20:18 hora argentina). WF3 no recupera corridas perdidas (16.64).
 >
-> 1. **16.38** — la restricción que impide que vuelva el hueco de umbrales. Ya no la bloquea nada: 0 etapas sin umbrales. SQL con confirmación (regla 2).
-> 2. ✅ **Hecho el 06/10 (v57).** **B.13 y B.14** — respaldar el volumen `n8n_storage` y fijar la versión de n8n. Respaldo verificado, clave en `.env`, n8n fijado en `2.19.5` con el mismo binario. Simulacro de restauración ✅. De B.13 queda solo la copia de la clave y del `.tgz` fuera de la laptop.
-> 3. ✅ **Hecho el 13/10 (v58).** **Contrato del webhook (B.22)** escrito en `docs/contrato_telemetria.md`, con tiempo de dispositivo y secuencia (16.47) y temperatura y conductividad (16.48). **Lo que sigue es hacerlo cumplir** (sección 9 del contrato): el arranque asignado por el servidor y la revisión en la puerta de WF1, que cierra 16.52.
-> 4. **Cerrar el lazo con simulador:** 13.7.1, 16.63 y 16.46.
-> 5. **Endurecer WF5** (16.51, 16.52, 16.55, 16.53) y **no encender WF4**.
-> 6. **Pendientes chicos:** confirmar en Executions o con `docker ps` si hubo un segundo episodio de **16.64** (el 23/09 los logs de Supabase mostraron cero pedidos de n8n en 24 h); sacar el duplicado `implementation_plan.md` de la raíz del repo (el vigente es `docs/`); verificar las referencias BBCH exactas antes de citarlas (17.3).
+> **Arrancar la sesión 17 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.**
+>
+> 1. **Revisión en la puerta de WF1 + pedido de arranque** (pasos 1 y 2 de `docs/contrato_telemetria.md`; **cierra 16.52**), más el **simulador nuevo** (paso 6), que pasa a ser el guion de la demo. Después, volver a correr una versión corta del test de riego con ese simulador.
+> 2. **Guion de demo y ensayo, 24 y 25/10:** lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo; foto → diagnóstico IA; y el resultado real de WF3 si la PC queda prendida el 25/10.
+> 3. **Trabajo futuro, con diseño escrito:** la entrega de órdenes a la placa (la otra mitad de 16.63; falta decidir cómo lee la placa sus órdenes sin la clave maestra, D-auth/B.23); 16.51 y la dosis entregada; pasos 3 a 5 del contrato; 16.38; endurecer WF5; WF4.
+> 4. **Pendientes chicos:** copia de la clave y del respaldo de n8n fuera de la laptop (usuario); confirmar 16.64; sacar el `implementation_plan.md` duplicado de la raíz del repo; verificar las referencias BBCH (17.3); los emojis perdidos al principio de los dos Telegram de WF5 (cosmético).
 >
 > **Lecciones de la sesión:**
 >
-> - **Un mecanismo de dos capas no se resetea tocando una.** El procedimiento "limpiar la marca para reevaluar" salió verde y no hizo nada. Lo reveló verificar contra el estado persistido, no contra el verde del nodo.
-> - **Un test tiene dos mitades.** v53 probó que el sistema *puede* avanzar; v55 que *sabe no avanzar* cuando la evidencia no alcanza. Con una sola no se puede afirmar que decide bien.
-> - **Agregar más a veces es menos.** El fix de la RPC era correcto y aun así no valía lo que costaba: defendía con código una redundancia que se puede eliminar. **No se mantiene sincronizado a mano lo que se puede derivar.**
-> - **Forma de trabajo con la base:** los cambios destructivos o de esquema los ejecuta el usuario en el SQL Editor con un script versionado en `SQL/`; el agente verifica por MCP en modo lectura. Fue así porque el control de permisos de la sesión bloqueó la ejecución directa, y resultó un buen reparto: el que confirma es el que ejecuta.
+> - **Revisar el diseño contra la topología real antes de construirlo.** El defecto 1 no aparecía leyendo el diseño: aparecía siguiendo el orden de ejecución de los nodos. El plan describía un freno que, una vez construido, habría seguido sin activarse, igual que el de agosto.
+> - **Un test que no puede fallar no prueba nada, y eso se verifica.** Al test de la base se le inyectaron tres defectos y los detectó los tres. Además termina con un error a propósito, que deshace los datos de prueba aunque nadie se acuerde de limpiar.
+> - **Las marcas de tiempo son evidencia de orden.** Que el riego 17 se cerrara dos segundos antes de que se creara el 18 prueba el defecto 1 corregido mejor que cualquier explicación.
+> - **Separar "cuánto" de "si funciona".** El tope acota la cantidad de riegos; el freno detecta que el actuador no tiene efecto. Con un solo mecanismo para las dos cosas, el sistema confundía "regué poco" con "la bomba no anda".
 
 ### Nombres reales de los nodos
 
@@ -209,6 +212,82 @@ Las cuatro primeras están **verificadas contra el export** y el documento es el
 ---
 
 ### Historial de sesiones
+<details>
+<summary><b>Cierre de la sesión 15 (06/10 → 16/10) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 15 (06/10 → 16/10) — el runtime de n8n dejó de ser la única pieza sin respaldo ni versión, y el borde de entrada tiene contrato escrito.** *Reemplazado por el cierre de la sesión 16.* Detalle completo en el changelog **v57 y v58**.
+>
+> **Qué se cerró:**
+>
+> 1. **B.13 ✅ (v57).** Respaldo del volumen real (`tesis_n8n_storage`, no `n8n_storage`) con n8n detenido y la carpeta entera (la base está en modo WAL), en `D:\respaldos_n8n`, fuera del repo. Clave existente copiada a `.env` sin mostrarla; compose con `${N8N_ENCRYPTION_KEY:?}` y nombre del volumen fijado. **Simulacro de restauración ✅** en un volumen descartable: 5 workflows con sus IDs. Falta solo la copia de la clave y del `.tgz` fuera de la laptop (tarea del usuario).
+> 2. **B.14 ✅ (v57).** `n8nio/n8n:2.19.5`, **mismo ID de imagen** que corría con `:latest`. Credenciales verificadas del lado de Supabase (logs, 21:27 UTC del 06/10).
+> 3. **B.22 ✅ (v58).** Contrato de telemetría v1 en `docs/contrato_telemetria.md`: pedido de **arranque** (el servidor asigna `arranque_id` y recibe `fw`) y pedido de **lectura** (`ts`, `seq`, `motivo`, las 7 mediciones como número o `null`, sin `planta`). DNI de la lectura = `(arranque_id, seq)`, **irrepetible por construcción**. Temperatura y conductividad **se guardan, no deciden**. Define 16.47 y 16.48 y ataca la causa de 16.52. **Todavía no lo hace cumplir nadie**: los 6 pasos están en su sección 9.
+> 4. **Correcciones de documentación.** El repo **sí tiene remoto** en GitHub (el plan decía "sin remoto"), y GitHub estaba un commit atrás. Regla nueva: **commits y push los hace el usuario, sin líneas de coautoría del agente** — el GitHub es entregable de la tesis. El agente no corre git que escribe (deja `.git/index.lock` trabado en la carpeta montada).
+>
+> **Estado verificado al cierre (16/10):** cultivo en **Fructificación** desde el 23/09 23:18 UTC · `lectura_sensores` 230 (última 01/10) · `evento_riego` 8, **las 8 `pendiente`** · `comando_dispositivo` 8 · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 25 · 1 especie, 0 etapas sin umbrales. n8n 2.19.5. Ningún workflow cambió en esta sesión. `git status` limpio y al día con GitHub.
+>
+> **Ojo al probar:**
+>
+> - Umbrales vigentes de WF1: los de **Fructificación** (humedad 60–75, pH 6.0–6.8, N 25, P 40, K 60). **Humedad 55 o 58 es Sequía y dispara WF5.** Lectura sana: humedad 68, pH 6.4, N 25, P 40, K 60.
+> - **El contrato no está vigente todavía**: el simulador de PowerShell sigue con el formato viejo hasta el paso 2 del contrato.
+> - **La ventana de WF3 abre el 25/10 a las 23:18 UTC** (20:18 hora argentina). WF3 corre cada 8 h y **no recupera corridas perdidas** (16.64): si n8n no está levantado en el tick siguiente, esa evaluación no ocurre.
+>
+> **Arrancar la sesión 16 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.** Orden propuesto el 16/10 para llegar (confirmarlo con él al arrancar): **(1) cerrar el lazo de riego** — 13.7.1 (recheck) y 16.46 (tope duro): es la pregunta obvia del jurado ("¿y si riega de más?") y el único 🔴 que daña la planta; **(2) revisión en la puerta de WF1 + pedido de arranque** (pasos 1 y 2 del contrato; cierra 16.52); **(3) guión de demo y ensayo** el 24–25/10: lectura sana → OK; sequía → alerta, riego y recheck; lectura inválida → rechazo; foto → diagnóstico IA; y el resultado real de WF3 si la PC queda prendida el 25/10. **Queda como trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato, 16.38, endurecer WF5 y WF4. Ordenado para que, si no alcanza el tiempo, lo que quede afuera sea lo que menos se ve en una demo.
+>
+> Orden general, sin la fecha:
+>
+> 1. **Contrato, pasos 1 a 5** (sección 9 de `docs/contrato_telemetria.md`): arranque asignado por el servidor, revisión en la puerta de WF1 (**cierra 16.52**), respuestas con código, `ts`/`arranque_id`/`seq` en la base (**16.47**), temperatura y conductividad (**16.48**).
+> 2. **Cerrar el lazo de riego con simulador:** 13.7.1 (recheck), 16.63 (entrega y acuse) y 16.46 (tope duro por ventana).
+> 3. **16.38** — la restricción que impide que vuelva el hueco de umbrales. SQL chico, con confirmación (regla 2). Quedó sin hacer en esta sesión.
+> 4. **Endurecer WF5** (16.51, 16.52, 16.55, 16.53) y **no encender WF4**.
+> 5. **Pendientes chicos:** copia de la clave y del respaldo fuera de la laptop (usuario); confirmar 16.64 (indicio de ~5 días apagado, 01/10 → 06/10); sacar el `implementation_plan.md` duplicado de la raíz; verificar las referencias BBCH antes de citarlas (17.3); regenerar `CONTEXTO_AGENTE.md` al cerrar.
+>
+> **Lecciones de la sesión:**
+>
+> - **Un test que no puede fallar no prueba nada.** El comando de respaldo del plan apuntaba a un volumen inexistente: Docker lo habría creado vacío, lo habría respaldado y habría dado verde. Se detectó leyendo el nombre real antes de ejecutar.
+> - **Ver el archivo no es ver el dato.** `database.sqlite` decía 03/09; el último mes estaba en el `-wal`. Un respaldo "del archivo de la base" habría parecido completo.
+> - **Un identificador único lo asigna un registro, no la suerte.** El DNI de la lectura pasó por tres diseños: contador en la placa (se resetea), número sorteado (efecto cumpleaños: ~1 en 600 en 10 años con 32 bits) y, a pedido del usuario de "cero margen", **asignado por la base**. Es 16.25 aplicado al borde.
+> - **El documento también deriva.** "Git local, sin remoto" era verdad el 27/08 y dejó de serlo sin que nadie lo anotara.
+
+</details>
+
+<details>
+<summary><b>Cierre de la sesión 14 (23/09 → 05/10) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 14 (23/09 → 05/10) — el ciclo de etapas corrió de punta a punta en los dos sentidos, y el conocimiento visual pasó del prompt al catálogo.** *Reemplazado por el cierre de la sesión 15.* Detalle completo en el changelog **v53 a v56**.
+>
+> **Qué se cerró:**
+>
+> 1. **Primer `avanza` de punta a punta pasando por el modelo (v53).** Floración → Fructificación, 0,98, evaluación 12, las tres escrituras de la transacción con el mismo timestamp. El primer intento devolvió `duplicado`: limpiar `ultima_foto_evaluada_path` no alcanza, porque la RPC tiene su propia clave de idempotencia `(cultivo_id, path_foto)`. Se resolvió por el camino real, con una foto nueva por WF1.
+> 2. **16.40 ✅ (v54).** Claves JWT heredadas deshabilitadas, confirmado por el usuario y por MCP.
+> 3. **Baja de la Albahaca (v54), decisión de alcance.** El modelo supone un **ciclo lineal** hasta una cosecha final; la albahaca es de cosecha continua. Tiene que figurar en el marco metodológico como límite declarado. Destraba **16.38**; deja **16.37** sin forma de ejercerse con datos reales.
+> 4. **16.42 ✅ (v54–v55).** Columna `etapas_especie.criterio_visual` (`NOT NULL` + `CHECK`), criterios redactados sobre los estadios BBCH, y WF3 los toma del catálogo: pregunta solo por la transición del cultivo, sin lista escrita a mano y con un ejemplo de respuesta sin valores. **Test `no_avanza` ✅** (evaluación 13): la `evidencia_visual` del modelo reproduce el criterio de Cosecha, que el prompt viejo no contenía. Es la separación **base de conocimiento / motor de inferencia** de un sistema experto: agregar una especie pasa a ser cargar conocimiento, no programar.
+> 5. **Hallazgo nuevo sin número (🟢):** el camino `duplicado` de la RPC afirma `foto_marcada: true` sin marcar. **Fix escrito y descartado (v56)** por agregar código para defender una redundancia; la solución de fondo es derivar la marca, no parcharla.
+>
+> **Estado verificado al cierre (05/10):** cultivo en **Fructificación** desde el 23/09 23:18 UTC, foto marcada · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 25 · `lectura_sensores` 230 (última 01/10) · `evento_riego` 8, **las 8 `pendiente`** · `comando_dispositivo` 8 · 1 especie, 6 etapas, todas con umbrales y criterio. `WF3.json` re-exportado el 01/10; el resto sin cambios.
+>
+> **Ojo al probar:** los umbrales vigentes de WF1 son los de **Fructificación** (humedad 60–75, pH 6.0–6.8, N 25, P 40, K 60). **Humedad 55 o 58 ahora es Sequía y dispara WF5.** Una lectura sana: humedad 68, pH 6.4, N 25, P 40, K 60. La próxima evaluación de etapa posible es el **25/10** (16.65).
+>
+> **Arrancar la sesión 15 por acá:**
+>
+> 1. **16.38** — la restricción que impide que vuelva el hueco de umbrales. Ya no la bloquea nada: 0 etapas sin umbrales. SQL con confirmación (regla 2).
+> 2. ✅ **Hecho el 06/10 (v57).** **B.13 y B.14** — respaldar el volumen `n8n_storage` y fijar la versión de n8n. Respaldo verificado, clave en `.env`, n8n fijado en `2.19.5` con el mismo binario. Simulacro de restauración ✅. De B.13 queda solo la copia de la clave y del `.tgz` fuera de la laptop.
+> 3. ✅ **Hecho el 13/10 (v58).** **Contrato del webhook (B.22)** escrito en `docs/contrato_telemetria.md`, con tiempo de dispositivo y secuencia (16.47) y temperatura y conductividad (16.48). **Lo que sigue es hacerlo cumplir** (sección 9 del contrato): el arranque asignado por el servidor y la revisión en la puerta de WF1, que cierra 16.52.
+> 4. **Cerrar el lazo con simulador:** 13.7.1, 16.63 y 16.46.
+> 5. **Endurecer WF5** (16.51, 16.52, 16.55, 16.53) y **no encender WF4**.
+> 6. **Pendientes chicos:** confirmar en Executions o con `docker ps` si hubo un segundo episodio de **16.64** (el 23/09 los logs de Supabase mostraron cero pedidos de n8n en 24 h); sacar el duplicado `implementation_plan.md` de la raíz del repo (el vigente es `docs/`); verificar las referencias BBCH exactas antes de citarlas (17.3).
+>
+> **Lecciones de la sesión:**
+>
+> - **Un mecanismo de dos capas no se resetea tocando una.** El procedimiento "limpiar la marca para reevaluar" salió verde y no hizo nada. Lo reveló verificar contra el estado persistido, no contra el verde del nodo.
+> - **Un test tiene dos mitades.** v53 probó que el sistema *puede* avanzar; v55 que *sabe no avanzar* cuando la evidencia no alcanza. Con una sola no se puede afirmar que decide bien.
+> - **Agregar más a veces es menos.** El fix de la RPC era correcto y aun así no valía lo que costaba: defendía con código una redundancia que se puede eliminar. **No se mantiene sincronizado a mano lo que se puede derivar.**
+> - **Forma de trabajo con la base:** los cambios destructivos o de esquema los ejecuta el usuario en el SQL Editor con un script versionado en `SQL/`; el agente verifica por MCP en modo lectura. Fue así porque el control de permisos de la sesión bloqueó la ejecución directa, y resultó un buen reparto: el que confirma es el que ejecuta.
+
+</details>
+
 <details>
 <summary><b>Cierre de la sesión 13 (23/09) — histórico</b></summary>
 
@@ -550,6 +629,8 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v60 | 19/10 | **13.7.2 aplicado y verificado en vivo: 16.46 ✅ cerrado, 13.7.1 ✅ cerrado, y la mitad de 16.63 del recheck ✅.** SQL aplicado por el autor; el test de la base dio `TEST OK`. WF5: `Verificar Cooldown` lee `absorcion_completa`, más el IF `Riego Registrado?` y el Telegram `Aviso Tope de Riego` (9 nodos). WF1: el Motor y `Consolidar datos` nuevos, más el nodo `Registrar Recheck de Riego` (19 nodos). Los exports se cruzaron contra el código: idénticos y sin referencias rotas. **Test en vivo, seis caminos con filas en la base:** tope (4 riegos `insuficiente` y el 5º frenado, sin comando), freno en la misma lectura y persistido (`fallo_sistema`), diagnóstico según el estado de la orden, rearme por evidencia, espera de 15 min leída de la vista, y `exitoso`. El cierre del riego 17 dos segundos antes de la creación del 18 prueba que el control ocurre antes de la decisión. **Hallazgo nuevo sin número (🟢):** `dosis_ml` guarda la dosis calculada, no la entregada después del tope. Datos del test limpiados. |
+| v59 | 16/10 | **Sesión 16 — el lazo de riego, rediseñado y escrito (13.7.2), sin aplicar todavía.** Al revisar el diseño de 13.7.1 contra la topología real de WF1, antes de construirlo, aparecieron **tres defectos sin número**: (1) el nodo de recheck iba *después* de que el Motor decide, así que el freno miraba siempre un riego `pendiente` y seguía sin activarse con lecturas cada ≥15 min; (2) el freno saltaba con un solo `insuficiente`, y con el pulso topeado a 30 s una dosis corta es esperable (los 8 riegos de agosto salieron recortados); (3) el freno no tenía rearme. **Decisiones confirmadas por Agustín:** recheck con 3 resultados (`exitoso` / `insuficiente` puede volver a regar / `fallo_sistema` frena), evaluado **en el Motor y en la misma lectura**, y guardado por un nodo nuevo con una RPC idempotente (`fn_registrar_recheck_riego`); **tope duro de 16.46 dentro de `fn_registrar_riego`** (4 riegos automáticos en 6 h, con bloqueo por cultivo; si se alcanza, no crea la orden); rearme **por evidencia** (`humedad_max_posterior`); tiempos de absorción y vencimiento definidos una sola vez, en `vista_ultimo_riego`; y el mensaje de falla distingue conectividad de bomba usando el estado de la orden (mitad de **16.63**). No se toca ninguna tabla: el `CHECK` de `resultado` ya tenía los cuatro valores. **Probado fuera de n8n:** SQL en un Postgres local con una copia del esquema (el test detecta tres defectos inyectados, y el reverso funciona); Motor 16/16 escenarios, y el Motor viejo falla en los que importan. Artefactos: `SQL/sesion16_lazo_riego.sql`, `SQL/sesion16_test_lazo_riego_en_vivo.sql`. **Falta:** aplicar SQL → WF5 → WF1, el test en vivo y re-exportar. |
 | v58 | 13/10 | **B.22 cerrado: el contrato de telemetría está escrito** (`docs/contrato_telemetria.md`, versión 1). Define el pedido, 15 campos con tipo, unidad y obligatoriedad, y la respuesta del sistema a cada caso. **Lo que agrega respecto del formato de hecho:** `v` (versión del contrato); un **pedido de arranque** nuevo (`/webhook/arranque`), con el que la placa recibe del servidor un `arranque_id` al encender e informa `fw` (la versión de firmware que `dispositivo.version_firmware` ya esperaba); `ts`, `arranque_id` y `seq` en cada lectura (**16.47**: la identidad de una lectura pasa a ser `(arranque_id, seq)`, que habilita deduplicar reintentos, detectar lecturas perdidas y trazar un riego hasta su lectura, B.20); `motivo` (`programada` / `recheck`, para el lazo de 13.7); y `temperatura` y `conductividad` (**16.48**). **Lo que quita:** `planta` — el dispositivo informa lo que mide y el cultivo se resuelve por la MAC; la definición vive en un solo lugar. **Reglas clave:** las 7 mediciones van siempre, como número o `null`, nunca `""` (ataca la causa de **16.52**: la ausencia se declara en el origen); un valor fuera del rango físico del sensor se manda `null`; una lectura que no cumple se **rechaza entera** con los errores; un reintento se manda idéntico y vuelve `duplicada`; los campos desconocidos se ignoran. **Cómo se llegó a que el servidor asigne el arranque, en tres pasos.** (1) La primera versión usaba un contador de arranques guardado en la placa. Al escribirla apareció el problema: si se borra la memoria, el contador vuelve a 0 y las lecturas nuevas repiten DNI viejos; tratarlas como duplicadas las descartaría en silencio. (2) Se consideró aceptarlas y avisar, pero el usuario lo cuestionó: **dos lecturas con el mismo DNI** rompen todo lo que se apoya en él (la unicidad en la base, la trazabilidad del riego, el conteo de pérdidas); eso tapaba el síntoma. (3) Un número sorteado por la placa achica el riesgo pero no lo elimina — por el efecto cumpleaños, con 32 bits y un arranque diario durante 10 años la chance de una repetición es del orden de 1 en 600 —, y el usuario pidió cero margen. **Solución adoptada: el `arranque_id` lo asigna la base**, de un contador que solo sube; no puede repetirse por construcción, y una respuesta perdida solo deja un hueco. Es la regla de **16.25**: un identificador único no se garantiza con una convención, se garantiza con un registro que lo asigne. Efecto lateral útil: cada arranque queda registrado con fecha y firmware, así que el sistema sabe cuándo y cada cuánto se reinicia cada placa. **Decisión de alcance, del usuario:** temperatura y conductividad **se guardan, pero no deciden** — usarlas exige umbrales con fuentes y queda como trabajo futuro, sin número asignado. Verificado contra la base: las métricas 2 y 7 existen en `tipos_metricas` con unidad, tienen **0 lecturas**, y `parametro_etapa` no tiene columnas para ellas. **Nota para la tesis:** en la mayoría de los sensores 7 en 1 de bajo costo el NPK se calcula a partir de la conductividad; verificarlo en la hoja de datos antes de elegir el sensor. **La cadencia (B.19) no se fija**, sale del piloto. **Nada del sistema cambió todavía:** WF1 sigue aceptando el formato anterior; los 6 pasos para hacerlo cumplir están en la sección 9 del contrato. |
 | v57 | 06/10 | **Sesión 15 — B.13 y B.14 aplicados: el runtime de n8n deja de ser la única pieza del sistema sin respaldo ni versión.** Relevado primero en modo lectura: n8n **2.19.5**, imagen `sha256:b1b0c592…`, base SQLite en modo WAL, volumen real **`tesis_n8n_storage`**. **Dos correcciones al plan antes de ejecutar.** (1) El comando de respaldo de B.13 usaba `n8n_storage`, pero Compose antepone el nombre del proyecto: el comando habría creado un volumen vacío, lo habría respaldado y habría dado verde — **un test que no puede fallar**. (2) `database.sqlite` tenía fecha 03/09 y `database.sqlite-wal` pesaba 4,4 MB: el último mes de cambios vivía en el WAL, así que copiar solo el `.sqlite` habría dado un respaldo que parece completo y no lo es. **Respaldo:** con el contenedor detenido (base quieta) y el volumen montado `:ro`, `tar` de la carpeta entera a `D:\respaldos_n8n\n8n_storage_2026-10-06_v2.19.5.tgz`, **fuera del repo** porque contiene las credenciales y su clave. Verificado listando el `.tgz`: `config` 56 B, `database.sqlite` 21,7 MB, `-wal` 4,4 MB, binarios de ejecuciones. **Clave:** se copió la clave existente de `/home/node/.n8n/config` a `.env` sin mostrarla en pantalla. No se generó una nueva: eso habría dejado irrecuperables las credenciales. Verificado el formato y que `.gitignore` la cubre. **Compose:** `image: n8nio/n8n:2.19.5`; `N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?…}`, para que si la clave falta o está vacía **compose se niegue a arrancar** en vez de dejar que n8n invente otra; y `volumes.n8n_storage.name: tesis_n8n_storage`, **agregado que no estaba en el plan**: el nombre derivado de la carpeta era una dependencia implícita, y renombrar `D:\tesis` habría levantado n8n sobre un volumen vacío. `.env.example` nuevo. **Verificación, con dos pruebas que podían fallar.** Tras `docker compose up -d`: mismo ID de imagen `sha256:b1b0c592…` —no solo el mismo número de versión, el mismo binario— y arranque limpio con WF1, WF2, WF3 y WF5 activos (n8n no arranca si la clave del entorno difiere de la de `config`). Después, WF3 ejecutado a mano: con la ventana cerrada hasta el 25/10 lee y no escribe, y se cortó en `Hay cultivos a evaluar?` con 1 cultivo. Los logs de Supabase registran `GET vista_cultivos_activos` (credencial `Supabase account`) y `GET etapas_especie` (credencial `Sup S`), los dos 200 desde `n8n` a las 21:27 UTC: **verificado del otro lado, no por el verde del nodo**. Sin datos de prueba que limpiar. **Indicio para 16.64:** el contenedor arrancó el 06/10 a las 20:49 UTC y el log de eventos anterior se cortó el 01/10 a las 23:34: compatible con ~5 días de n8n apagado, sin ninguna señal. **Simulacro de restauración ✅:** el `.tgz` volcado a un volumen descartable devolvió por CLI los 5 workflows con sus IDs, con la clave del `.env` aceptada contra el `config` restaurado (detalle en B.13). **Pendiente de B.13:** la clave en un gestor de contraseñas y el `.tgz` fuera de la laptop (hoy clave, respaldo y volumen comparten disco). **Principio para el marco teórico:** separar el secreto de lo que protege, y que una actualización sea una decisión y no un efecto secundario. **Regla de operación nueva: el agente no corre comandos de git que escriben** (`add`, `commit`). La carpeta montada no le permite borrar archivos, así que git deja `.git/index.lock` sin poder quitarlo y el repo queda trabado; pasó en esta sesión. El agente lee con `--no-optional-locks` y le deja el commit armado al usuario. **Corrección de documentación: el repositorio sí tiene remoto.** `origin` apunta a `github.com/AgustinLago22/Sistema-Experto-Agricola` (rama `main`). Lo que dicen v42 y la sección Versionado ("local, sin remoto") era cierto el 27/08 y dejó de serlo cuando se publicó, después del barrido de secretos de 16.40. Al abrir esta sesión, `main` estaba **un commit adelante** de GitHub: la sesión 14 no se había subido. Se revisó el historial publicado buscando JWT: la única coincidencia es el **encabezado genérico** `eyJhbGciOi…` (`{"alg":"HS256","typ":"JWT"}`) citado como texto en el plan, que no es un secreto. **El ritual de cierre pasa a ser: commit y `git push`.** **Desde esta sesión, los commits no llevan líneas de coautoría ni de sesión del agente**, por decisión del usuario: **el repositorio de GitHub es un entregable de la tesis**, porque muestra el historial del trabajo, y el autor es él. Los commits de las sesiones 14 y 15 conservan esas líneas: se decidió no reescribir historia ya publicada. |
 | v56 | 05/10 | **Cierre de la sesión 14. El fix de la RPC para el camino `duplicado` se descarta a propósito.** El script `SQL/sesion14_fix_rpc_duplicado_marca_foto.sql` (re-marcar la foto en el camino `duplicado`, con guarda contra retroceder el cursor y `foto_marcada` leída en vez de constante) quedó escrito y **no se aplica**: verificado que la función sigue con el md5 `58e3d114…` del 01/10. El usuario lo cuestionó con el criterio de que agregar más a veces es menos, y el argumento se sostiene: (1) el defecto **solo es alcanzable por intervención manual** —en operación normal la RPC escribe la evaluación y mueve la marca en la misma transacción, así que no divergen—; (2) agregaba ~10 líneas, un camino nuevo y un caso borde, para defender una **redundancia**: `ultima_foto_evaluada_path` es un **caché** de la consulta "¿existe una evaluación no fallida para esta foto?", que es exactamente la clave de idempotencia de la RPC, y los cachés se desincronizan. La solución de fondo, si alguna vez hace falta, **resta en vez de sumar**: derivar la marca de `evaluacion_fenologica` (una columna calculada en `vista_cultivos_activos`) y eliminar la columna — una sola fuente de verdad. No se hace ahora porque toca la vista que consumen tres workflows por un 🟢. Mientras tanto rige una **regla de operación**: *para reevaluar una foto se manda una foto nueva; la marca no se toca a mano.* El hallazgo sigue abierto como 🟢 y sin número. **Principio para el marco teórico: no se mantiene sincronizado a mano lo que se puede derivar.** La redundancia se elimina, no se defiende con más código. Estado verificado al cierre: cultivo en Fructificación desde el 23/09 23:18 UTC con la foto marcada, `evaluacion_fenologica` 3, `seguimiento_fenologico` 25, `lectura_sensores` 230 (última 01/10 23:10), `evento_riego` 8 (las 8 `pendiente`), `comando_dispositivo` 8, 1 especie con 6 etapas, todas con umbrales y criterio visual. |
@@ -3331,6 +3412,9 @@ Con esto podés desarrollar y testear **toda la Fase 13 de punta a punta** (SQL,
 
 ### 13.7.1 — 🟠 Hueco abierto: el recheck de 13.7 no está implementado en ningún nodo (hallazgo 11/08)
 
+> [!WARNING]
+> **El diseño propuesto al final de esta sección tenía tres defectos** (16/10): el orden de los nodos dejaba el freno igual de inalcanzable, confundía "no alcanzó" con "no tuvo efecto", y el freno no tenía rearme. **Lo reemplaza 13.7.2.** El diagnóstico del hueco y la fundamentación de esta sección siguen valiendo.
+
 **Qué dice 13.7 y qué hay en realidad.** Los pasos 3 y 4 de 13.7 atribuyen a `Motor de Inferencia` un PATCH a `evento_riego` que setea `resultado` en `'exitoso'` o `'insuficiente'`. Ese PATCH **no existe**: el código real del nodo (verificado en el JSON del 11/08) no lo hace, y no podría hacerlo bien aunque se agregara — es un Code node, y meterle una llamada HTTP adentro escondería una escritura a la base dentro de un nodo cuyo nombre y responsabilidad son "inferir", rompiendo la separación de responsabilidades que el resto del pipeline respeta (persistir es tarea de `fn_registrar_telemetria`, un nodo aparte y explícito).
 
 **Consecuencia en cadena.** Ningún `evento_riego` sale nunca de `'pendiente'` → `vista_ultimo_riego.resultado` nunca vale `'insuficiente'` → `fallaRiegoPersistente` nunca se vuelve `true` → el estado `'Falla de Riego - Revisar Sistema'` **nunca se alcanza**. El *circuit breaker* de 13.3.1 está escrito, razonado y documentado, pero está desconectado de la señal que debería abrirlo. Con eso, el único freno que le queda al sistema es el cooldown de 15 minutos de WF5 — que no es un freno, es un **espaciador**: mientras la humedad siga baja, cada lectura posterior al cooldown vuelve a disparar riego, indefinidamente, sin tope. Los tres escenarios en los que esto pasa son justamente los tres que el sistema tiene que manejar bien: sensor mal enterrado, fuga o sustrato agotado, y tanque vacío (B.5).
@@ -3345,7 +3429,112 @@ Con esto podés desarrollar y testear **toda la Fase 13 de punta a punta** (SQL,
 2. **Tope duro independiente** — condición extra en el IF "¿Dispara WF5?" (13.4) o, mejor, en WF5 junto al cooldown: no más de **N riegos automáticos por cultivo en las últimas X horas** (propuesta inicial: 4 en 6 hs), contando filas de `evento_riego` sin mirar su `resultado`. Corta aunque el recheck falle, aunque el sensor mienta y aunque el circuit breaker no haya abierto.
 3. **Qué pasa al abrir el circuito:** el sistema deja de regar solo y escala a Telegram. La decisión de *reanudar* es del humano — mismo criterio que 13.12 (`/reanudar`), y por el mismo motivo: la acción automática se suspende sola, pero volver a habilitarla requiere que alguien haya ido a mirar la maceta.
 
-**Estado:** hueco de diseño identificado el 11/08, **sin implementar**. Bloquea el cierre de Fase 13 (no la construcción de 13.4, que es previa), y debería resolverse **antes** de que WF5 riegue por primera vez en un cultivo real.
+**Estado:** ✅ **cerrado el 19/10 por 13.7.2** (diseño corregido, aplicado y verificado en vivo, v60).
+
+### 13.7.2 — Cierre del lazo: recheck dentro del Motor, freno por "sin efecto", rearme por evidencia y tope duro en la base (sesión 16, 16/10/2026)
+
+> [!IMPORTANT]
+> **Reemplaza al diseño de 13.7.1, que tenía tres defectos.** Se encontraron revisando el diseño contra la topología real de WF1, **antes de construirlo**. Escrito y probado fuera de n8n el 16/10 (v59). Las decisiones las confirmó Agustín el 16/10. **Estado: ✅ aplicado y verificado en vivo el 19/10 (v60).** Los seis caminos dejaron filas en la base.
+
+#### Los tres defectos del diseño de 13.7.1 (sin número)
+
+**1 · Por el orden de los nodos, el freno seguía sin activarse nunca.** 13.7.1 ponía `Cerrar Loop de Riego` *después* de `fn_registrar_telemetria`. Pero el Motor decide `falla_riego_persistente` con lo que trajo `Obtener Ultimo Riego` al principio de la cadena. La secuencia con un sensor clavado en 50:
+
+1. A los 15 min llega la lectura del recheck. El Motor ve el riego todavía `pendiente` y no frena.
+2. El nodo nuevo lo marca `insuficiente`, pero `Dispara WF5` ya decidió con el dato viejo, y WF5 (cooldown cumplido) ordena otro riego.
+3. En la lectura siguiente, el "último riego" es el nuevo, otra vez `pendiente`.
+
+Con lecturas cada 15 min o más, **el freno mira siempre un riego sin cerrar**. Con lecturas más seguidas (los 10 min que propone REVISION_02), cerraría el recheck antes de que termine la absorción, o sea con un dato prematuro. Es el mismo error de 16.37 en otra forma: el freno quedaba escrito, documentado y desconectado de su señal. **Lo detectó leer la topología, no ejecutar.** Es la regla "un modelo mental del runtime es una hipótesis": acá el modelo mental era el del propio plan.
+
+**2 · "No llegó al rango" no es "falló el riego".** El Motor abría el freno con **un solo** `insuficiente`. Pero el pulso tiene un tope de 30 s, y con la maceta demo (20 L, caudal 40 ml/s) desde humedad 25 la dosis calculada es 1.625 ml y el tope deja pasar 1.200. **Los 8 riegos de agosto salieron todos recortados** (`duracion_segundos = 30`). Ese riego no alcanza *por diseño*, y el sistema concluiría que la bomba está rota. Además, 13.7 (paso 5) pedía escalar si el `insuficiente` *se repetía*, y el código escalaba al primero: una contradicción interna que nadie había notado, porque el código nunca recibía la señal.
+
+**3 · El freno no tenía rearme.** Una vez que el último riego queda en falla, el sistema no vuelve a regar nunca más: para salir de la falla haría falta un riego nuevo, y es justo lo que la falla bloquea. 13.7.1 (punto 3) decía "reanudar es del humano", pero no existía ningún camino para que el humano lo hiciera. WF6 (`/reanudar`, 13.13) no está construido.
+
+#### El diseño
+
+**Tres resultados para el recheck.** Ya estaban en el `CHECK` de `evento_riego.resultado` desde 13.1: no se toca la tabla.
+
+| Resultado | Cuándo | Qué hace el sistema |
+|---|---|---|
+| `exitoso` | la humedad volvió al rango (≥ mínimo de la etapa) | nada: salió de la sequía |
+| `insuficiente` | subió al menos `DELTA_MIN_EFECTO` (3 puntos), pero sigue baja | **puede volver a regar**; cada riego cuenta para el tope |
+| `fallo_sistema` | no subió | **freno**: no riega más, avisa por Telegram y espera evidencia de que alguien atendió la maceta |
+
+**Fundamentación.** El freno tiene que detectar el *windup* que cita 13.7.1: un actuador que **no tiene efecto**. No tiene que detectar un error que todavía no se corrigió del todo. Que la dosis no alcance es un problema de *cantidad*, y lo acota otra pieza, el tope. Con un solo umbral, las dos preguntas quedaban mezcladas y el sistema confundía "regué poco" con "la bomba no anda".
+
+**El recheck se evalúa en el Motor, en la misma lectura, antes de decidir** (corrige el defecto 1). Si el último riego está `pendiente`, ya pasó la absorción y no venció el recheck, **esta lectura es el recheck**: el Motor calcula el resultado y la decisión de regar de esa misma ejecución ya lo usa. Inferir es tarea del Motor. Persistir es de un nodo aparte: `Registrar Recheck de Riego` → `fn_registrar_recheck_riego`. Se respeta así el argumento de 13.7.1 contra esconder una escritura dentro del nodo que infiere.
+
+**¿Por qué `resultado` se guarda y no se deriva?** La regla 3 de la sesión 14 dice que no se mantiene sincronizado a mano lo que se puede derivar. Acá se evaluó y se descartó derivarlo con una vista sobre `lectura_sensores`, por dos razones:
+- **Llegaría tarde.** La lectura del recheck todavía no está en la base cuando el Motor decide: la vista no la vería, y es el mismo defecto 1.
+- **La misma regla quedaría escrita en dos lugares**, el Motor (JS) y la vista (SQL), que tarde o temprano discrepan.
+
+Además, `resultado` no es un caché: es la **conclusión que sacó el sistema con los umbrales de ese momento**, un hecho histórico, igual que `evaluacion_fenologica.resultado`. La diferencia con `ultima_foto_evaluada_path` (v56) es justamente esa: aquella marca repetía algo que se podía calcular; esta registra una decisión.
+
+**Los tiempos se definen en un solo lugar: `vista_ultimo_riego`.** La vista agrega `absorcion_completa` (≥ 15 min) y `recheck_vencido` (> 60 min). El cooldown de WF5 y el recheck del Motor leen esas columnas, en vez de tener cada uno su `15`. Es "la definición vive en el productor": hoy los dos tiempos son el mismo número físico, el tiempo de respuesta del sensor (REVISION_02), y cuando el piloto lo mida se va a cambiar en un solo lugar.
+
+**Rearme por evidencia** (corrige el defecto 3). La vista agrega `humedad_max_posterior`: la mayor humedad leída **después** del recheck fallido. Si llega al mínimo, alguien atendió la maceta, y el freno se levanta solo en la próxima sequía. **No es un rearme por tiempo**: el sistema no vuelve a intentar porque haya pasado un rato, sino porque vio una prueba de que el problema cambió. Hasta que exista WF6, el humano rearma regando a mano, que es lo que haría igual.
+
+**Diagnóstico por el estado de la orden** (la mitad de **16.63**). La vista agrega `comando_estado`, y el mensaje de falla distingue dos causas:
+- **La orden quedó en `pendiente` o `entregado`:** la placa no confirmó que la ejecutó. Hay que revisar la conexión.
+- **La orden figura `ejecutado` y la humedad no subió:** hay que revisar el tanque, la bomba, una fuga o el sensor.
+
+Son las dos causas con acciones opuestas que separó REVISION_04. **La otra mitad de 16.63 sigue abierta:** nadie consume `comando_dispositivo` (el simulador de 13.6 sigue sin correr). En el test se simula con un `UPDATE`.
+
+**Tope duro dentro de `fn_registrar_riego`** (16.46): no más de **4 riegos automáticos por cultivo en 6 h**, contados sin mirar su `resultado`. La función bloquea la fila del cultivo (`FOR UPDATE`), así que dos ejecuciones simultáneas de WF5 no pueden pasar las dos el conteo. Si se llega al tope, **no crea ni el comando ni el evento** y devuelve `registrado = false, motivo = 'tope_alcanzado'`. WF5 lo rutea con un IF nuevo y avisa por Telegram con los números que devuelve la base, no con números escritos en el mensaje.
+
+**Por qué el tope va en la base y no en WF5.** Es la última barrera antes de que la orden exista. No depende de n8n, ni de que lleguen lecturas, ni del recheck: es un **interlock**, no realimentación. Es el mismo argumento que el `CHECK (duracion_segundos <= 30)` de 13.1 y que 16.25: lo que tiene que valer siempre se garantiza con una restricción de la base, no con un IF del flujo. Con esto quedan **tres defensas independientes contra regar de más**: el recheck con su freno (realimentación), el tope (interlock en la base) y la válvula local de 30 s del firmware (13.6, interlock en el hardware). Cada una sigue protegiendo si fallan las otras dos.
+
+#### Números sin procedencia (Fase 17)
+
+`DELTA_MIN_EFECTO = 3` puntos, 4 riegos en 6 h, 15 min de absorción y 60 min de vencimiento del recheck. Ninguno tiene fuente: los fija el piloto con hardware (B3, REVISION_02 §9). Conviene decirlo así en la defensa. **Lo que se validó es la lógica de control, no los números.**
+
+#### Lo que queda sin cubrir, a sabiendas
+
+- **Un recheck que nunca llega:** el evento queda en `pendiente` para siempre. Sin lecturas no hay recheck; el que corta es el tope. Es 16.44 (el silencio no existe como estado).
+- **El cooldown sigue en n8n y no en la base.** Dos ejecuciones simultáneas de WF5 podrían pasar las dos el cooldown. `Trigger WF5` tiene `retryOnFail`, que es un camino posible para eso. El tope lo acota y el bloqueo por cultivo evita que se pase. Moverlo a la base es parte de endurecer WF5.
+- **El tope está expresado en riegos, no en volumen** (16.51 sigue abierto). 4 pulsos de 30 s a 40 ml/s son 4,8 L en 6 h sobre una maceta de 20 L.
+- **Fatiga de alertas (B.7):** cada lectura en falla o en tope vuelve a avisar.
+- **El contrato v1** define `motivo = 'recheck'` (v58). El recheck de acá no lo necesita: se reconoce por tiempo. Cuando el contrato esté vigente, se puede usar para validar en la otra dirección.
+
+#### Artefactos
+
+| Qué | Dónde |
+|---|---|
+| Vista + 2 funciones, con estado previo, verificación, test que se deshace solo y reverso | `SQL/sesion16_lazo_riego.sql` |
+| Test en vivo (escenarios A tope, B freno, C rearme/cooldown/exitoso) y limpieza | `SQL/sesion16_test_lazo_riego_en_vivo.sql` |
+| WF1: `Motor de Inferencia` (bloque 13.7.2 y `recheck_riego` en las tres salidas, contrato uniforme), `Consolidar datos` (`rpc_recheck` como objeto, 16.34) y el nodo nuevo `Registrar Recheck de Riego` (entre `fn_registrar_telemetria` y `Esta en mantenimiento`, *Retry* encendido porque la RPC es idempotente) | export de `WORKFLOWS/WF1.json` |
+| WF5: `Verificar Cooldown` (lee `absorcion_completa`), IF nuevo `Riego Registrado?` y Telegram nuevo `Aviso Tope de Riego` | export de `WORKFLOWS/WF5.json` |
+
+**Cómo se probó antes de aplicarlo** (16/10):
+- **SQL:** el script completo corrió en un Postgres 16 local, con una copia del esquema de las tablas de riego. El test de la base pasó.
+- **Que el test SQL puede fallar:** se le metieron tres defectos a propósito (sin tope, un recheck que pisa conclusiones, un tope que ignora la ventana) y el test detectó los tres. El reverso deja la función y la vista como estaban.
+- **Motor:** se probó con datos simulados en 16 escenarios: 16/16. El Motor viejo falla justo en los tres que importan: freno en la misma lectura, freno persistido, y no frenar ante un `insuficiente`.
+- **`Consolidar datos` y `Verificar Cooldown`:** probados igual, incluido el error fuerte cuando falta aplicar el paso anterior.
+
+#### Test en vivo (19/10/2026, v60)
+
+**Cómo se aplicó:** SQL (BLOQUE 1 + el test de la base, que dio `TEST OK`) → WF5 → WF1. Cada export se cruzó contra los archivos de código: idéntico en los tres nodos de código, sin referencias `$('...')` rotas.
+
+Se mandaron lecturas con `T <humedad>` desde PowerShell, en el formato viejo: la lógica de riego no depende del formato. Para no esperar 15 min reales entre lecturas, se atrasaba el último riego con un `UPDATE`. Las verificaciones se hicieron contra la base, no contra el verde de n8n.
+
+| Escenario | Lecturas | Qué quedó en la base | Telegram |
+|---|---|---|---|
+| **A · tope** | 40 → 45 → 50 → 55 → 59 | riegos 17–20, los cuatro `insuficiente` (subió 5, 5, 5 y 4 puntos), y **ningún 21 ni comando nuevo** | "Riego 1…4 de 4", y después **"FRENADO POR TOPE DE SEGURIDAD"** |
+| **B · freno** | 50 → 51 → 51 | riego 21 `fallo_sistema` (50 → 51), **un solo riego** | "Falla de Riego", en la misma lectura del control y en la siguiente |
+| **B4 · diagnóstico** | orden pasada a `ejecutado` + 51 | sin cambios | el mensaje cambia de "revisar la conexión de la placa" a "revisar tanque, bomba, fuga, sensor" |
+| **C · rearme** | 68 → 55 | riego 22 creado: "Riego 2 de 4" | 68 sin mensajes; 55, Sequía sin falla, más el riego |
+| **C3 · espera** | 55 sin atrasar | sin riego nuevo | solo la alerta de Sequía |
+| **C4 · exitoso** | 68 | riego 22 `exitoso` (68) | nada |
+
+**La prueba del defecto 1, con timestamps.** En A2, el riego 17 se cerró a las 18:13:**28** y el 18 se creó a las 18:13:**30**: el control del riego anterior ocurre *antes* de decidir el siguiente, en la misma ejecución. Datos del test limpiados al terminar.
+
+**Hallazgo nuevo, sin número (🟢):** `dosis_ml`, tanto en `evento_riego` como en el mensaje de Telegram, es la dosis **calculada**, no la **entregada** después del tope de 30 s. En A1 dice ~1.375 ml, pero 30 s a 40 ml/s son 1.200. Es un dato que miente poco, pero miente justo en el caso que importa (la dosis recortada), y compone con **16.51**: el tope se expresa en tiempo y la trazabilidad, en volumen calculado. El fix natural es guardar `dosis_entregada_ml = duracion_segundos × caudal`, o derivarla, y no mantenerla a mano.
+
+**Cosmético:** al pegar los textos, los dos Telegram de WF5 perdieron el emoji del principio.
+
+**Inconsistencia menor, conocida:** cuando el tope ya está lleno, la alerta de WF1 igual dice "puede volver a regar, dentro del tope". WF1 no sabe que el tope se alcanzó: eso lo responde la base cuando WF5 la llama. El segundo mensaje, el de WF5, lo aclara.
+
+**Estado:** ✅ **aplicado y verificado en vivo el 19/10.** Queda abierta la otra mitad de **16.63**: nadie consume `comando_dispositivo`, y en el test lo simuló un `UPDATE`.
 
 ### 13.8 — Recomendación de Maceta según Cultivo
 
@@ -3461,7 +3650,7 @@ ALTER TABLE public.comando_dispositivo ADD CONSTRAINT comando_dispositivo_tipo_c
 - [x] **Fix 12.2.3 (B):** 🔴 WF2 `Persistir Diagnotico` → `path_foto` = `={{ $json.path_foto_evento }}` — ✅ aplicado y **verificado en vivo 11/08**
 - [x] **Fix 12.2.3 (C):** 🟡 WF3 `Persistir Seguimiento Fenologico` → `path_foto` con un solo `=` — ✅ aplicado 11/08
 - [ ] **Limpieza:** borrar las lecturas de test de `lectura_sensores` (id 171-180 y las que sumen los tests de 13.4/13.10) una vez cerrada la Fase 13 — misma práctica que v17
-- [ ] **13.7.1:** 🟠 implementar el recheck (`Cerrar Loop de Riego`) + tope duro de riegos por ventana — bloquea el cierre de Fase 13, obligatorio antes de que WF5 riegue un cultivo real
+- [x] **13.7.2** (reemplaza el diseño de 13.7.1): recheck en el Motor + `Registrar Recheck de Riego` + tope duro en `fn_registrar_riego` — ✅ **aplicado y verificado en vivo el 19/10**
 - [ ] **Datos:** cargar `tiene_actuador_riego` / `caudal_bomba_ml_s` (dispositivo) y `volumen_maceta_litros` (cultivo) del cultivo demo — hoy en `false`/`NULL`, la rama de WF5 no puede dispararse en ningún test
 - [ ] WF1: rama "Trigger WF5" + corte por `en_mantenimiento`, 3 IF + 1 HTTP nuevos (13.4, reescrito 11/08 con la topología real)
 - [x] WF1: rama de 13.4 construida y verificada en vivo (11/08) — 5 nodos: 3 IF + HTTP a WF5 + 1 No Op
@@ -3469,7 +3658,7 @@ ALTER TABLE public.comando_dispositivo ADD CONSTRAINT comando_dispositivo_tipo_c
 - [x] WF5 creado (**7 nodos**, 13.5 + settings de 13.5.1 y 13.5.2) — ✅ construido, activado y **verificado en vivo 12/08**: `evento_riego` 3 ↔ `comando_dispositivo` 3, 30s / 1625 ml, sin huérfanos, y el cooldown bloqueó una segunda telemetría disparada 6 segundos después
 - [x] **16.14:** 5 fixes (validación positiva de la respuesta de Gemini, `Retry On Fail`, IF que no persiste diagnósticos fallidos, `fotoPlausible`, y `Hay foto nueva?` leyendo `tiene_foto`) — ✅ aplicados y verificados en vivo 12/08
 - [ ] **16.14 (pendiente menor):** test de inyección de fallos (modelo inexistente en la URL de Gemini) para ejercer la rama de error, + borrar la fila basura del 12/08 16:03:43
-- [ ] **13.7.1:** recheck + tope duro de riegos por ventana — **última precondición pendiente para conectar un actuador físico**
+- [x] **13.7.2:** aplicado (SQL → WF5 → WF1) + test en vivo (`SQL/sesion16_test_lazo_riego_en_vivo.sql`) — ✅ 19/10. Para conectar un actuador físico falta 16.63 (entrega) y 16.51
 - [ ] Contrato ESP32 definido y testeado con el simulador PowerShell (13.6) — firmware real queda pendiente hasta tener la placa
 - [ ] SQL 13.8 (vista_recomendacion_maceta)
 - [ ] Test 13.10 ✅
@@ -5406,7 +5595,7 @@ Lo que lo vuelve interesante no es el defecto sino lo que revela: **es el único
 
 **Relación:** es la pieza que falta junto a 13.7.1 y a la válvula local de 30 s del firmware. Las tres defienden el mismo riesgo desde capas independientes.
 
-**Estado:** identificado, **sin aplicar**.
+**Estado:** ✅ **cerrado el 19/10 (13.7.2, v60).** El tope (4 riegos automáticos en 6 h) vive dentro de `fn_registrar_riego`, con bloqueo por cultivo: si se alcanza, no se crea la orden y WF5 avisa por Telegram. Verificado en la base (test que se deshace solo) y en vivo (escenario A: el 5º riego no se creó). **Lo que no cierra:** el tope está en riegos, no en volumen (16.51).
 
 ---
 
@@ -5613,7 +5802,7 @@ Es la versión "del planificador" de 16.44, que es la versión "del dispositivo"
 
 **Alternativa descartada: tratarlo como parte de 13.7.1.** Descartada porque se cierran con cosas distintas. 13.7.1 se cierra con un nodo en WF1 y una señal de humedad; éste se cierra con un consumidor de `comando_dispositivo` y un acuse. Fusionarlos haría que cerrar uno diera por cerrado el otro.
 
-**Estado:** identificado, **sin aplicar**. Precondición de cualquier prueba del lazo completo, con o sin hardware.
+**Estado:** **la mitad del recheck, ✅ cerrada el 19/10 (13.7.2):** el freno lee `comando_estado` y distingue "la placa no tomó la orden" de "la ejecutó y la humedad no subió", verificado en vivo (B2 y B4). **Sigue abierto:** nadie consume `comando_dispositivo`. Para la defensa queda como trabajo futuro con diseño: falta decidir cómo lee la placa sus órdenes sin la clave maestra (D-auth, B.23).
 
 ---
 
