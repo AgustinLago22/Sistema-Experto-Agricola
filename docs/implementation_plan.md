@@ -125,41 +125,40 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 ---
 
 ### Cierre de sesión y próximos pasos
-> [!WARNING]
-> **Sesión 17 en curso (19/10 → 20/10).** Contrato, pasos 1 y 2: **aplicados y verificados en vivo el 20/10; 16.52 cerrado** (Fase 18, v61–v62). Próximo: guion de demo y ensayo (24–25/10), con el simulador nuevo (`A`, `L`, `N` en `SQL/sesion17_test_puerta_en_vivo.sql`; primero `A`, que hoy da el arranque 6). Este aviso se reemplaza por el cierre de la sesión 17.
-
 > [!IMPORTANT]
-> **Cierre de la sesión 16 (16/10 → 19/10): el lazo de riego quedó cerrado del lado del sistema, y verificado en vivo.** *Reemplaza al bloque de la sesión 15, que pasa al Historial de sesiones.* El detalle completo está en **13.7.2** y en el changelog **v59 y v60**.
+> **Cierre de la sesión 17 (19/10 → 20/10): el contrato de telemetría se hace cumplir. Pasos 1 y 2 aplicados y verificados en vivo; 16.52 cerrado.** *Reemplaza al bloque de la sesión 16, que pasa al Historial de sesiones.* El detalle completo está en la **Fase 18** y en el changelog **v61 y v62**.
 >
 > **Qué se cerró:**
 >
-> 1. **13.7.2 ✅. Cierra 16.46, 13.7.1 y la mitad de 16.63 que corresponde al control del riego.** El control ("recheck") del último riego se evalúa en el Motor con la misma lectura, antes de decidir, y tiene tres resultados (`exitoso` / `insuficiente` / `fallo_sistema`). Lo guarda el nodo nuevo `Registrar Recheck de Riego`. El freno se activa solo cuando el riego **no tuvo efecto**, y se suelta por evidencia: cuando se vuelve a ver la maceta húmeda. El tope duro (4 riegos automáticos en 6 h) vive dentro de `fn_registrar_riego`. Los tiempos de absorción y de vencimiento del control viven en un solo lugar, `vista_ultimo_riego`. El mensaje de falla distingue "la placa no tomó la orden" de "la tomó y la humedad no subió".
-> 2. **El diseño de 13.7.1 tenía tres defectos, encontrados leyendo la topología antes de construirlo:** el freno seguía sin activarse nunca por el orden de los nodos; confundía "no alcanzó" con "no tuvo efecto"; y no tenía rearme. Se corrigieron antes de escribir una línea en n8n.
-> 3. **Test en vivo, seis caminos con filas en la base:** tope, freno en la misma lectura y persistido, diagnóstico según el estado de la orden, rearme, espera de 15 min y `exitoso`. Datos del test limpiados.
-> 4. **Hallazgo nuevo sin número (🟢):** `dosis_ml` guarda la dosis calculada, no la entregada después del tope de 30 s.
+> 1. **16.52 ✅.** Se ejerció antes de arreglarlo (T0, 19/10): `humedad: ""` dio una sequía falsa por Telegram, y el riego no ocurrió **solo porque 16.56 rompía WF5** antes de escribir. Dos defectos que se enmascaraban. Desde el 20/10 la puerta lo rechaza con `400` y el Motor no lo ve.
+> 2. **Paso 1 del contrato, el arranque.** Tabla `arranque_dispositivo` (el `id` es el `arranque_id`: identity `GENERATED ALWAYS` + clave primaria), `fn_registrar_arranque`, `vista_ultimo_arranque` y **WF7 - Registro de arranque** (`/webhook/arranque`, 8 nodos; WF6 sigue reservado para 13.13). **`dispositivo.version_firmware` se borró:** el firmware vigente se deriva del último arranque.
+> 3. **Paso 2, la puerta de WF1** (26 nodos): `Validar Contrato` → `Contrato Valido?` → `Verificar Arranque` → `Arranque Valido?` → `Responder Aceptada` (200) → `Resolver Cultivo`; los rechazos van a `Responder Rechazo` (400) → `Registrar Rechazo` (tabla `lectura_rechazada`). El Motor lee la lectura validada, nunca el cuerpo crudo. Una lectura con las 5 mediciones en `null` sale "Lectura Sin Datos - Revisar Sensor".
+> 4. **Contrato corregido:** clave incorrecta = `403` (lo que responde n8n), `fw` se guarda en el arranque, los rechazos quedan registrados. **Desde el 20/10 el formato viejo se rechaza.**
+> 5. **Abiertos nuevos:** 🟠 sin número, una medición en `null` se saltea sin aviso (con solo la humedad en `null` la lectura sale `OK` y no se riega). **16.8 a medias** (MAC desconocida ya se registra; un dispositivo sin cultivo activo sigue mudo). 🟢 el Telegram muestra los `null` vacíos.
 >
-> **Estado verificado al cierre (19/10):** cultivo en **Fructificación** desde el 23/09 23:18 UTC · `lectura_sensores` 230 (última 01/10) · `evento_riego` 8 y `comando_dispositivo` 8: son los de agosto, siguen en `pendiente` y su control ya venció, así que no frenan nada · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 25. **WF1 19 nodos y WF5 9 nodos, exportados el 19/10** y cruzados contra el código.
+> **Estado verificado al cierre (20/10):** `evento_riego` 8 · `comando_dispositivo` 8 · `lectura_sensores` 230 · `lectura_rechazada` 0 · `arranque_dispositivo` 0 (el **próximo arranque será el 6**: los contadores no vuelven atrás). Cultivo en Fructificación desde el 23/09. **WF1 26 nodos y WF7 8, exportados el 20/10** y auditados contra el código probado: en WF1 solo cambiaron `Webhook`, `Resolver Cultivo` y el Motor. Commit `d30dfe8`, árbol limpio y al día con `origin/main`.
 >
 > **Ojo al probar:**
 >
-> - **Simulador mínimo de PowerShell:** la función `T($h)` (en 13.7.2, en `SQL/sesion16_test_lazo_riego_en_vivo.sql`). Un **403** significa que la clave está mal; está en la credencial `ESP32 Telemetra Key`. "Execute workflow" no hace falta: WF1 está activo y escucha en `/webhook/`.
-> - **Tests de riego:** antes de empezar, anotar el `max(id)` de `evento_riego`, `comando_dispositivo` y `lectura_sensores`, y limpiar por encima de esos números. Hay que limpiar también **entre escenarios**, porque el tope cuenta los riegos de las últimas 6 h. Para no esperar 15 min reales, se usa el **ATRASAR** (el último riego, 20 min hacia atrás).
-> - **Humedad entre 53 y 59 después de regar desde 50 es `insuficiente`**, y vuelve a regar. **Menos de 3 puntos de suba es `fallo_sistema`**, y frena.
-> - **La ventana de WF3 abre el 25/10 a las 23:18 UTC** (20:18 hora argentina). WF3 no recupera corridas perdidas (16.64).
+> - **La función `T` ya no sirve: devuelve `400`.** El simulador nuevo está en `SQL/sesion17_test_puerta_en_vivo.sql`: `Pedir`, `A` (la placa enciende y guarda su arranque en `$a`), `L <humedad>` y `N` (todo `null`). **Siempre `A` primero** en cada ventana de PowerShell, y después de cada limpieza (la limpieza borra los arranques).
+> - Un `500 "Unused Respond to Webhook node found in the workflow"` quiere decir que el `Webhook` de WF1 o WF7 volvió a *Respond: Immediately*.
+> - La limpieza de un test ahora incluye `lectura_rechazada` y `arranque_dispositivo` (bloque LIMPIEZA FINAL del test).
+> - **WF3 no tiene foto para evaluar:** `ultima_foto_path` = `ultima_foto_evaluada_path` (verificado el 20/10). La ventana abre el **25/10 a las 23:18 UTC (20:18 en Argentina)**, pero sin una foto nueva WF3 la saltea en silencio. **Para tener un resultado real de WF3, mandar una foto nueva por WF1 antes de esa hora**, con la PC y n8n prendidos (16.64). El simulador `L` no manda foto: hace falta una variante con `foto_base64`. La foto de demo tiene frutos verdes, así que lo esperable es `no_avanza` (Cosecha pide cambio de color).
 >
-> **Arrancar la sesión 17 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.**
+> **Arrancar la sesión 18 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.**
 >
-> 1. **Revisión en la puerta de WF1 + pedido de arranque** (pasos 1 y 2 de `docs/contrato_telemetria.md`; **cierra 16.52**), más el **simulador nuevo** (paso 6), que pasa a ser el guion de la demo. Después, volver a correr una versión corta del test de riego con ese simulador.
-> 2. **Guion de demo y ensayo, 24 y 25/10:** lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo; foto → diagnóstico IA; y el resultado real de WF3 si la PC queda prendida el 25/10.
-> 3. **Trabajo futuro, con diseño escrito:** la entrega de órdenes a la placa (la otra mitad de 16.63; falta decidir cómo lee la placa sus órdenes sin la clave maestra, D-auth/B.23); 16.51 y la dosis entregada; pasos 3 a 5 del contrato; 16.38; endurecer WF5; WF4.
-> 4. **Pendientes chicos:** copia de la clave y del respaldo de n8n fuera de la laptop (usuario); confirmar 16.64; sacar el `implementation_plan.md` duplicado de la raíz del repo; verificar las referencias BBCH (17.3); los emojis perdidos al principio de los dos Telegram de WF5 (cosmético).
+> 1. **Guion de demo y ensayo (24 y 25/10)**, con el simulador nuevo: lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo (mostrar la fila en `lectura_rechazada`); todo `null` → Sin Datos; foto → diagnóstico IA; y el resultado de WF3 del 25/10 (ver arriba). Contar T0 como ejemplo de defectos que se enmascaran.
+> 2. Llevar el simulador nuevo a la sección de pruebas del plan (paso 6 del contrato), con una función que mande foto.
+> 3. **Trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato; la entrega de órdenes a la placa (16.63, D-auth/B.23); 16.51 y la dosis entregada; 16.56 (ya no tapa nada); la medición en `null` sin aviso; 16.38; endurecer WF5; WF4.
+> 4. **Pendientes chicos:** copia de la clave y del respaldo de n8n fuera de la laptop (usuario); confirmar 16.64; sacar el `implementation_plan.md` duplicado de la raíz; verificar las referencias BBCH (17.3); los emojis perdidos de los Telegram de WF5; "sin dato" en vez de vacío en el Telegram.
 >
 > **Lecciones de la sesión:**
 >
-> - **Revisar el diseño contra la topología real antes de construirlo.** El defecto 1 no aparecía leyendo el diseño: aparecía siguiendo el orden de ejecución de los nodos. El plan describía un freno que, una vez construido, habría seguido sin activarse, igual que el de agosto.
-> - **Un test que no puede fallar no prueba nada, y eso se verifica.** Al test de la base se le inyectaron tres defectos y los detectó los tres. Además termina con un error a propósito, que deshace los datos de prueba aunque nadie se acuerde de limpiar.
-> - **Las marcas de tiempo son evidencia de orden.** Que el riego 17 se cerrara dos segundos antes de que se creara el 18 prueba el defecto 1 corregido mejor que cualquier explicación.
-> - **Separar "cuánto" de "si funciona".** El tope acota la cantidad de riegos; el freno detecta que el actuador no tiene efecto. Con un solo mecanismo para las dos cosas, el sistema confundía "regué poco" con "la bomba no anda".
+> - **Ejercer antes de arreglar destapó un enmascaramiento.** 16.52 decidía mal y 16.56 rompía la escritura: el resultado visible era "no pasó nada". Arreglar 16.56 primero habría convertido a 16.52 en un riego real. El orden de los arreglos no es indiferente.
+> - **El identificador lo da el registro, también para los nombres.** El nombre WF6 ya estaba reservado; se detectó leyendo el tablero antes de entregar, no de memoria.
+> - **Hacer de `null` un valor de primera clase obliga a decidir qué significa.** Al aceptarlo en la puerta aparecieron dos casos que antes eran invisibles: todo `null` (resuelto) y una sola medición en `null` (hallazgo).
+> - **Una configuración contradictoria en n8n puede fallar antes de ejecutar nada** (`Unused Respond to Webhook node`). Es el modo de fallo preferible: ruidoso y sin escribir datos.
+> - **Agustín quiere entender y, cuando se pueda, construir cada workflow.** Antes de darle un JSON para importar, explicarle nodo por nodo qué hace y por qué, y ofrecerle armarlo guiado.
 
 ### Nombres reales de los nodos
 
@@ -218,6 +217,44 @@ Las cuatro primeras están **verificadas contra el export** y el documento es el
 ---
 
 ### Historial de sesiones
+<details>
+<summary><b>Cierre de la sesión 16 (16/10 → 19/10) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 16 (16/10 → 19/10): el lazo de riego quedó cerrado del lado del sistema, y verificado en vivo.** *Reemplazado por el cierre de la sesión 17.* El detalle completo está en **13.7.2** y en el changelog **v59 y v60**.
+>
+> **Qué se cerró:**
+>
+> 1. **13.7.2 ✅. Cierra 16.46, 13.7.1 y la mitad de 16.63 que corresponde al control del riego.** El control ("recheck") del último riego se evalúa en el Motor con la misma lectura, antes de decidir, y tiene tres resultados (`exitoso` / `insuficiente` / `fallo_sistema`). Lo guarda el nodo nuevo `Registrar Recheck de Riego`. El freno se activa solo cuando el riego **no tuvo efecto**, y se suelta por evidencia: cuando se vuelve a ver la maceta húmeda. El tope duro (4 riegos automáticos en 6 h) vive dentro de `fn_registrar_riego`. Los tiempos de absorción y de vencimiento del control viven en un solo lugar, `vista_ultimo_riego`. El mensaje de falla distingue "la placa no tomó la orden" de "la tomó y la humedad no subió".
+> 2. **El diseño de 13.7.1 tenía tres defectos, encontrados leyendo la topología antes de construirlo:** el freno seguía sin activarse nunca por el orden de los nodos; confundía "no alcanzó" con "no tuvo efecto"; y no tenía rearme. Se corrigieron antes de escribir una línea en n8n.
+> 3. **Test en vivo, seis caminos con filas en la base:** tope, freno en la misma lectura y persistido, diagnóstico según el estado de la orden, rearme, espera de 15 min y `exitoso`. Datos del test limpiados.
+> 4. **Hallazgo nuevo sin número (🟢):** `dosis_ml` guarda la dosis calculada, no la entregada después del tope de 30 s.
+>
+> **Estado verificado al cierre (19/10):** cultivo en **Fructificación** desde el 23/09 23:18 UTC · `lectura_sensores` 230 (última 01/10) · `evento_riego` 8 y `comando_dispositivo` 8: son los de agosto, siguen en `pendiente` y su control ya venció, así que no frenan nada · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 25. **WF1 19 nodos y WF5 9 nodos, exportados el 19/10** y cruzados contra el código.
+>
+> **Ojo al probar:**
+>
+> - **Simulador mínimo de PowerShell:** la función `T($h)` (en 13.7.2, en `SQL/sesion16_test_lazo_riego_en_vivo.sql`). Un **403** significa que la clave está mal; está en la credencial `ESP32 Telemetra Key`. "Execute workflow" no hace falta: WF1 está activo y escucha en `/webhook/`.
+> - **Tests de riego:** antes de empezar, anotar el `max(id)` de `evento_riego`, `comando_dispositivo` y `lectura_sensores`, y limpiar por encima de esos números. Hay que limpiar también **entre escenarios**, porque el tope cuenta los riegos de las últimas 6 h. Para no esperar 15 min reales, se usa el **ATRASAR** (el último riego, 20 min hacia atrás).
+> - **Humedad entre 53 y 59 después de regar desde 50 es `insuficiente`**, y vuelve a regar. **Menos de 3 puntos de suba es `fallo_sistema`**, y frena.
+> - **La ventana de WF3 abre el 25/10 a las 23:18 UTC** (20:18 hora argentina). WF3 no recupera corridas perdidas (16.64).
+>
+> **Arrancar la sesión 17 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.**
+>
+> 1. **Revisión en la puerta de WF1 + pedido de arranque** (pasos 1 y 2 de `docs/contrato_telemetria.md`; **cierra 16.52**), más el **simulador nuevo** (paso 6), que pasa a ser el guion de la demo. Después, volver a correr una versión corta del test de riego con ese simulador.
+> 2. **Guion de demo y ensayo, 24 y 25/10:** lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo; foto → diagnóstico IA; y el resultado real de WF3 si la PC queda prendida el 25/10.
+> 3. **Trabajo futuro, con diseño escrito:** la entrega de órdenes a la placa (la otra mitad de 16.63; falta decidir cómo lee la placa sus órdenes sin la clave maestra, D-auth/B.23); 16.51 y la dosis entregada; pasos 3 a 5 del contrato; 16.38; endurecer WF5; WF4.
+> 4. **Pendientes chicos:** copia de la clave y del respaldo de n8n fuera de la laptop (usuario); confirmar 16.64; sacar el `implementation_plan.md` duplicado de la raíz del repo; verificar las referencias BBCH (17.3); los emojis perdidos al principio de los dos Telegram de WF5 (cosmético).
+>
+> **Lecciones de la sesión:**
+>
+> - **Revisar el diseño contra la topología real antes de construirlo.** El defecto 1 no aparecía leyendo el diseño: aparecía siguiendo el orden de ejecución de los nodos. El plan describía un freno que, una vez construido, habría seguido sin activarse, igual que el de agosto.
+> - **Un test que no puede fallar no prueba nada, y eso se verifica.** Al test de la base se le inyectaron tres defectos y los detectó los tres. Además termina con un error a propósito, que deshace los datos de prueba aunque nadie se acuerde de limpiar.
+> - **Las marcas de tiempo son evidencia de orden.** Que el riego 17 se cerrara dos segundos antes de que se creara el 18 prueba el defecto 1 corregido mejor que cualquier explicación.
+> - **Separar "cuánto" de "si funciona".** El tope acota la cantidad de riegos; el freno detecta que el actuador no tiene efecto. Con un solo mecanismo para las dos cosas, el sistema confundía "regué poco" con "la bomba no anda".
+
+</details>
+
 <details>
 <summary><b>Cierre de la sesión 15 (06/10 → 16/10) — histórico</b></summary>
 
