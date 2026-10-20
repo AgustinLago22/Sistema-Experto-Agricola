@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v60)
+# Sistema Experto Agrícola — Plan de Implementación (v62)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -44,13 +44,14 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 
 | WF | `active` | Última auditoría | Hallazgos abiertos | Lo que falta |
 |---|---|---|---|---|
-| **WF1** — Pipeline Telemetría | ✅ `true` | 19/10 | **16.39** 🟠 · 16.33 🟠 · 16.52 🟠 · 16.37 🟡 (sin ejercitar) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. Próximo: la revisión de cada lectura al entrar (contrato, paso 2) |
+| **WF1** — Pipeline Telemetría | ✅ `true` | 19/10 | **16.39** 🟠 · 16.33 🟠 · 16.52 🟠 · 16.37 🟡 (sin ejercitar) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. **20/10: la puerta del contrato aplicada y verificada en vivo** (Fase 18.2), 26 nodos. Cierra 16.52 |
+| **WF7** — Registro de arranque | ✅ `true` | 20/10 | — | **20/10: importado, activado y probado** (Fase 18.1): `/webhook/arranque`, 8 nodos. *(WF6 está reservado para 13.13)* |
 | **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 21/08 | 16.15 🟠 (aplicado acá, falta en WF3) | Nada bloqueante |
 | **WF3** — Validación Fenológica | ✅ `true` | 01/10 | 16.31 🟠 (**confirmado en producción**) · ~~16.42~~ ✅ (01/10) · 16.21 🟡 (a medias) · **hallazgo nuevo sin número** 🟢 (`duplicado` miente) | ✅ **01/10: 16.42 cerrado** — criterio visual desde el catálogo, test `no_avanza` ✅. **23/09: primer `avanza` de punta a punta pasando por el modelo** (Floración → Fructificación, 0,98, evaluación id 12). Anomalía anterior cerrada: no era un bug → **16.64** |
 | **WF4** — Análisis Preventivo | ⬜ `false` **a propósito** | parcial (16.3/16.4, 05/08) | 16.30 🟢 | Sin ESP32 no hay telemetría fresca. Es una decisión, no un pendiente |
 | **WF5** — Control de Riego | ✅ `true` | 19/09 (primera auditoría) · 19/10 (13.7.2) | 16.51 🔴 · 16.55 🟠 · 16.53 · 16.56 · 16.62 🟡 · dosis entregada 🟢 | **19/10: tope duro en la base + `Riego Registrado?` + `Aviso Tope de Riego`**, 9 nodos. Endurecer: 16.51, 16.55 |
 
-**Verificado en los exports (WF1 y WF5 del 19/10, WF3 del 01/10, WF2 y WF4 del 24/08):** WF1 19 nodos · WF2 7 · WF3 17 (0 huérfanos) · WF4 10 · WF5 9. Gemini en `gemini-3.5-flash` en WF2 y WF3; **WF4 quedó en `2.5`** (16.30).
+**Verificado en los exports (WF1 y WF7 del 20/10, WF5 del 19/10, WF3 del 01/10, WF2 y WF4 del 24/08):** WF1 26 nodos · WF2 7 · WF3 17 (0 huérfanos) · WF4 10 · WF5 9 · WF7 8. Gemini en `gemini-3.5-flash` en WF2 y WF3; **WF4 quedó en `2.5`** (16.30).
 
 | Fase | Estado |
 |---|---|
@@ -61,6 +62,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **Fase 15** — Recomendación de Fertirriego | 🆕 Rediseñada (06/08, ver 15.1.1), sin implementar |
 | **Fase 16** — Registro de Hallazgos | 🟡 38 hallazgos · 18 resueltos · 1 descartado · **19 abiertos** (ver **Hallazgos abiertos**) |
 | **Fase 17** — Base de conocimiento | 🆕 Volcada del handoff del 24/08, sin ejecutar ninguno de sus 6 pasos |
+| **Fase 18** — Contrato de telemetría en vigencia | 🟡 **Pasos 1 y 2 aplicados y verificados en vivo (20/10).** Pasos 3 a 5 pendientes |
 
 **El ESP32 físico sigue sin armarse, y nada de lo anterior depende de él.** La orquestación digital se construye primero, a propósito desacoplada del hardware: el sistema solo habla vía HTTP contra Supabase, nunca al revés (contrato en 13.6).
 
@@ -88,7 +90,8 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.63** | 🔴 | Lazo de riego | Abierto en dos lugares: entrega y recheck | **Recheck cerrado 19/10 (13.7.2).** Sigue abierta la entrega: nadie consume `comando_dispositivo` |
 | **sin número** | 🟢 | WF5 · BD | `dosis_ml` es la dosis calculada, no la entregada después del tope de 30 s | Encontrado en el test del 19/10 (13.7.2). Compone con 16.51 |
 | **16.47** | 🟠 | Contrato·BD | Sin tiempo de dispositivo ni secuencia | **Definido en el contrato (13/10, v58):** `ts`, `arranque_id` (asignado por el servidor), `seq`. Falta implementarlo (pasos 1 y 4 del contrato) |
-| **16.52** | 🟠 | WF1 | El Motor decide sobre el valor crudo: `""` → sequía | Normalizar antes del primer consumidor que decide |
+| ~~**16.52**~~ | ✅ | WF1 | El Motor decidía sobre el valor crudo: `""` → sequía | **Cerrado 20/10 (Fase 18):** confirmado en vivo el 19/10 (T0: sequía falsa; el riego solo no ocurrió porque 16.56 rompía WF5) y verificado el 20/10: el mismo `""` vuelve `400` y no llega al Motor |
+| **sin número** | 🟠 | WF1 | Una medición que decide, en `null`, se saltea sin aviso: con solo la humedad en `null` la lectura sale `OK` y no se riega | Encontrado el 19/10 (Fase 18.5). Ya pasaba con el formato viejo. Compone con 16.44 y B.7 |
 | **16.55** | 🟠 | WF5 | Ejecuta lo que le mandan sin verificar contra la base | Compone con B.23 |
 | ~~**B.22**~~ | ✅ | Contrato | El contrato del webhook no estaba escrito | **Escrito 13/10 (v58):** `docs/contrato_telemetria.md`. Hacerlo cumplir son 6 pasos aparte (sección 9 del contrato) |
 | **16.48** | 🟡 | Contrato·BD | Temperatura y conductividad descartadas | **Definido en el contrato (v58):** se guardan, no deciden. Falta el paso 5 del contrato |
@@ -109,7 +112,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.65** | 🟡 | WF3 | La ventana de evaluación escala con la etapa: Fructificación deja 32 días ciegos | **Ya en curso:** el cultivo entró a Fructificación el 23/09, la próxima evaluación posible es el 25/10 |
 | **B.9** | 🟡 | BD | `fn_registrar_telemetria` es `SECURITY DEFINER` ejecutable por `anon` | Diferido |
 | **B.10** | 🟡 | WF3 | La foto que no se descarga sigue sin deduplicar | Diferido hasta tener el camino de fallo de 16.27 probado |
-| **16.8** | 🟢 | WF1 | Sin registro ante dispositivo desconocido | Diferido (27/07) |
+| **16.8** | 🟢 | WF1 | Sin registro ante dispositivo desconocido | **A medias con la Fase 18:** una MAC desconocida pasa a ser un 400 registrado en `lectura_rechazada`. Sigue mudo un dispositivo registrado sin cultivo activo (paso 3 del contrato) |
 | **16.9** | 🟢 | WF1 · WF4 | Limpieza cosmética | Resto en B.4 |
 | **16.29** | 🟢 | WF3 | `"condition": "=eq"` sin reintento | Sin aplicar |
 | **16.30** | 🟢 | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | Aplicar al reactivar WF4 |
@@ -122,6 +125,9 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 ---
 
 ### Cierre de sesión y próximos pasos
+> [!WARNING]
+> **Sesión 17 en curso (19/10 → 20/10).** Contrato, pasos 1 y 2: **aplicados y verificados en vivo el 20/10; 16.52 cerrado** (Fase 18, v61–v62). Próximo: guion de demo y ensayo (24–25/10), con el simulador nuevo (`A`, `L`, `N` en `SQL/sesion17_test_puerta_en_vivo.sql`; primero `A`, que hoy da el arranque 6). Este aviso se reemplaza por el cierre de la sesión 17.
+
 > [!IMPORTANT]
 > **Cierre de la sesión 16 (16/10 → 19/10): el lazo de riego quedó cerrado del lado del sistema, y verificado en vivo.** *Reemplaza al bloque de la sesión 15, que pasa al Historial de sesiones.* El detalle completo está en **13.7.2** y en el changelog **v59 y v60**.
 >
@@ -615,6 +621,7 @@ Las cuatro primeras están **verificadas contra el export** y el documento es el
     - [16.0 — Índice de hallazgos](#160-índice-de-hallazgos)
     - [16.A — Procedencia: las auditorías que produjeron estos hallazgos](#16a-procedencia-las-auditorías-que-produjeron-estos-hallazgos)
 - [Fase 17 · Trazabilidad y validación de la base de conocimiento](#fase-17-trazabilidad-y-validación-de-la-base-de-conocimiento)
+- [Fase 18 · Contrato de telemetría en vigencia](#fase-18-contrato-de-telemetría-en-vigencia)
 - [Backlog — Mejoras futuras diferidas](#backlog-mejoras-futuras-diferidas)
 - [Anexos](#anexos)
 
@@ -629,6 +636,8 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v62 | 20/10 | **Contrato v1, pasos 1 y 2: aplicados y verificados en vivo. 16.52 ✅ cerrado.** **T0 (19/10), con WF1 sin tocar:** `humedad: ""` → Telegram de Sequía falsa; WF5 disparado y cortado en `Registrar Riego` por 16.56; base: 4 mediciones (sin humedad), 0 riegos. **16.52 confirmado, y enmascarado por 16.56**: el riego no ocurrió por diseño sino porque otro defecto rompía WF5. **Aplicado (20/10, por el autor):** SQL bloque 1 (verificado por MCP) y bloque 3 (contadores en 4 y 2: llegó al final); **WF7 - Registro de arranque** importado y activado (A1 → arranque 5, A2 → 404, A3 → 400); la puerta en WF1 (26 nodos). Primer intento de la puerta: `500 "Unused Respond to Webhook node found"`, porque el `Webhook` seguía en *Immediately*; n8n lo frena antes de ejecutar nada. **Test en vivo, 8 casos** (Fase 18.3): 4 rechazos 400 con errores distintos y guardados; lectura sana aceptada; todo `null` → "Lectura Sin Datos"; sequía → riego 23 → control → `exitoso`. Datos del test limpiados (8 · 8 · 230 · 0 · 0). **Exports del 20/10 auditados:** WF1 26 nodos, solo cambiaron `Webhook`, `Resolver Cultivo` y el Motor; el resto idéntico al commit anterior; código de los nodos Code = código probado; 0 referencias rotas, 0 huérfanos. WF7 8 nodos. |
+| v61 | 19/10 | **Sesión 17: contrato de telemetría, pasos 1 y 2, escritos y probados fuera de línea; sin aplicar (Fase 18).** **Paso 1:** tabla `arranque_dispositivo` (el `id` es el `arranque_id`: identity `GENERATED ALWAYS` + clave primaria, no se repite por construcción), `fn_registrar_arranque`, `vista_ultimo_arranque` y **WF7 — Registro de Arranque** (`/webhook/arranque`; WF6 estaba reservado para 13.13). **Paso 2:** la puerta de WF1 (`Validar Contrato`, `Verificar Arranque` con `fn_verificar_arranque`, respuestas 200/400, `Registrar Rechazo` en la tabla nueva `lectura_rechazada`); el Motor lee la lectura validada y no el cuerpo crudo (**cierra 16.52** al aplicarse). **Decisiones del autor:** el firmware vigente se **deriva** del último arranque y se borra `dispositivo.version_firmware` (nadie la leía); los rechazos van a una tabla; una lectura con las 5 mediciones en `null` se trata como sospechosa. **Contrato corregido:** clave incorrecta = **403** (lo que responde n8n, verificado en su código), y `fw` se guarda en el arranque. **Pruebas fuera de línea:** test SQL `TEST OK` en un Postgres local, y con 3 defectos inyectados los detectó los 3; 29 casos del validador; el Motor original lee `""` como Sequía. **Hallazgo nuevo sin número (🟠):** una medición en `null` se saltea sin aviso. **16.8** queda a medias. **Hipótesis para T0:** WF5 se rompe por 16.56 y eso tapa a 16.52. |
 | v60 | 19/10 | **13.7.2 aplicado y verificado en vivo: 16.46 ✅ cerrado, 13.7.1 ✅ cerrado, y la mitad de 16.63 del recheck ✅.** SQL aplicado por el autor; el test de la base dio `TEST OK`. WF5: `Verificar Cooldown` lee `absorcion_completa`, más el IF `Riego Registrado?` y el Telegram `Aviso Tope de Riego` (9 nodos). WF1: el Motor y `Consolidar datos` nuevos, más el nodo `Registrar Recheck de Riego` (19 nodos). Los exports se cruzaron contra el código: idénticos y sin referencias rotas. **Test en vivo, seis caminos con filas en la base:** tope (4 riegos `insuficiente` y el 5º frenado, sin comando), freno en la misma lectura y persistido (`fallo_sistema`), diagnóstico según el estado de la orden, rearme por evidencia, espera de 15 min leída de la vista, y `exitoso`. El cierre del riego 17 dos segundos antes de la creación del 18 prueba que el control ocurre antes de la decisión. **Hallazgo nuevo sin número (🟢):** `dosis_ml` guarda la dosis calculada, no la entregada después del tope. Datos del test limpiados. |
 | v59 | 16/10 | **Sesión 16 — el lazo de riego, rediseñado y escrito (13.7.2), sin aplicar todavía.** Al revisar el diseño de 13.7.1 contra la topología real de WF1, antes de construirlo, aparecieron **tres defectos sin número**: (1) el nodo de recheck iba *después* de que el Motor decide, así que el freno miraba siempre un riego `pendiente` y seguía sin activarse con lecturas cada ≥15 min; (2) el freno saltaba con un solo `insuficiente`, y con el pulso topeado a 30 s una dosis corta es esperable (los 8 riegos de agosto salieron recortados); (3) el freno no tenía rearme. **Decisiones confirmadas por Agustín:** recheck con 3 resultados (`exitoso` / `insuficiente` puede volver a regar / `fallo_sistema` frena), evaluado **en el Motor y en la misma lectura**, y guardado por un nodo nuevo con una RPC idempotente (`fn_registrar_recheck_riego`); **tope duro de 16.46 dentro de `fn_registrar_riego`** (4 riegos automáticos en 6 h, con bloqueo por cultivo; si se alcanza, no crea la orden); rearme **por evidencia** (`humedad_max_posterior`); tiempos de absorción y vencimiento definidos una sola vez, en `vista_ultimo_riego`; y el mensaje de falla distingue conectividad de bomba usando el estado de la orden (mitad de **16.63**). No se toca ninguna tabla: el `CHECK` de `resultado` ya tenía los cuatro valores. **Probado fuera de n8n:** SQL en un Postgres local con una copia del esquema (el test detecta tres defectos inyectados, y el reverso funciona); Motor 16/16 escenarios, y el Motor viejo falla en los que importan. Artefactos: `SQL/sesion16_lazo_riego.sql`, `SQL/sesion16_test_lazo_riego_en_vivo.sql`. **Falta:** aplicar SQL → WF5 → WF1, el test en vivo y re-exportar. |
 | v58 | 13/10 | **B.22 cerrado: el contrato de telemetría está escrito** (`docs/contrato_telemetria.md`, versión 1). Define el pedido, 15 campos con tipo, unidad y obligatoriedad, y la respuesta del sistema a cada caso. **Lo que agrega respecto del formato de hecho:** `v` (versión del contrato); un **pedido de arranque** nuevo (`/webhook/arranque`), con el que la placa recibe del servidor un `arranque_id` al encender e informa `fw` (la versión de firmware que `dispositivo.version_firmware` ya esperaba); `ts`, `arranque_id` y `seq` en cada lectura (**16.47**: la identidad de una lectura pasa a ser `(arranque_id, seq)`, que habilita deduplicar reintentos, detectar lecturas perdidas y trazar un riego hasta su lectura, B.20); `motivo` (`programada` / `recheck`, para el lazo de 13.7); y `temperatura` y `conductividad` (**16.48**). **Lo que quita:** `planta` — el dispositivo informa lo que mide y el cultivo se resuelve por la MAC; la definición vive en un solo lugar. **Reglas clave:** las 7 mediciones van siempre, como número o `null`, nunca `""` (ataca la causa de **16.52**: la ausencia se declara en el origen); un valor fuera del rango físico del sensor se manda `null`; una lectura que no cumple se **rechaza entera** con los errores; un reintento se manda idéntico y vuelve `duplicada`; los campos desconocidos se ignoran. **Cómo se llegó a que el servidor asigne el arranque, en tres pasos.** (1) La primera versión usaba un contador de arranques guardado en la placa. Al escribirla apareció el problema: si se borra la memoria, el contador vuelve a 0 y las lecturas nuevas repiten DNI viejos; tratarlas como duplicadas las descartaría en silencio. (2) Se consideró aceptarlas y avisar, pero el usuario lo cuestionó: **dos lecturas con el mismo DNI** rompen todo lo que se apoya en él (la unicidad en la base, la trazabilidad del riego, el conteo de pérdidas); eso tapaba el síntoma. (3) Un número sorteado por la placa achica el riesgo pero no lo elimina — por el efecto cumpleaños, con 32 bits y un arranque diario durante 10 años la chance de una repetición es del orden de 1 en 600 —, y el usuario pidió cero margen. **Solución adoptada: el `arranque_id` lo asigna la base**, de un contador que solo sube; no puede repetirse por construcción, y una respuesta perdida solo deja un hueco. Es la regla de **16.25**: un identificador único no se garantiza con una convención, se garantiza con un registro que lo asigne. Efecto lateral útil: cada arranque queda registrado con fecha y firmware, así que el sistema sabe cuándo y cada cuánto se reinicia cada placa. **Decisión de alcance, del usuario:** temperatura y conductividad **se guardan, pero no deciden** — usarlas exige umbrales con fuentes y queda como trabajo futuro, sin número asignado. Verificado contra la base: las métricas 2 y 7 existen en `tipos_metricas` con unidad, tienen **0 lecturas**, y `parametro_etapa` no tiene columnas para ellas. **Nota para la tesis:** en la mayoría de los sensores 7 en 1 de bajo costo el NPK se calcula a partir de la conductividad; verificarlo en la hoja de datos antes de elegir el sensor. **La cadencia (B.19) no se fija**, sale del piloto. **Nada del sistema cambió todavía:** WF1 sigue aceptando el formato anterior; los 6 pasos para hacerlo cumplir están en la sección 9 del contrato. |
@@ -5664,7 +5673,7 @@ Hoy no daña nada porque la única consumidora es WF4, que está apagado. Import
 
 **Lo instructivo.** 16.34 arregló la escritura y dejó la decisión sin proteger. La corrección fue correcta en su alcance y ese alcance era el equivocado: **normalizar en el borde significa el borde del sistema, no el borde de la función que se estaba tocando.** La normalización tiene que ocurrir antes del primer consumidor que decide, no antes del que persiste.
 
-**Estado:** identificado, **sin aplicar**. Es hipótesis sobre el comportamiento del contrato, ejercitable mandando `humedad: ""`.
+**Estado:** ✅ **cerrado el 20/10 (Fase 18).** Confirmado en vivo el 19/10 (T0, Fase 18.3): sequía falsa y alerta por Telegram; el riego no ocurrió solo porque 16.56 rompía WF5 antes de escribir (dos defectos que se enmascaran). Desde el 20/10 la puerta de WF1 rechaza el `""` con `400` y el Motor lee solo la lectura validada. 16.56 sigue abierto, pero ya no tapa nada.
 
 ---
 
@@ -6065,6 +6074,121 @@ Conviene además cruzarlo con lo que 16.37 dejó establecido: **la base de conoc
 - [ ] Análisis de sensibilidad sobre grilla sintética declarada (17.5) — 🟡 alto valor para la tesis
 - [ ] Revisar el **K** (10–60 contra 135 ppm de CDFA) y la humedad de **Floración** (17.1) — 🟡
 - [ ] Leer sobre validación de sensores NPK de bajo costo y escribir la limitación (17.6) — 🟢
+
+## Fase 18 · Contrato de telemetría en vigencia
+
+> [!IMPORTANT]
+> **Estado (20/10/2026, sesión 17): pasos 1 y 2 del contrato aplicados y verificados en vivo.** T0 (19/10), SQL, WF7 y la puerta de WF1 (20/10). Ver 18.3. Contrato: `docs/contrato_telemetria.md`, sección 9.
+
+### 18.0 — Qué se entrega y en qué orden
+
+| Artefacto | Qué es |
+|---|---|
+| `SQL/sesion17_contrato_pasos_1_y_2.sql` | La base: arranques, verificación del arranque, rechazos, baja de `dispositivo.version_firmware`. Bloques 0 (estado previo), 1 (aplicar), 2 (verificar), 3 (test que se deshace solo) y R (reverso) |
+| `WORKFLOWS/WF7.json` | **WF7 — Registro de Arranque** (`/webhook/arranque`), para importar. Al cerrar, se sobrescribe con el export real |
+| `WORKFLOWS/sesion17_para_aplicar/` | Los 7 nodos de la puerta para pegar en WF1, el Motor completo y sus 3 reemplazos. **Temporal: borrada el 20/10** después de re-exportar WF1; su contenido quedó en `WF1.json` (verificado) |
+| `SQL/sesion17_test_puerta_en_vivo.sql` | T0 (ejercer 16.52 antes del fix), el simulador nuevo, el test en vivo y la limpieza |
+
+**Orden:** T0 con WF1 sin tocar → LIMPIEZA T0 → SQL: BLOQUE 1, 2 y 3 → importar y activar WF7 → cambios de WF1 (18.2) → test en vivo → LIMPIEZA FINAL → re-exportar WF1 y WF7. Cada paso deja el sistema andando: WF1 no lee nada de lo que cambia en la base.
+
+### 18.1 — Paso 1: el arranque lo asigna el servidor
+
+```
+placa ──POST /webhook/arranque {v, dispositivo_mac, fw}──► WF7
+  Webhook → Validar Arranque → Pedido Valido? ─[no]→ Responder Pedido Invalido (400)
+                                  └[sí]→ Registrar Arranque (fn_registrar_arranque) → Arranque Registrado?
+                                            ├[sí]→ Responder Arranque (200 {arranque_id})
+                                            └[no]→ Responder MAC Desconocida (404)
+```
+
+**Base.** `arranque_dispositivo(id, dispositivo_id, version_firmware, fecha_hora)`. El `id` **es** el `arranque_id`: `GENERATED ALWAYS AS IDENTITY` (nadie lo elige desde afuera) y `PRIMARY KEY` (no puede repetirse, aunque alguien reinicie el contador a mano). El contador es la comodidad; la clave primaria es la garantía. Es la regla de 16.25 llevada a su forma más simple. `fn_registrar_arranque` devuelve `registrado = false, motivo = 'mac_desconocida'` en vez de lanzar un error: una MAC desconocida es una respuesta (404), no una falla del sistema. `vista_ultimo_arranque` da el firmware vigente de cada placa.
+
+**El firmware se deriva (decisión del autor, 19/10).** El contrato decía "se guarda en `dispositivo.version_firmware`". Con la tabla de arranques ese dato sale del último arranque, y escribirlo también en `dispositivo` era mantener dos fuentes de la misma verdad (regla 3 de la sesión 14). Dejar la columna sin escribir la convertía en una columna que miente. Antes de decidir se verificó que no la lee nadie (0 vistas, 0 funciones, 0 workflows). **La columna se borra**; el reverso la recrea con el valor previo (`v1.0.0`).
+
+**Por qué un workflow aparte.** WF1 procesa lecturas; el arranque es otro pedido, con otra respuesta. **Por qué WF7 y no WF6:** el nombre WF6 ya está reservado para los comandos de Telegram (13.13, sin construir). Se detectó leyendo el tablero, antes de entregar. Es la misma lección que 16.25 y que el choque de numeración de las revisiones: el identificador lo da el registro, no la memoria de quien lo usa.
+
+**`Registrar Arranque` sin reintento** (regla 6): no es idempotente. Un reintento solo dejaría un hueco, pero quien reintenta es la placa (contrato, regla 3 del arranque).
+
+### 18.2 — Paso 2: la revisión en la puerta de WF1
+
+```
+Webhook (Respond: Using 'Respond to Webhook' Node)
+  → Validar Contrato → Contrato Valido? ─[no]─────────────────────────────┐
+                         └[sí]→ Verificar Arranque → Arranque Valido? ─[no]─┤
+                                                      └[sí]→ Responder Aceptada (200) → Resolver Cultivo → … (como hoy)
+                                     Responder Rechazo (400) ◄──────────────┘
+                                       → Registrar Rechazo (fn_registrar_rechazo)
+```
+
+**Cómo aplicarlo (WF1 pasa de 19 a 26 nodos):**
+
+1. **`Webhook`** → *Respond* → **Using 'Respond to Webhook' Node**.
+2. Abrir `WORKFLOWS/sesion17_para_aplicar/WF1_puerta_para_pegar.json`, copiar todo y pegarlo en el lienzo de WF1 (Ctrl+V). Aparecen 7 nodos ya conectados entre sí, debajo de la línea principal.
+3. Borrar la conexión `Webhook` → `Resolver Cultivo`. Conectar `Webhook` → `Validar Contrato` y `Responder Aceptada` → `Resolver Cultivo`.
+4. **`Resolver Cultivo`** → filtro `dispositivo_mac` → valor: `{{ $('Validar Contrato').first().json.lectura.dispositivo_mac }}` (antes `{{ $json.body.dispositivo_mac }}`: ahora su entrada es la salida de `Responder Aceptada`, que no trae el `body`).
+5. **`Motor de Inferencia`**: pegar `motor_nuevo.js` completo (es el código actual con 3 cambios y nada más), o aplicar los 3 reemplazos de `Motor_cambios.md`.
+6. Revisar que `Verificar Arranque` y `Registrar Rechazo` tengan la credencial `Sup S`. Guardar.
+
+**Qué hace cada pieza, y por qué así:**
+
+- **`Validar Contrato`** valida contra las secciones 2 y 3 del contrato y arma `lectura`, el único objeto que leen los nodos de abajo. Las 7 mediciones: presentes, número dentro del rango **físico** o `null`. Un número fuera de rango se rechaza (regla 2: tenía que llegar como `null`); de paso, una humedad de −5 ya no puede leerse como sequía. Si `v` es otra versión, se informa solo eso: el resto del cuerpo puede significar otra cosa. La MAC se normaliza a mayúsculas. Los campos desconocidos (el viejo `planta`) se ignoran.
+- **16.52, la causa exacta:** el Motor comparaba el valor crudo, y en JavaScript `"" < 60` es `true`. La normalización existía, pero en `Consolidar datos`, **después** del Motor. Normalizar en el borde quiere decir el borde del **sistema**.
+- **El Motor lee `$('Validar Contrato')`, no `$('Webhook')`.** La dependencia queda explícita: si alguien saca la puerta, el Motor falla fuerte en vez de volver a leer el cuerpo crudo (verificado). El `num()` de `Consolidar datos` queda como está: no se toca código que anda a una semana de la defensa.
+- **`Verificar Arranque`** llama a `fn_verificar_arranque`, que devuelve **siempre exactamente una fila**: un nodo con cero filas cortaría la rama en silencio (regla 1 de n8n). Acepta cualquier arranque que se le haya dado a esa placa, no solo el último: una lectura medida antes de un reinicio y reintentada después sigue siendo válida. Con **reintento**: es una lectura, idempotente (regla 6).
+- **`Responder Aceptada` responde antes de procesar.** Conserva el comportamiento actual (el webhook respondía al recibir) y `aceptada` significa exactamente lo que dice el contrato: "cumple el contrato". Responder según el resultado del procesamiento es el paso 3.
+- **`Responder Rechazo` va antes de `Registrar Rechazo`:** la respuesta a la placa no depende de poder escribir el registro. Si el registro falla, la ejecución queda en rojo en n8n: el fallo se cuenta. `Registrar Rechazo` **sin reintento**: es un INSERT.
+- **Una lectura con las 5 mediciones que deciden en `null` se trata como sospechosa** (decisión del autor, 19/10): alerta "Lectura Sin Datos - Revisar Sensor" y nada automático. Antes no evaluaba nada y salía `OK`. Con el contrato, `null` pasa a ser un valor de primera clase, y eso obligó a decidir qué significa cuando llega en todo.
+- **Los rechazos quedan en `lectura_rechazada`** (decisión del autor, 19/10): fecha, MAC tal como llegó, errores y el cuerpo **sin la foto**, con un tope de tamaño. Se cuentan, se consultan desde la base y se muestran en la demo.
+
+### 18.3 — Pruebas
+
+**Fuera de línea, antes de entregar (19/10):**
+
+| Qué | Resultado |
+|---|---|
+| BLOQUE 3 del SQL, en un Postgres 16 local con una réplica mínima del esquema y los privilegios por defecto de Supabase | `TEST OK: T1–T13`. **Con tres defectos inyectados** (verificar sin chequear la placa, verificar sin la fila garantizada, firmware sin recortar), los detectó los tres (T7, T8, T3) |
+| `Validar Contrato` ejecutado con Node | 29 casos, incluidos los 3 ejemplos de la sección 7 del contrato |
+| `Validar Arranque` | 9 casos |
+| Motor original y nuevo, con los nodos simulados | El **original** lee `humedad: ""` como `Sequía` ("Humedad del suelo = %"): 16.52 confirmado a nivel código. El **nuevo**: sana → OK; 55 → Sequía; todo 0 → Sospechosa; todo `null` → Sin Datos; solo humedad `null` → OK (ver 18.5); humedad 0 → Sequía |
+| n8n 2.19.5 (`n8n-nodes-base` 2.19.3), leído en su código | `Respond to Webhook` v1.5 deja pasar los ítems, así que el flujo sigue después de responder. Header Auth con clave incorrecta responde **403** (el contrato decía 401: corregido) |
+| Base real, Postgres 17.6 | `security_invoker` disponible (hace falta 15 o más) |
+
+**T0 en vivo ✅ (19/10, 20:24 UTC), con WF1 sin tocar: 16.52 confirmado, y enmascarado por 16.56.** Se mandó `humedad: ""` con el formato viejo. **Telegram:** alerta de Sequía con "Humedad del suelo = %". **WF5:** disparado, cortado en `Registrar Riego` (el cuerpo armado por interpolación queda con `"p_humedad_inicial": ,`, JSON inválido). **Base:** 4 filas en `lectura_sensores` (ids 361–364: pH, N, P, K; la humedad no, porque `Consolidar datos` sí la normaliza), **0 riegos y 0 órdenes**. La hipótesis escrita antes del test se cumplió en las tres partes.
+
+**Lo que muestra, para la tesis.** En una misma ejecución el sistema sostuvo dos verdades incompatibles sobre la misma lectura: el Motor decidió "humedad 0 %, sequía" y la base guardó "sin dato de humedad". Y el riego no se evitó porque el sistema detectara el error, sino porque **otro defecto (16.56) rompió WF5 antes de escribir**. Dos defectos que se enmascaran: arreglar 16.56 primero habría convertido a 16.52 en un riego real. El orden de los arreglos no es indiferente; la puerta (18.2) cierra la causa antes de que 16.56 deje de taparla.
+
+**SQL aplicado en la base real ✅ (19/10, por el autor).** BLOQUE 1 sin errores. Verificado por MCP: las 3 funciones solo con `service_role` y sin `SECURITY DEFINER`; las 2 tablas con RLS y sin permisos para `anon`/`authenticated`; la vista con `security_invoker`; `version_firmware` borrada; conteos 1 · 0 · 0 · 230 · 8 · 8. **BLOQUE 3 corrido:** los conteos no cambiaron (se deshizo) y los contadores quedaron en 4 (arranques) y 2 (rechazos), exactamente lo que consumen T1, T2, T7, T11 y T12: el test llegó al final. **El primer arranque real va a ser el 5** (hueco inocuo, regla 3 del arranque).
+
+**WF7 en vivo ✅ (20/10, 18:22 UTC).** Importado por el autor como "WF7 - Registro de arranque", credenciales revisadas y activado. A1 `A` → `200 {"arranque_id": 5}`. A2 MAC desconocida → `404` "dispositivo_mac: no corresponde a ningún dispositivo registrado". A3 sin `fw` → `400` "fw: falta". **Base:** un solo arranque (id 5, firmware `sim`), `vista_ultimo_arranque` lo muestra como vigente, A2 y A3 no crearon filas. El número 5 confirma el hueco que dejó el BLOQUE 3.
+
+**La puerta de WF1 en vivo ✅ (20/10, 18:38–18:44 UTC).** Primer intento: los cuatro pedidos dieron `500 "Unused Respond to Webhook node found in the workflow"`: el `Webhook` de WF1 seguía en *Respond: Immediately*. n8n detecta la contradicción y corta **antes de ejecutar ningún nodo** (verificado: 0 filas escritas). Corregido el campo, todo pasó:
+
+| # | Pedido | Respuesta | Base |
+|---|---|---|---|
+| P1 | `T 68` (formato viejo) | `400`, 7 errores (v, arranque_id, seq, ts, motivo, temperatura, conductividad) | Rechazo 3, con `planta` en el cuerpo |
+| P2 | `L ""` | `400` `humedad: "" no es un número ni null` | Rechazo 4. **Sin Telegram ni WF5: 16.52 cerrado** (comparar con T0) |
+| P3 | `L 150` | `400` fuera del rango físico | Rechazo 5 |
+| P4 | `L 68 999999` | `400` `arranque_id: no fue asignado a este dispositivo` | Rechazo 6 |
+| P5 | `L 68` | `200 aceptada`, sin Telegram | 5 mediciones (ids 365–369) |
+| P6 | `N` (todo `null`) | `200 aceptada`, Telegram "Lectura Sin Datos - Revisar Sensor" | 0 mediciones, 0 riegos |
+| R1 | `L 55` | `200`, Telegram de Sequía y de riego ("Riego 1 de 4") | Riego 23, `pendiente`, humedad inicial 55, 16 s |
+| R2 | ATRASAR + `L 62` | `200`, sin Telegram | **Riego 23 → `exitoso`, humedad de control 62**, ningún riego nuevo |
+
+Total: 15 mediciones nuevas, 4 rechazos, 1 riego: cuadra con lo mandado. Los rechazos arrancan en `seq` 3 porque los tres intentos con 500 también sumaron en el simulador: un salto en `seq` es exactamente una lectura que no llegó. **El Telegram muestra los `null` vacíos** ("Humedad: %"): cosmético, queda en 18.5. R1 también muestra que WF5 arma bien su cuerpo cuando la humedad llega siempre como número (con `""` se rompía, T0).
+
+### 18.4 — Decisiones
+
+Del autor (19/10): **firmware derivado y columna borrada** · **rechazos en una tabla** · **todo `null` = sospechosa**. Del agente, para confirmar al revisar: el nombre **WF7**; corregir el **403** en el contrato (no se puede cambiar lo que responde n8n); rechazar los valores **fuera de rango** (lo dice la regla 2, pero es la decisión que más lecturas puede rechazar con hardware real).
+
+### 18.5 — Lo que queda abierto
+
+- **Pasos 3, 4 y 5 del contrato** (respuestas según el procesamiento, `ts`/`arranque_id`/`seq` en la base con unicidad, temperatura y conductividad). El 6 está escrito en el test; falta llevarlo a "Cómo probar" cuando la puerta esté aplicada.
+- 🟠 **Hallazgo nuevo, sin número:** una medición que decide, en `null`, se saltea sin aviso. Con **solo** la humedad en `null`, la lectura sale `OK`, no hay sequía posible y no se riega. Si el sensor de humedad muere y los demás siguen midiendo, la maceta se seca sin una alerta. Ya pasaba con el formato viejo (un campo ausente se salteaba igual); el contrato lo vuelve un estado declarado. Es 16.44 un nivel más abajo: la ausencia de un dato no existe como estado. Compone con B.7 (avisarlo en cada lectura sería fatiga de alertas).
+- **16.8, a medias:** una MAC desconocida pasa a ser un 400 registrado. Sigue mudo un dispositivo **registrado sin cultivo activo**: la puerta responde 200 y `Resolver Cultivo` corta en silencio. Lo resuelve el paso 3.
+- Los pedidos de arranque mal formados no se registran (el contrato solo lo pide para lecturas). Retención de `lectura_rechazada`: B.21.
+- 🟢 El Telegram muestra las mediciones `null` vacías ("Humedad: %"), confirmado el 20/10. Lo prolijo es "sin dato". Cosmético.
+
+---
 
 ## Backlog — Mejoras futuras diferidas
 

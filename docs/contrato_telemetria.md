@@ -1,6 +1,6 @@
 # Contrato de telemetría — versión 1
 
-> **Estado:** escrito el 13/10/2026 (B.22). **Todavía no lo hace cumplir nadie:** WF1 sigue aceptando el formato anterior. Lo que falta para que el sistema lo cumpla está en la sección 9.
+> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** Faltan los pasos 3 a 5. Detalle en `implementation_plan.md`, Fase 18.
 >
 > **Para qué existe.** Es la definición de qué manda el nodo sensor y de qué hace el sistema con lo que recibe. Hasta hoy el formato era "lo que manda el script de PowerShell", y esa falta de definición causó 16.52 (un `""` leído como humedad 0 %), 16.47 (sin hora de medición) y 16.48 (temperatura y conductividad descartadas). Se escribe **antes** de que exista el firmware, porque después cambiarlo obliga a actualizar cada placa instalada.
 
@@ -24,7 +24,7 @@ Respuesta: `200` · `{ "arranque_id": 1234 }`
 |---|---|---|
 | `v` | entero | Versión del contrato. Hoy vale `1`. |
 | `dispositivo_mac` | texto | MAC del ESP32, formato `AA:BB:CC:DD:EE:FF`. |
-| `fw` | texto | Versión del firmware. Va acá y no en cada lectura porque solo puede cambiar al reiniciar. Se guarda en `dispositivo.version_firmware`. |
+| `fw` | texto, 1 a 20 caracteres | Versión del firmware. Va acá y no en cada lectura porque solo puede cambiar al reiniciar. Se guarda **en el arranque**; el firmware vigente de cada placa se deriva del último arranque (`vista_ultimo_arranque`). |
 
 **Por qué lo asigna el servidor.** Cada lectura necesita una identidad que **no se repita nunca** (sección 3). Si la placa contara sus propios arranques, un borrado de su memoria haría volver el contador a 0 y repetiría números viejos; si los sorteara, habría una chance chica pero real de repetir. En cambio, la base saca el número de un contador propio que solo sube, y **no puede entregar dos veces el mismo, por construcción**. Es la regla de 16.25: *un identificador único no se garantiza con una convención, se garantiza con un registro que lo asigne.*
 
@@ -35,6 +35,9 @@ Respuesta: `200` · `{ "arranque_id": 1234 }`
 3. Si la respuesta se pierde y la placa pide otra vez, recibe **otro** número. El primero queda sin usar: es un hueco, nunca una repetición.
 4. Cada arranque queda registrado en la base con su fecha y su firmware. **De paso, el sistema sabe cuándo y cada cuánto se reinicia cada placa**, que es una señal de problemas eléctricos o de firmware.
 5. MAC desconocida: `404`. La placa no puede mandar lecturas.
+6. Pedido mal formado (falta `v`, `dispositivo_mac` o `fw`, o tienen otro tipo): `400` · `{"estado":"rechazado","errores":[...]}`.
+
+> **Cambio del 19/10 (sesión 17):** la versión original decía que `fw` se guardaba en `dispositivo.version_firmware`. Con la tabla de arranques, ese dato se puede **derivar** del último arranque, y mantenerlo también en `dispositivo` era sostener dos fuentes de la misma verdad. Decisión del autor: la columna se borra. No cambia nada para la placa, así que `v` sigue en 1.
 
 ---
 
@@ -86,10 +89,10 @@ Las unidades son las que ya declara `tipos_metricas` en la base.
 |---|---|---|
 | Cumple el contrato | `200` · `{"estado":"aceptada"}` | Se procesa como hoy: se guarda y se evalúa contra los umbrales de la etapa. |
 | DNI ya recibido | `200` · `{"estado":"duplicada"}` | Es un reintento. No se guarda de nuevo ni se evalúa. Responde 200 para que el dispositivo **deje de reintentar**. |
-| `arranque_id` que no se le dio a esa MAC | `400` | Se rechaza: el número no es de esa placa. |
+| `arranque_id` que no se le dio a esa MAC | `400` · con `errores` | Se rechaza: el número no es de esa placa. También si la MAC no está registrada. |
 | Versión `v` desconocida | `400` | Se rechaza: el sistema no sabe leer ese formato. |
-| No cumple el contrato | `400` · `{"estado":"rechazada","errores":[...]}` | **Se rechaza entera** y se informa cada campo con problema. No se procesa a medias: una lectura mal formada no puede disparar un riego. El rechazo queda registrado. |
-| Clave incorrecta | `401` | No se procesa. |
+| No cumple el contrato | `400` · `{"estado":"rechazada","errores":[...]}` | **Se rechaza entera** y se informa cada campo con problema. No se procesa a medias: una lectura mal formada no puede disparar un riego. El rechazo queda registrado en la tabla `lectura_rechazada` (el cuerpo, sin la foto). |
+| Clave incorrecta | `403` | No se procesa. *(La versión original decía `401`; `403` es lo que responde n8n con Header Auth, verificado en su código el 19/10. Se corrige el documento, no la placa: no hay placas en campo.)* |
 | Falla del servidor | `5xx` o sin respuesta | El dispositivo guarda la lectura y **reintenta más tarde, idéntica** (regla 4). |
 
 **Sobre la hora (`ts`).** El sistema guarda dos horas: la de **medición** (`ts`) y la de **recepción** (la del servidor). Si `ts` es `null`, o está más de 5 minutos en el futuro respecto del servidor, la lectura **se acepta** igual, pero se marca como "hora no confiable" y para decidir se usa la de recepción. No se rechaza por eso: el dato medido sigue siendo válido aunque el reloj no lo sea.
@@ -183,11 +186,11 @@ Para probar un reintento, mandar dos veces la misma lectura: la segunda tiene qu
 
 Este documento es el primer paso. Cada uno de los siguientes es una tarea propia, con su prueba; los cambios en la base van como script en `SQL/`, que ejecuta el usuario.
 
-1. **Base y n8n — el arranque.** Una tabla de arranques (con un número que solo sube, la placa, la fecha y el firmware), una función que la registre y devuelva el número, y el webhook `/arranque` que la llame. Actualiza `dispositivo.version_firmware`.
-2. **WF1 — revisión en la puerta.** Un nodo al principio, antes de `Resolver Cultivo`, que valide el contrato y responda `400` con los errores. Normaliza una sola vez, antes del primer nodo que decide (**cierra 16.52**).
+1. **Base y n8n — el arranque.** Una tabla de arranques (con un número que solo sube, la placa, la fecha y el firmware), una función que la registre y devuelva el número, y el webhook `/arranque` que la llame. *Aplicado el 20/10: `SQL/sesion17_contrato_pasos_1_y_2.sql` y `WORKFLOWS/WF7.json`. El firmware vigente se deriva del último arranque (ver sección 1).*
+2. **WF1 — revisión en la puerta.** Un nodo al principio, antes de `Resolver Cultivo`, que valide el contrato y responda `400` con los errores. Normaliza una sola vez, antes del primer nodo que decide (**cierra 16.52**). *Aplicado el 20/10: `Validar Contrato` + `Verificar Arranque` + respuestas `200`/`400` + registro del rechazo (Fase 18.2 del plan).*
 3. **WF1 — respuestas.** Hoy el webhook responde apenas recibe el pedido, sin decir si la lectura sirvió. Hay que responder con los códigos de la sección 4.
 4. **Base — hora y DNI de la lectura.** Guardar `ts`, la hora de recepción, `arranque_id` y `seq`, con una restricción de unicidad sobre `(arranque_id, seq)` que haga imposible el duplicado (**16.47**, y la pieza que necesita **B.20**).
 5. **Base y WF1 — temperatura y conductividad.** Que `fn_registrar_telemetria` las reciba y las guarde como métricas 2 y 7 (**16.48**).
-6. **Simulador.** Actualizar los comandos de prueba del plan al formato nuevo.
+6. **Simulador.** Actualizar los comandos de prueba del plan al formato nuevo. *Escrito el 19/10 en `SQL/sesion17_test_puerta_en_vivo.sql` (funciones `A`, `L` y `N` de PowerShell); falta pasarlo a la sección "Cómo probar" del plan cuando la puerta esté aplicada.*
 
 **Transición.** Mientras los pasos 1 a 5 no estén hechos, WF1 sigue aceptando el formato viejo. Cuando el paso 2 entre en vigencia, el formato viejo pasa a rechazarse: no hay dispositivos reales en campo que migrar, solo el simulador.

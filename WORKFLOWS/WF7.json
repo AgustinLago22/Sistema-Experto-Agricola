@@ -1,0 +1,277 @@
+{
+  "name": "WF7 - Registro de Arranque",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "arranque",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "70bb6e08-5b52-4d8e-ae85-a72e975eefc5",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1120,
+        192
+      ],
+      "webhookId": "85bb6c8b-0a91-4594-a942-1d8509763c01",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EkesV1k723OAsJkg",
+          "name": "ESP32 Telemetra Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// VALIDAR ARRANQUE — WF7 · contrato de telemetría v1, sección 1\n// Escrito el 19/10/2026 (sesión 17).\n// ------------------------------------------------------------\n// La placa pide un arranque_id UNA vez por encendido, antes de mandar lecturas.\n// Este nodo revisa el pedido; el número lo da la base (fn_registrar_arranque),\n// que es la única que puede garantizar que no se repita (regla de 16.25).\n// ============================================================\nconst VERSION_CONTRATO = 1;\nconst MAC_RE = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/i;\nconst FW_MAX = 20; // el largo de la columna en arranque_dispositivo\n\nconst crudo = $('Webhook').first().json.body;\nconst esObjeto = crudo !== null && typeof crudo === 'object' && !Array.isArray(crudo);\nconst b = esObjeto ? crudo : {};\nconst errores = [];\nconst tiene = (k) => Object.prototype.hasOwnProperty.call(b, k);\nconst mostrar = (x) => JSON.stringify(x) ?? String(x);\n\nif (!esObjeto) {\n  errores.push('cuerpo: tiene que ser un objeto JSON');\n} else if (tiene('v') && b.v !== VERSION_CONTRATO) {\n  errores.push(`v: versión ${mostrar(b.v)} desconocida; este servidor entiende la ${VERSION_CONTRATO}`);\n} else {\n  if (!tiene('v')) errores.push('v: falta');\n\n  if (!tiene('dispositivo_mac')) errores.push('dispositivo_mac: falta');\n  else if (typeof b.dispositivo_mac !== 'string' || !MAC_RE.test(b.dispositivo_mac.trim()))\n    errores.push(`dispositivo_mac: ${mostrar(b.dispositivo_mac)} no tiene el formato AA:BB:CC:DD:EE:FF`);\n\n  if (!tiene('fw')) errores.push('fw: falta');\n  else if (typeof b.fw !== 'string' || b.fw.trim() === '' || b.fw.trim().length > FW_MAX)\n    errores.push(`fw: ${mostrar(b.fw)} tiene que ser texto de 1 a ${FW_MAX} caracteres`);\n}\n\nconst pedidoOk = errores.length === 0;\n\nreturn [{\n  json: {\n    pedido_ok: pedidoOk,\n    errores,\n    arranque: pedidoOk\n      ? { dispositivo_mac: b.dispositivo_mac.trim().toUpperCase(), fw: b.fw.trim() }\n      : null,\n  },\n}];\n"
+      },
+      "id": "f5c335e0-573f-44e3-a425-b3b64c45b021",
+      "name": "Validar Arranque",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2a376a3c-0e30-4db6-a747-46ee9ca4bc6e",
+              "leftValue": "={{ $json.pedido_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "316d6fb6-24d7-4608-855c-087929b008a0",
+      "name": "Pedido Valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -672,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_registrar_arranque",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_mac: $json.arranque.dispositivo_mac, p_fw: $json.arranque.fw }) }}",
+        "options": {}
+      },
+      "id": "b3e5d2e0-ee0a-4096-a4c2-d9ed220f6e34",
+      "name": "Registrar Arranque",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -448,
+        96
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "47450e2a-ba8a-4b6a-b8cf-5db9c4d28f95",
+              "leftValue": "={{ $json.registrado }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3742c256-2750-4902-a864-27123650e5b6",
+      "name": "Arranque Registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -224,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ arranque_id: $json.arranque_id }) }}",
+        "options": {}
+      },
+      "id": "79ea2d4e-1d4c-4069-8a53-a2173b085d1d",
+      "name": "Responder Arranque",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ estado: \"rechazado\", errores: [\"dispositivo_mac: no corresponde a ningún dispositivo registrado\"] }) }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "3da8b104-a475-42a5-8526-2bc064fa764e",
+      "name": "Responder MAC Desconocida",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ estado: \"rechazado\", errores: $json.errores }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "b4111283-ef31-4fb6-aa6b-b1f54256d8ab",
+      "name": "Responder Pedido Invalido",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -448,
+        352
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validar Arranque",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Arranque": {
+      "main": [
+        [
+          {
+            "node": "Pedido Valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedido Valido?": {
+      "main": [
+        [
+          {
+            "node": "Registrar Arranque",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Pedido Invalido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Arranque": {
+      "main": [
+        [
+          {
+            "node": "Arranque Registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Arranque Registrado?": {
+      "main": [
+        [
+          {
+            "node": "Responder Arranque",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder MAC Desconocida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c61ea897-4079-4622-880d-d97d72dc8a60",
+  "meta": {
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "prhW3K9GOnvqiqIO",
+  "tags": []
+}
