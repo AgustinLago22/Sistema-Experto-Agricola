@@ -28,7 +28,9 @@
       "parameters": {
         "chatId": "5593622386",
         "text": "=🚨 {{ $json.diagnostico_ia.severidad }} — {{ $('Parsear Respuesta IA').item.json.planta }} ({{ $('Parsear Respuesta IA').item.json.etapa }})\n\n{{ $json.diagnostico_ia.explicacion_agricultor }}\n\n👉 Hacer ahora:\n{{ [].concat($json.diagnostico_ia.acciones_inmediatas || []).map(a => '• ' + a).join('\\n') }}\n\n🎯 Confianza {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%",
-        "additionalFields": {}
+        "additionalFields": {
+          "appendAttribution": false
+        }
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
@@ -49,7 +51,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpQueryAuth",
         "sendHeaders": true,
@@ -259,7 +261,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "85908d15-3cb2-4867-9ff6-5e48defa4a35",
+  "versionId": "c1cf015e-9e7e-4784-8af7-f239820ad491",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
