@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v62)
+# Sistema Experto Agrícola — Plan de Implementación (v64)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -44,14 +44,14 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 
 | WF | `active` | Última auditoría | Hallazgos abiertos | Lo que falta |
 |---|---|---|---|---|
-| **WF1** — Pipeline Telemetría | ✅ `true` | 19/10 | **16.39** 🟠 · 16.33 🟠 · 16.52 🟠 · 16.37 🟡 (sin ejercitar) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. **20/10: la puerta del contrato aplicada y verificada en vivo** (Fase 18.2), 26 nodos. Cierra 16.52 |
+| **WF1** — Pipeline Telemetría | ✅ `true` | 20/10 | **16.39** 🟠 · 16.33 🟠 · 16.37 🟡 (sin ejercitar) · ~~16.52~~ ✅ (20/10) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. **20/10: la puerta del contrato aplicada y verificada en vivo** (Fase 18.2), 26 nodos. Cierra 16.52. **20/10 (sesión 18): una medición que decide, en `null`, ya avisa** ("Lectura Incompleta - Revisar Sensor", solo en el Motor), y el Telegram muestra "sin dato" |
 | **WF7** — Registro de arranque | ✅ `true` | 20/10 | — | **20/10: importado, activado y probado** (Fase 18.1): `/webhook/arranque`, 8 nodos. *(WF6 está reservado para 13.13)* |
-| **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 21/08 | 16.15 🟠 (aplicado acá, falta en WF3) | Nada bloqueante |
-| **WF3** — Validación Fenológica | ✅ `true` | 01/10 | 16.31 🟠 (**confirmado en producción**) · ~~16.42~~ ✅ (01/10) · 16.21 🟡 (a medias) · **hallazgo nuevo sin número** 🟢 (`duplicado` miente) | ✅ **01/10: 16.42 cerrado** — criterio visual desde el catálogo, test `no_avanza` ✅. **23/09: primer `avanza` de punta a punta pasando por el modelo** (Floración → Fructificación, 0,98, evaluación id 12). Anomalía anterior cerrada: no era un bug → **16.64** |
+| **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 26/10 | 16.15 🟠 (aplicado acá, falta en WF3) · ~~`undefined%`~~ ✅ (26/10) · **sin número** 🟢 (el respaldo lite es menos preciso) | **26/10 (sesión 19): respaldo de Gemini** — `IA Vision Gemini` (`gemini-3.8-flash`) sale por la salida de error a `IA Vision Gemini Respaldo` (`gemini-3.5-flash-lite`); tope de 60 s en los dos; 8 nodos. Probado forzado (`404`) y con `503` real. El prompt dice "sin dato" en vez de `undefined%` y lleva los **rangos de la etapa** |
+| **WF3** — Validación Fenológica | ✅ `true` | 26/10 | 16.31 🟠 (**confirmado en producción**) · ~~16.42~~ ✅ (01/10) · 16.21 🟡 (a medias) · **sin número** 🟢 (`duplicado` miente) · **sin número** 🟢 (respaldo con 2 o más cultivos mezclados corta la corrida) | **26/10 (sesión 19): ejercido con `gemini-3.8-flash`** (evaluación 14, `no_avanza`, a mano: el 25/10 n8n estaba apagado) y **respaldo de Gemini** igual que WF2 (`IA Vision Fenologica Respaldo`, lee de `Foto Descargada`), 18 nodos; probado forzado (evaluación 15, `no_avanza`, por el lite). Tiene foto nueva sin evaluar. **23/09: primer `avanza` de punta a punta** (evaluación id 12) |
 | **WF4** — Análisis Preventivo | ⬜ `false` **a propósito** | parcial (16.3/16.4, 05/08) | 16.30 🟢 | Sin ESP32 no hay telemetría fresca. Es una decisión, no un pendiente |
 | **WF5** — Control de Riego | ✅ `true` | 19/09 (primera auditoría) · 19/10 (13.7.2) | 16.51 🔴 · 16.55 🟠 · 16.53 · 16.56 · 16.62 🟡 · dosis entregada 🟢 | **19/10: tope duro en la base + `Riego Registrado?` + `Aviso Tope de Riego`**, 9 nodos. Endurecer: 16.51, 16.55 |
 
-**Verificado en los exports (WF1 y WF7 del 20/10, WF5 del 19/10, WF3 del 01/10, WF2 y WF4 del 24/08):** WF1 26 nodos · WF2 7 · WF3 17 (0 huérfanos) · WF4 10 · WF5 9 · WF7 8. Gemini en `gemini-3.5-flash` en WF2 y WF3; **WF4 quedó en `2.5`** (16.30).
+**Verificado en los exports (WF2 y WF3 del 26/10, al cierre de la sesión 19; WF1 y WF7 del 20/10; WF5 del 19/10; WF4 del 24/08):** WF1 26 nodos · WF2 8 · WF3 18 · WF4 10 · WF5 9 · WF7 8. Gemini: `gemini-3.8-flash` con respaldo `gemini-3.5-flash-lite` en WF2 y WF3 desde el 26/10; **WF4 quedó en `2.5`, sin respaldo** (16.30).
 
 | Fase | Estado |
 |---|---|
@@ -75,9 +75,9 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | # | Sev. | Dónde | Qué | Estado |
 |---|---|---|---|---|
 | **16.33** | 🟠 | WF1 · BD | Un dispositivo con dos cultivos activos pierde uno en silencio | SQL, sin aplicar (regla 2) |
-| **16.38** | 🟠 | BD | Nada impide que el hueco de umbrales vuelva a aparecer | SQL, sin aplicar (regla 2). **Destrabado 01/10:** sin la Albahaca, 0 etapas sin umbrales |
+| ~~**16.38**~~ | ✅ | BD | Nada impedía que el catálogo se cargara mal | **Cerrado 20/10 (sesión 18, v63):** 10 reglas en la base (`SQL/sesion18_16.38_restricciones_catalogo.sql`). Test: falló antes del cambio, 13 de 13 después. Lo único que no impide es una etapa sin fila de umbrales (16.37) |
 | ~~**16.40**~~ | ✅ | Seguridad | Un JWT `service_role` estaba en texto plano en el plan | **Cerrado 01/10 (v54):** claves JWT heredadas deshabilitadas, verificado |
-| **16.64** | 🟠 | Infra · Producto | El orquestador apagado es monitoreo apagado, y no deja señal | n8n no recupera corridas perdidas. Causa del silencio de WF3. **Indicio 06/10:** ~5 días apagado (01/10 → 06/10), ver v57 |
+| **16.64** | 🟠 | Infra · Producto | El orquestador apagado es monitoreo apagado, y no deja señal | n8n no recupera corridas perdidas. Causa del silencio de WF3. **Indicio 06/10:** ~5 días apagado (01/10 → 06/10), ver v57. **Otra vez el 25/10:** Docker apagado, WF3 no evaluó en la ventana. **Decisión del autor (26/10):** Docker a mano mientras se desarrolla; un VPS si pasa a producto |
 | ~~**16.42**~~ | ✅ | WF3 | El prompt no nombraba las transiciones hacia Fructificación ni Cosecha | **Cerrado 01/10 (v54–v55):** el criterio visual vive en `etapas_especie.criterio_visual` y el prompt lo toma de ahí. Test en vivo `no_avanza` ✅ |
 | **16.43** | 🟠 | WF1·WF2 | Una foto sin alerta de umbral no la analiza nadie | Falta un consumidor disparado por foto nueva |
 | **16.44** | 🟠 | Todos | El silencio del dispositivo no existe como estado | 29 días sin lecturas y cero avisos |
@@ -91,7 +91,12 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **sin número** | 🟢 | WF5 · BD | `dosis_ml` es la dosis calculada, no la entregada después del tope de 30 s | Encontrado en el test del 19/10 (13.7.2). Compone con 16.51 |
 | **16.47** | 🟠 | Contrato·BD | Sin tiempo de dispositivo ni secuencia | **Definido en el contrato (13/10, v58):** `ts`, `arranque_id` (asignado por el servidor), `seq`. Falta implementarlo (pasos 1 y 4 del contrato) |
 | ~~**16.52**~~ | ✅ | WF1 | El Motor decidía sobre el valor crudo: `""` → sequía | **Cerrado 20/10 (Fase 18):** confirmado en vivo el 19/10 (T0: sequía falsa; el riego solo no ocurrió porque 16.56 rompía WF5) y verificado el 20/10: el mismo `""` vuelve `400` y no llega al Motor |
-| **sin número** | 🟠 | WF1 | Una medición que decide, en `null`, se saltea sin aviso: con solo la humedad en `null` la lectura sale `OK` y no se riega | Encontrado el 19/10 (Fase 18.5). Ya pasaba con el formato viejo. Compone con 16.44 y B.7 |
+| ~~**sin número**~~ | ✅ | WF1 | Una medición que decide, en `null`, se salteaba sin aviso: con solo la humedad en `null` la lectura salía `OK` y no se regaba | **Resuelto 20/10 (sesión 18, v63):** ejercido antes y después del arreglo. Costo aceptado: avisa en cada lectura mientras el sensor no mida (B.7) |
+| **sin número** | 🟡 | WF2 · WF3 · WF4 | Un solo modelo de Gemini, sin alternativa: un `503` o un modelo retirado deja la lectura sin diagnóstico, y el cambio es manual en cada workflow | **Respaldo aplicado en WF2 y WF3 (26/10, sesión 19, v64):** `gemini-3.5-flash-lite` por la salida de error, tope de 60 s, probado forzado y con `503` real. **Sigue abierto:** WF4 sin respaldo (apagado), y el nombre de cada modelo escrito en la URL de cada nodo (6 lugares): cuando Google da de baja un modelo, ese nodo pasa a `404` sin aviso. Falta tenerlos en un solo lugar y revisar las fechas de baja |
+| ~~**sin número**~~ | ✅ | WF2 | El prompt mandaba `undefined%` a Gemini cuando un valor llegaba en `null`, y también con `0` (el `\|\|` trata el 0 como falta) | **Resuelto 26/10 (sesión 19, v64):** ejercido antes (`undefined%` en la vista previa) y después (`sin dato`); `??` en lugar de `\|\|` |
+| **sin número** | 🟢 | WF3 | Con 2 o más cultivos, si a uno le responde el principal y a otro el respaldo, `Parsear y decidir` corre dos veces con la mitad de los ítems y corta con "Desalineación" | Seguro (no guarda nada mal y reintenta en el próximo turno), inalcanzable con un solo cultivo. Aceptado a sabiendas el 26/10 |
+| **sin número** | 🟢 | WF2 · WF3 | El respaldo `gemini-3.5-flash-lite` es menos preciso | Visto el 26/10: dijo "elevar la acidez" con pH 5.2 (es al revés) e inventó un síntoma en las hojas que la foto no muestra. Mantiene el servicio con menos calidad |
+| **sin número** | 🟢 | WF1 | El Telegram de WF1 muestra "mínimo (6)" en vez de 6.0 y la hora en UTC ISO (`2026-10-26T21:41:33Z`) | Cosmético |
 | **16.55** | 🟠 | WF5 | Ejecuta lo que le mandan sin verificar contra la base | Compone con B.23 |
 | ~~**B.22**~~ | ✅ | Contrato | El contrato del webhook no estaba escrito | **Escrito 13/10 (v58):** `docs/contrato_telemetria.md`. Hacerlo cumplir son 6 pasos aparte (sección 9 del contrato) |
 | **16.48** | 🟡 | Contrato·BD | Temperatura y conductividad descartadas | **Definido en el contrato (v58):** se guardan, no deciden. Falta el paso 5 del contrato |
@@ -109,7 +114,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.13** | 🟡 | BD | `anon`/`authenticated` con `ALL` sobre las 18 tablas y vistas | SQL propuesto, sin aplicar (regla 2) |
 | **16.21** | 🟡 | WF3 | Re-análisis de la misma foto | Aplicado a medias (opción 2). Camino de fallo cubierto por 16.27.1 |
 | **sin número** | 🟢 | WF3 · BD | En el camino `duplicado`, `fn_registrar_evaluacion_fenologica` devuelve `foto_marcada: true` **sin marcar la foto** | Solo alcanzable a mano. **Fix descartado (v56)** por agregar código para defender una redundancia; solución de fondo: derivar la marca. Regla: para reevaluar, foto nueva; la marca no se toca a mano |
-| **16.65** | 🟡 | WF3 | La ventana de evaluación escala con la etapa: Fructificación deja 32 días ciegos | **Ya en curso:** el cultivo entró a Fructificación el 23/09, la próxima evaluación posible es el 25/10 |
+| **16.65** | 🟡 | WF3 | La ventana de evaluación escala con la etapa: Fructificación deja 32 días ciegos | **Visto en vivo:** el cultivo entró a Fructificación el 23/09 y la primera evaluación posible fue el 25/10; se hizo el 26/10 (`no_avanza`) |
 | **B.9** | 🟡 | BD | `fn_registrar_telemetria` es `SECURITY DEFINER` ejecutable por `anon` | Diferido |
 | **B.10** | 🟡 | WF3 | La foto que no se descarga sigue sin deduplicar | Diferido hasta tener el camino de fallo de 16.27 probado |
 | **16.8** | 🟢 | WF1 | Sin registro ante dispositivo desconocido | **A medias con la Fase 18:** una MAC desconocida pasa a ser un 400 registrado en `lectura_rechazada`. Sigue mudo un dispositivo registrado sin cultivo activo (paso 3 del contrato) |
@@ -118,47 +123,51 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.30** | 🟢 | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | Aplicar al reactivar WF4 |
 | **B.2 · B.3 · B.4 · B.5 · B.6 · B.8 · B.11 · B.12** | 🟢 | varios | Ver Backlog | Diferidos a propósito |
 
-**Bloqueantes reales, en orden:** ~~`13.7.2` + `16.46`~~ ✅ 19/10 → `16.63` (la entrega: que alguien consuma `comando_dispositivo`) → `16.33` + `16.38` (que la base impida que los huecos vuelvan).
+**Bloqueantes reales, en orden:** ~~`13.7.2` + `16.46`~~ ✅ 19/10 → `16.63` (la entrega: que alguien consuma `comando_dispositivo`) → `16.33` (que la base impida dos cultivos por dispositivo). ~~`16.38`~~ ✅ 20/10.
 
-> **Cerrados el 23/09:** `B.1` (Fructificación cargada) y `16.41` (Cosecha con umbrales). `16.38` —el índice que impide que el hueco vuelva— **ya no tiene violaciones en el tomate**, pero sigue bloqueado por las dos etapas sin umbrales de la especie 4.
+> **Cerrados el 23/09:** `B.1` (Fructificación cargada) y `16.41` (Cosecha con umbrales). **`16.38` se cerró el 20/10** (sesión 18), cuando ya no quedaban etapas sin umbrales (la especie 4 se dio de baja el 01/10).
 
 ---
 
 ### Cierre de sesión y próximos pasos
 > [!IMPORTANT]
-> **Cierre de la sesión 17 (19/10 → 20/10): el contrato de telemetría se hace cumplir. Pasos 1 y 2 aplicados y verificados en vivo; 16.52 cerrado.** *Reemplaza al bloque de la sesión 16, que pasa al Historial de sesiones.* El detalle completo está en la **Fase 18** y en el changelog **v61 y v62**.
+> **Cierre de la sesión 19 (21/10 → 26/10): página del simulador, respaldo de Gemini en WF2 y WF3, `undefined%` cerrado, rangos de la etapa en el prompt de WF2.** *Reemplaza al bloque de la sesión 18, que pasa al Historial de sesiones.* El detalle está en el changelog **v64**.
 >
 > **Qué se cerró:**
 >
-> 1. **16.52 ✅.** Se ejerció antes de arreglarlo (T0, 19/10): `humedad: ""` dio una sequía falsa por Telegram, y el riego no ocurrió **solo porque 16.56 rompía WF5** antes de escribir. Dos defectos que se enmascaraban. Desde el 20/10 la puerta lo rechaza con `400` y el Motor no lo ve.
-> 2. **Paso 1 del contrato, el arranque.** Tabla `arranque_dispositivo` (el `id` es el `arranque_id`: identity `GENERATED ALWAYS` + clave primaria), `fn_registrar_arranque`, `vista_ultimo_arranque` y **WF7 - Registro de arranque** (`/webhook/arranque`, 8 nodos; WF6 sigue reservado para 13.13). **`dispositivo.version_firmware` se borró:** el firmware vigente se deriva del último arranque.
-> 3. **Paso 2, la puerta de WF1** (26 nodos): `Validar Contrato` → `Contrato Valido?` → `Verificar Arranque` → `Arranque Valido?` → `Responder Aceptada` (200) → `Resolver Cultivo`; los rechazos van a `Responder Rechazo` (400) → `Registrar Rechazo` (tabla `lectura_rechazada`). El Motor lee la lectura validada, nunca el cuerpo crudo. Una lectura con las 5 mediciones en `null` sale "Lectura Sin Datos - Revisar Sensor".
-> 4. **Contrato corregido:** clave incorrecta = `403` (lo que responde n8n), `fw` se guarda en el arranque, los rechazos quedan registrados. **Desde el 20/10 el formato viejo se rechaza.**
-> 5. **Abiertos nuevos:** 🟠 sin número, una medición en `null` se saltea sin aviso (con solo la humedad en `null` la lectura sale `OK` y no se riega). **16.8 a medias** (MAC desconocida ya se registra; un dispositivo sin cultivo activo sigue mudo). 🟢 el Telegram muestra los `null` vacíos.
+> 1. **Página del simulador, `test/simulador.html`.** Se abre con doble clic; la clave se escribe al abrirla y vive solo en memoria, nunca en el archivo. Tiene: encender placa (`/arranque`), casos de lectura (sana, sequía, exceso, pH 5.2, sin dato, todo sin dato y tres rechazos), carga de la foto (`test/foto_demo_base64.txt`), avisos antes de mandar (riego real, cupo de Gemini, 16.39 con segunda confirmación), un registro con lo enviado y lo recibido, y una **ficha del cultivo** (la planta dibujada según la etapa, la línea de etapas con la ventana de WF3 y su cuenta regresiva). **La ficha es una foto de la base del 21/10:** etapa, inicio y umbrales están escritos en la página; los días se calculan con la fecha de hoy. Verla en vivo pediría un webhook de solo lectura en n8n (no hecho: una clave de Supabase en la página no es aceptable). **CORS verificado:** el pedido previo da `204` (`Allow-Origin: null`, `Allow-Headers: content-type,x-device-key`) y la respuesta real se lee desde la página; n8n acepta cualquier origen, así que la protección sigue siendo la clave. **Probado en vivo el 26/10:** arranque 7 (y 8), sana sin Telegram, pH 5.2 con Telegram, humedad sin dato, foto, y los 3 rechazos.
+> 2. **WF3 ejercido con `gemini-3.8-flash` (26/10, a mano).** El 25/10 no corrió: Docker estaba apagado (última ejecución, 22/10; ver 16.64). Con *Execute workflow*: evaluación 14, `no_avanza`, 0,98, foto marcada. Tardó casi 4 minutos: el nodo no tenía tope de tiempo.
+> 3. **El `undefined%` del prompt de WF2 ✅.** *Ejercido antes de arreglar:* foto + humedad `null` + pH 5.2 → la vista previa de `IA Vision Gemini` decía `Humedad del suelo: undefined%`. *Arreglo:* `||` → `??` y la unidad dentro de la regla (`x == null ? 'sin dato' : x + '%'`), más una línea para que el modelo no suponga el valor que falta. *Después:* `Humedad del suelo: sin dato`. Probado en local con `null`, `0` (sale `0%`) y valores normales.
+> 4. **Respaldo de Gemini en WF2 y WF3** (decisión del autor: **`gemini-3.5-flash-lite`**). El nodo principal sale por la **salida de error** si falla (2 intentos, 5 s); `IA Vision Gemini Respaldo` / `IA Vision Fenologica Respaldo` repite el pedido al lite y entrega a `Parsear …`; si fallan los dos, el camino de siempre (`Diagnostico Fallido` en WF2, `diagnostico_fallido` en WF3). **Los cuatro nodos con tope de 60 s.** El respaldo lee los datos de `Webhook` (WF2, `.first()`) y de `Foto Descargada` (WF3, `.item`), porque por la salida de error solo llega el error. *Probado forzando el principal con un modelo inexistente (`404`):* en WF2, Telegram de WF2 por el lite; en WF3, evaluación 15, `no_avanza`, 0,95, por el lite (la planta sigue en Fructificación). **Y con un `503` real:** el 26/10, 3 de las 4 llamadas al 3.8 en WF2 dieron `503`; la lectura de N bajo se diagnosticó por el respaldo.
+> 5. **Los rangos de la etapa en el prompt de WF2** (lo planteó el autor). Bloque "RANGOS SANOS PARA ESTA ETAPA", leído de `umbrales`, que el Motor ya mandaba para trazabilidad y nadie le daba al modelo (verificado en el `Webhook`: 60–75, 6–6.8, 25 · 40 · 60). Si faltan, dice "No informados: no supongas rangos". En los dos nodos. Probado con N = 10: el diagnóstico habló solo del nitrógeno.
+> 6. **Contrato, rechazos verificados otra vez desde la página:** humedad 150, humedad `""` y arranque 999999 → `400` con su error, filas 7, 8 y 9 de `lectura_rechazada`, la foto no se guarda en el rechazo.
+> 7. **Decisión del autor sobre 16.64 (26/10):** Docker se prende a mano para trabajar; si el sistema pasa a producto, va a un VPS. No se automatiza el arranque en la laptop.
+> 8. **Exports:** WF2 (8 nodos) y WF3 (18 nodos) re-exportados el 26/10 y auditados: textos iguales a los probados (salvo espacios del copiado), modelos, conexiones, reintentos y tope; sin claves en texto plano.
 >
-> **Estado verificado al cierre (20/10):** `evento_riego` 8 · `comando_dispositivo` 8 · `lectura_sensores` 230 · `lectura_rechazada` 0 · `arranque_dispositivo` 0 (el **próximo arranque será el 6**: los contadores no vuelven atrás). Cultivo en Fructificación desde el 23/09. **WF1 26 nodos y WF7 8, exportados el 20/10** y auditados contra el código probado: en WF1 solo cambiaron `Webhook`, `Resolver Cultivo` y el Motor. Commit `d30dfe8`, árbol limpio y al día con `origin/main`.
+> **Estado verificado al cierre (consultado el 26/10):** `lectura_sensores` 312 (max id 461) · `evento_riego` 8 · `comando_dispositivo` 8 · `arranque_dispositivo` 3 (ids 6, 7 y 8) · `lectura_rechazada` 3 (ids 7 a 9) · `evaluacion_fenologica` 5 (14 y 15 del 26/10) · `seguimiento_fenologico` 29. Lo agregado es de los tests, **sin limpiar a propósito** (se limpia una vez, al final del desarrollo). Cultivo en Fructificación desde el 23/09 23:18 UTC, **con foto nueva sin evaluar** (la de N bajo): WF3 la evalúa en su próximo turno con n8n prendido (1 pedido de Gemini).
 >
 > **Ojo al probar:**
 >
-> - **La función `T` ya no sirve: devuelve `400`.** El simulador nuevo está en `SQL/sesion17_test_puerta_en_vivo.sql`: `Pedir`, `A` (la placa enciende y guarda su arranque en `$a`), `L <humedad>` y `N` (todo `null`). **Siempre `A` primero** en cada ventana de PowerShell, y después de cada limpieza (la limpieza borra los arranques).
-> - Un `500 "Unused Respond to Webhook node found in the workflow"` quiere decir que el `Webhook` de WF1 o WF7 volvió a *Respond: Immediately*.
-> - La limpieza de un test ahora incluye `lectura_rechazada` y `arranque_dispositivo` (bloque LIMPIEZA FINAL del test).
-> - **WF3 no tiene foto para evaluar:** `ultima_foto_path` = `ultima_foto_evaluada_path` (verificado el 20/10). La ventana abre el **25/10 a las 23:18 UTC (20:18 en Argentina)**, pero sin una foto nueva WF3 la saltea en silencio. **Para tener un resultado real de WF3, mandar una foto nueva por WF1 antes de esa hora**, con la PC y n8n prendidos (16.64). El simulador `L` no manda foto: hace falta una variante con `foto_base64`. La foto de demo tiene frutos verdes, así que lo esperable es `no_avanza` (Cosecha pide cambio de color).
+> - **La página reemplaza a las funciones de PowerShell** para el día a día (siguen en la sección Cómo probar del contexto). Cada caso carga todos los valores: tildar "sin dato" **después** de elegir el caso. "Sin dato" manda `null` (válido); la humedad vacía manda `""` (se rechaza).
+> - **El código para n8n se copia desde los `.txt`, no desde la terminal:** copiar de la terminal agregó 2 espacios por renglón y cortó líneas largas (sin efecto en lo que lee Gemini).
+> - **El cupo de Gemini es por modelo:** el respaldo suma otros 20 pedidos por día. El lite es menos preciso (ver Hallazgos abiertos).
+> - **Una prueba que rompe la URL del principal se deshace:** volver a poner `gemini-3.8-flash` y publicar.
+> - Después de cambiar un workflow, **publicarlo**.
 >
-> **Arrancar la sesión 18 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.**
+> **Lo que sigue** (el autor trabaja con el **28/10** como límite; la simulación de defensa es el 27/10):
 >
-> 1. **Guion de demo y ensayo (24 y 25/10)**, con el simulador nuevo: lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo (mostrar la fila en `lectura_rechazada`); todo `null` → Sin Datos; foto → diagnóstico IA; y el resultado de WF3 del 25/10 (ver arriba). Contar T0 como ejemplo de defectos que se enmascaran.
-> 2. Llevar el simulador nuevo a la sección de pruebas del plan (paso 6 del contrato), con una función que mande foto.
-> 3. **Trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato; la entrega de órdenes a la placa (16.63, D-auth/B.23); 16.51 y la dosis entregada; 16.56 (ya no tapa nada); la medición en `null` sin aviso; 16.38; endurecer WF5; WF4.
-> 4. **Pendientes chicos:** copia de la clave y del respaldo de n8n fuera de la laptop (usuario); confirmar 16.64; sacar el `implementation_plan.md` duplicado de la raíz; verificar las referencias BBCH (17.3); los emojis perdidos de los Telegram de WF5; "sin dato" en vez de vacío en el Telegram.
+> 1. **Telegram más prolijo** (opcional): "mínimo (6.0)" en vez de "(6)" y la hora en Argentina.
+> 2. **El guion de la demo**, cuando el autor diga (borrador sin commitear: `docs/guion_demo.md`, `SQL/sesion18_demo.sql`).
+> 3. **Después del 28/10:** 16.51; respaldo en WF4 al reactivarlo; los nombres de los modelos en un solo lugar; 16.64 con un VPS.
+>
+> **Pendientes chicos:** `git rm implementation_plan.md` (la copia vieja de la raíz) y borrar `.git/COMMIT_MSG_sesion17_cierre` (los hace el autor); copia de la clave y del respaldo de n8n fuera de la laptop; verificar las referencias BBCH (17.3).
 >
 > **Lecciones de la sesión:**
 >
-> - **Ejercer antes de arreglar destapó un enmascaramiento.** 16.52 decidía mal y 16.56 rompía la escritura: el resultado visible era "no pasó nada". Arreglar 16.56 primero habría convertido a 16.52 en un riego real. El orden de los arreglos no es indiferente.
-> - **El identificador lo da el registro, también para los nombres.** El nombre WF6 ya estaba reservado; se detectó leyendo el tablero antes de entregar, no de memoria.
-> - **Hacer de `null` un valor de primera clase obliga a decidir qué significa.** Al aceptarlo en la puerta aparecieron dos casos que antes eran invisibles: todo `null` (resuelto) y una sola medición en `null` (hallazgo).
-> - **Una configuración contradictoria en n8n puede fallar antes de ejecutar nada** (`Unused Respond to Webhook node`). Es el modo de fallo preferible: ruidoso y sin escribir datos.
-> - **Agustín quiere entender y, cuando se pueda, construir cada workflow.** Antes de darle un JSON para importar, explicarle nodo por nodo qué hace y por qué, y ofrecerle armarlo guiado.
+> - **Un respaldo se prueba rompiendo el principal a propósito**, no esperando a que falle: el camino quedó probado el mismo día, y el `503` real llegó después a confirmarlo.
+> - **`||` no quiere decir "si falta":** también reemplaza el `0`. Donde 0 % de humedad es el dato más grave, el operador equivocado borra justo la alarma.
+> - **El dato ya estaba; faltaba usarlo.** Los umbrales viajaban a WF2 desde hace semanas, para trazabilidad, y nadie se los daba al modelo.
+> - **La saturación de un servicio gratis no es un caso raro:** 3 de 4 `503` en un día es la condición normal, y se diseña para ella.
 
 ### Nombres reales de los nodos
 
@@ -217,6 +226,90 @@ Las cuatro primeras están **verificadas contra el export** y el documento es el
 ---
 
 ### Historial de sesiones
+<details>
+<summary><b>Cierre de la sesión 18 (20/10 → 21/10) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 18 (20/10, de 18:46 a ~00:00): una medición que decide, en `null`, ya avisa; WF2 probado con el contrato v1; 16.38 cerrado.** *Reemplazado por el cierre de la sesión 19.* El detalle está en el changelog **v63** y en **16.38**.
+>
+> **Qué se cerró:**
+>
+> 1. **La medición en `null` sin aviso (🟠 sin número) ✅.** *Ejercido antes de arreglar:* `L $null` daba `aceptada`, sin Telegram, sin humedad guardada y sin riego. *Arreglo, solo en `Motor de Inferencia`* (ningún IF tocado): al final de la rama C lista cuáles de las 5 que deciden (humedad, pH, N, P, K) llegaron en `null` → `medicion_faltante` / `mediciones_faltantes`; una observación "❓ SIN DATO DE …" por cada una (la de humedad dice que no se puede evaluar sequía ni regar); `requiere_alerta` la incluye; `estado` = `Lectura Incompleta - Revisar Sensor` **solo si** no había otro diagnóstico. Las ramas A y B emiten `false` / `[]`. *Probado:* en local, el Motor viejo contra el nuevo en 6 casos (solo cambian los 2 con faltantes); en vivo, `L $null` → "Lectura Incompleta", `M $null 5.2` → "Estrés Químico" + la observación, `L` → sin Telegram. **Decisión del autor (opción A):** una lectura incompleta con foto dispara WF2 igual. Temperatura y conductividad no entran (no deciden, 16.48).
+> 2. **"sin dato" en el Telegram de WF1** (`Alerta Telegram`): `valor == null ? 'sin dato' : valor + unidad`; el 0 se muestra como 0. Probado: `M $null 5.2` → `Humedad: sin dato`; `L 80` → `Humedad: 80%`. Se apagó *Append n8n Attribution* en los Telegram de WF1, WF2 y WF3.
+> 3. **WF2 ejercido de punta a punta con el contrato v1** (`F 68 5.2`): Telegram de WF1 + Telegram de WF2, fila 26 de `seguimiento_fenologico` con `path_foto` y `etapas_especie_id` 14. Antes, dos intentos dieron `503` de Gemini ("high demand"): WF2 degradó bien (cortó en `Diagnostico Fallido`, no guardó fila, WF1 siguió).
+> 4. **Gemini: WF2 y WF3 pasaron de `gemini-3.5-flash` a `gemini-3.8-flash`** (lo cambió el autor; verificado en los JSON). WF3 todavía no corrió con él. **Cupo gratis: 20 pedidos por día por modelo Flash, compartido entre WF2 y WF3.**
+> 5. **16.38 ✅:** la base rechaza un catálogo mal cargado. Test que se deshace solo: antes del cambio `TEST FALLÓ: la base ACEPTÓ …`, después `TEST OK: 13 de 13`.
+> 6. **Abiertos nuevos, sin número:** 🟠 un solo modelo de Gemini, sin alternativa; 🟡 el prompt de WF2 manda `undefined%` con un valor en `null` o en `0`.
+>
+> **Estado verificado al cierre (consultado el 21/10):** `lectura_sensores` 280 (las 50 con id > 289 son de los tests, **sin limpiar a propósito**: se limpia una vez, al final del desarrollo) · `evento_riego` 8 · `comando_dispositivo` 8 · `arranque_dispositivo` 1 (id 6, del test) · `lectura_rechazada` 0 · `evaluacion_fenologica` 3 · `seguimiento_fenologico` 26 · 10 restricciones de 16.38. Cultivo en Fructificación desde el 23/09 23:18 UTC, **con foto nueva sin evaluar**. **WF1, WF2 y WF3 re-exportados el 20/10** y auditados contra lo probado. Commit `15a5c91`.
+>
+> **Ojo al probar:**
+>
+> - **Funciones nuevas del simulador:** `M($h, $ph)` (pH elegible, sin foto) y `F($h, $ph)` (con foto; antes cargar `$FOTO` desde `test/foto_demo_base64.txt` y comprobar que `$FOTO.Length` ≈ 89.800). `F 68` prepara WF3 sin gastar Gemini; `F 68 5.2` dispara WF2. **No mandar `N` con foto** (es el camino de 16.39).
+> - **Cada `F` con alerta gasta hasta 2 pedidos del cupo diario de Gemini.** No quemarlo el 25/10 ni el día de la defensa.
+> - **Después de cambiar un workflow en n8n, publicarlo:** si no, sigue corriendo la versión vieja (pasó el 20/10).
+> - **No borrar la fila 26 de `seguimiento_fenologico` ni tocar `ultima_foto_path`:** son la foto que WF3 evalúa el 25/10. Ya no hace falta mandar otra.
+> - **El 25/10, la PC y n8n prendidos después de las 20:18 (Argentina) = 23:18 UTC** (16.64). Lo esperable es `no_avanza` (frutos verdes). Será la primera corrida de WF3 con `gemini-3.8-flash`.
+>
+> **Lo que sigue** (sesión 19, en curso; la simulación de defensa es el **27/10**):
+>
+> 1. ~~Anotar la sesión 18 en el plan~~ ✅ (v63).
+> 2. **Página HTML local para el simulador**, en `test/`: se abre desde el navegador y la clave se escribe al abrirla, **nunca** se guarda en el archivo. Probar primero el CORS del Webhook de n8n (`X-Device-Key` provoca un pedido previo del navegador).
+> 3. **El `undefined%` del prompt de WF2:** ejercerlo (`F $null 5.2`, gasta cupo) y después arreglarlo.
+> 4. **16.51** (WF5 inventa volumen y caudal): toca el riego, mejor después del 27/10 salvo que el autor diga otra cosa.
+> 5. **El modelo de respaldo de Gemini:** discutir el diseño primero.
+>
+> **Decisión del autor (20/10): primero se desarrolla; el guion de la demo se arma al final.** Hay un borrador sin commitear (`docs/guion_demo.md`, `SQL/sesion18_demo.sql`). **Pendientes chicos:** `git rm implementation_plan.md` (la copia vieja de la raíz) y borrar `.git/COMMIT_MSG_sesion17_cierre` (los hace el autor); copia de la clave y del respaldo de n8n fuera de la laptop; confirmar 16.64; verificar las referencias BBCH (17.3).
+>
+> **Lecciones de la sesión:**
+>
+> - **"OK" tiene que querer decir "evalué todo y está bien", no "no encontré nada malo".** Una medición que falta no es una medición sana: hasta esta sesión, la humedad en `null` salía `OK`.
+> - **Ejercer antes de arreglar, también en la base.** El test de 16.38 se corrió antes del cambio y falló; si no, un `TEST OK` posterior no habría probado nada.
+> - **Un servicio externo con un solo proveedor es un punto único de falla.** Dos `503` seguidos de Gemini dejaron dos lecturas sin diagnóstico: degradar bien no alcanza si no hay alternativa.
+> - **Una regla de la base se entiende con un ejemplo del sistema** ("una segunda fila de umbrales para Fructificación"), no en abstracto.
+
+</details>
+
+<details>
+<summary><b>Cierre de la sesión 17 (19/10 → 20/10) — histórico</b></summary>
+
+> [!IMPORTANT]
+> **Cierre de la sesión 17 (19/10 → 20/10): el contrato de telemetría se hace cumplir. Pasos 1 y 2 aplicados y verificados en vivo; 16.52 cerrado.** *Reemplazado por el cierre de la sesión 18.* El detalle completo está en la **Fase 18** y en el changelog **v61 y v62**.
+>
+> **Qué se cerró:**
+>
+> 1. **16.52 ✅.** Se ejerció antes de arreglarlo (T0, 19/10): `humedad: ""` dio una sequía falsa por Telegram, y el riego no ocurrió **solo porque 16.56 rompía WF5** antes de escribir. Dos defectos que se enmascaraban. Desde el 20/10 la puerta lo rechaza con `400` y el Motor no lo ve.
+> 2. **Paso 1 del contrato, el arranque.** Tabla `arranque_dispositivo` (el `id` es el `arranque_id`: identity `GENERATED ALWAYS` + clave primaria), `fn_registrar_arranque`, `vista_ultimo_arranque` y **WF7 - Registro de arranque** (`/webhook/arranque`, 8 nodos; WF6 sigue reservado para 13.13). **`dispositivo.version_firmware` se borró:** el firmware vigente se deriva del último arranque.
+> 3. **Paso 2, la puerta de WF1** (26 nodos): `Validar Contrato` → `Contrato Valido?` → `Verificar Arranque` → `Arranque Valido?` → `Responder Aceptada` (200) → `Resolver Cultivo`; los rechazos van a `Responder Rechazo` (400) → `Registrar Rechazo` (tabla `lectura_rechazada`). El Motor lee la lectura validada, nunca el cuerpo crudo. Una lectura con las 5 mediciones en `null` sale "Lectura Sin Datos - Revisar Sensor".
+> 4. **Contrato corregido:** clave incorrecta = `403` (lo que responde n8n), `fw` se guarda en el arranque, los rechazos quedan registrados. **Desde el 20/10 el formato viejo se rechaza.**
+> 5. **Abiertos nuevos:** 🟠 sin número, una medición en `null` se saltea sin aviso (con solo la humedad en `null` la lectura sale `OK` y no se riega). **16.8 a medias** (MAC desconocida ya se registra; un dispositivo sin cultivo activo sigue mudo). 🟢 el Telegram muestra los `null` vacíos.
+>
+> **Estado verificado al cierre (20/10):** `evento_riego` 8 · `comando_dispositivo` 8 · `lectura_sensores` 230 · `lectura_rechazada` 0 · `arranque_dispositivo` 0 (el **próximo arranque será el 6**: los contadores no vuelven atrás). Cultivo en Fructificación desde el 23/09. **WF1 26 nodos y WF7 8, exportados el 20/10** y auditados contra el código probado: en WF1 solo cambiaron `Webhook`, `Resolver Cultivo` y el Motor. Commit `d30dfe8`, árbol limpio y al día con `origin/main`.
+>
+> **Ojo al probar:**
+>
+> - **La función `T` ya no sirve: devuelve `400`.** El simulador nuevo está en `SQL/sesion17_test_puerta_en_vivo.sql`: `Pedir`, `A` (la placa enciende y guarda su arranque en `$a`), `L <humedad>` y `N` (todo `null`). **Siempre `A` primero** en cada ventana de PowerShell, y después de cada limpieza (la limpieza borra los arranques).
+> - Un `500 "Unused Respond to Webhook node found in the workflow"` quiere decir que el `Webhook` de WF1 o WF7 volvió a *Respond: Immediately*.
+> - La limpieza de un test ahora incluye `lectura_rechazada` y `arranque_dispositivo` (bloque LIMPIEZA FINAL del test).
+> - **WF3 no tiene foto para evaluar:** `ultima_foto_path` = `ultima_foto_evaluada_path` (verificado el 20/10). La ventana abre el **25/10 a las 23:18 UTC (20:18 en Argentina)**, pero sin una foto nueva WF3 la saltea en silencio. **Para tener un resultado real de WF3, mandar una foto nueva por WF1 antes de esa hora**, con la PC y n8n prendidos (16.64). El simulador `L` no manda foto: hace falta una variante con `foto_base64`. La foto de demo tiene frutos verdes, así que lo esperable es `no_avanza` (Cosecha pide cambio de color).
+>
+> **Arrancar la sesión 18 por acá.** **El 27/10/2026 Agustín da una simulación de defensa de tesis.**
+>
+> 1. **Guion de demo y ensayo (24 y 25/10)**, con el simulador nuevo: lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo (mostrar la fila en `lectura_rechazada`); todo `null` → Sin Datos; foto → diagnóstico IA; y el resultado de WF3 del 25/10 (ver arriba). Contar T0 como ejemplo de defectos que se enmascaran.
+> 2. Llevar el simulador nuevo a la sección de pruebas del plan (paso 6 del contrato), con una función que mande foto.
+> 3. **Trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato; la entrega de órdenes a la placa (16.63, D-auth/B.23); 16.51 y la dosis entregada; 16.56 (ya no tapa nada); la medición en `null` sin aviso; 16.38; endurecer WF5; WF4.
+> 4. **Pendientes chicos:** copia de la clave y del respaldo de n8n fuera de la laptop (usuario); confirmar 16.64; sacar el `implementation_plan.md` duplicado de la raíz; verificar las referencias BBCH (17.3); los emojis perdidos de los Telegram de WF5; "sin dato" en vez de vacío en el Telegram.
+>
+> **Lecciones de la sesión:**
+>
+> - **Ejercer antes de arreglar destapó un enmascaramiento.** 16.52 decidía mal y 16.56 rompía la escritura: el resultado visible era "no pasó nada". Arreglar 16.56 primero habría convertido a 16.52 en un riego real. El orden de los arreglos no es indiferente.
+> - **El identificador lo da el registro, también para los nombres.** El nombre WF6 ya estaba reservado; se detectó leyendo el tablero antes de entregar, no de memoria.
+> - **Hacer de `null` un valor de primera clase obliga a decidir qué significa.** Al aceptarlo en la puerta aparecieron dos casos que antes eran invisibles: todo `null` (resuelto) y una sola medición en `null` (hallazgo).
+> - **Una configuración contradictoria en n8n puede fallar antes de ejecutar nada** (`Unused Respond to Webhook node`). Es el modo de fallo preferible: ruidoso y sin escribir datos.
+> - **Agustín quiere entender y, cuando se pueda, construir cada workflow.** Antes de darle un JSON para importar, explicarle nodo por nodo qué hace y por qué, y ofrecerle armarlo guiado.
+
+</details>
+
 <details>
 <summary><b>Cierre de la sesión 16 (16/10 → 19/10) — histórico</b></summary>
 
@@ -673,6 +766,8 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v64 | 21/10 → 26/10 | **Sesión 19: página del simulador; respaldo de Gemini en WF2 y WF3; `undefined%` ✅; rangos de la etapa en el prompt de WF2.** **(1) `test/simulador.html`:** página local (doble clic) con la clave solo en memoria; encender placa, casos de lectura y de rechazo, foto, avisos antes de mandar (riego, Gemini, 16.39), registro de lo enviado y recibido, y una ficha del cultivo con la planta dibujada por etapa y la ventana de WF3. La ficha es una foto de la base del 21/10 (verla en vivo pediría un webhook de solo lectura). CORS verificado: pedido previo `204` y respuesta real legible. Probada en vivo el 26/10. **(2) WF3 el 25/10 no corrió** (Docker apagado, última ejecución 22/10; 16.64). Ejecutado a mano el 26/10: evaluación 14, `no_avanza`, 0,98, primera corrida con `gemini-3.8-flash`; casi 4 minutos, sin tope. `seguimiento_id` en `null` es correcto: solo se crea fila en `avanza`. **(3) `undefined%` ✅:** ejercido antes (vista previa de `IA Vision Gemini`: `undefined%`), arreglo `\|\|` → `??` con la unidad dentro de la regla y una línea para no suponer el valor faltante; después, `sin dato`; el `0` se respeta. **(4) Respaldo de Gemini (decisión del autor: `gemini-3.5-flash-lite`):** en WF2 y WF3, el principal sale por la salida de error al nodo `… Respaldo`, que entrega a `Parsear …`; 2 intentos de 5 s y tope de 60 s en los cuatro nodos; el respaldo lee de `Webhook` (WF2) y de `Foto Descargada` (WF3). Probado forzando un `404` en WF2 (Telegram por el lite) y en WF3 (evaluación 15, `no_avanza`, 0,95). Con `503` real: 3 de 4 llamadas al 3.8 en WF2 fallaron el 26/10 y el respaldo diagnosticó la de N bajo. **(5) Rangos de la etapa en el prompt de WF2:** de `umbrales`, que el Motor ya mandaba (verificado en el `Webhook`); probado con N = 10. **(6) Rechazos desde la página:** humedad 150, `""` y arranque 999999 → `400`, filas 7 a 9 de `lectura_rechazada`, sin foto guardada. **(7) 16.64, decisión del autor:** Docker a mano; VPS si pasa a producto. **Hallazgos sin número:** ✅ `undefined%`; el de "un solo modelo" baja a 🟡 (queda WF4 y los nombres repartidos en 6 nodos); nuevos 🟢: respaldo con 2 o más cultivos mezclados corta la corrida de WF3, el lite es menos preciso, Telegram con "(6)" y hora UTC. **Datos de prueba sin limpiar, a propósito:** `lectura_sensores` hasta id 461, `arranque_dispositivo` 6 a 8, `lectura_rechazada` 7 a 9, `seguimiento_fenologico` 27 a 29. WF2 (8 nodos) y WF3 (18 nodos) re-exportados el 26/10 y auditados contra lo probado. |
+| v63 | 20/10 → 21/10 | **Sesión 18: una medición que decide, en `null`, ya avisa; WF2 ejercido con el contrato v1; 16.38 ✅ cerrado.** **(1) La medición en `null` sin aviso (🟠 sin número, Fase 18.5) ✅.** *Ejercido antes de arreglar:* `L $null` daba `aceptada`, sin Telegram, sin humedad guardada y sin riego. *Arreglo, solo en `Motor de Inferencia`* (ningún IF tocado): al final de la rama C, `medicion_faltante` / `mediciones_faltantes` con las que llegaron en `null` de las 5 que deciden; una observación "❓ SIN DATO DE …" por cada una; `requiere_alerta` la incluye; `estado` = `Lectura Incompleta - Revisar Sensor` solo si no había otro diagnóstico; las ramas A y B emiten `false` / `[]`. *Probado:* en local, viejo contra nuevo en 6 casos (solo cambian los 2 con faltantes); en vivo, `L $null` → "Lectura Incompleta", `M $null 5.2` → "Estrés Químico" + la observación, `L` → sin Telegram. **Decisión del autor (opción A):** una lectura incompleta con foto dispara WF2 igual. Temperatura y conductividad no entran (16.48). Costo aceptado: avisa en cada lectura mientras el sensor no mida (B.7). **(2) "sin dato" en `Alerta Telegram`** (el 🟢 de Fase 18.5): `valor == null ? 'sin dato' : valor + unidad`, el 0 se muestra como 0; probado con `M $null 5.2` y `L 80`. Se apagó *Append n8n Attribution* en los Telegram de WF1, WF2 y WF3. **(3) WF2 ejercido de punta a punta con el contrato v1** (`F 68 5.2`): los dos Telegram y la fila 26 de `seguimiento_fenologico` (`path_foto`, `etapas_especie_id` 14). Antes, dos `503` de Gemini ("high demand"): WF2 cortó en `Diagnostico Fallido` sin guardar fila y WF1 siguió. **(4) Gemini:** WF2 y WF3 pasaron de `gemini-3.5-flash` a `gemini-3.8-flash` (el autor; verificado en los JSON). En AI Studio `3.5 Flash` ya no figura; hipótesis no confirmada de que el nombre viejo se redirigía. Cupo gratis: 20 pedidos por día por modelo Flash, compartido entre WF2 y WF3. WF3 no se ejerció con el modelo nuevo. **(5) WF3 tiene foto nueva sin evaluar** (la de (3)) para el 25/10. **(6) 16.38 ✅:** 10 restricciones en `etapas_especie`, `parametro_etapa`, `especie_planta` y `tipo_etapa` (`SQL/sesion18_16.38_restricciones_catalogo.sql`, aplicado por el autor); test que se deshace solo: `TEST FALLÓ` antes del cambio, `TEST OK: 13 de 13` después. El control de permisos bloqueó que el agente corriera el DDL, como en la sesión 14. **(7) Limpieza:** se borró `test/demo_clase.md`; se descartó el posible secreto en `test/test_escenarios.txt` (el autor confirmó que no es la clave). **Hallazgos nuevos, sin número:** 🟠 un solo modelo de Gemini, sin alternativa; 🟡 el prompt de WF2 manda `undefined%` con un valor en `null` o en `0`. **Datos de prueba sin limpiar, a propósito:** `lectura_sensores` id > 289 (50 filas) y `arranque_dispositivo` id 6. WF1, WF2 y WF3 re-exportados el 20/10 y auditados contra lo probado. Commit `15a5c91`. |
 | v62 | 20/10 | **Contrato v1, pasos 1 y 2: aplicados y verificados en vivo. 16.52 ✅ cerrado.** **T0 (19/10), con WF1 sin tocar:** `humedad: ""` → Telegram de Sequía falsa; WF5 disparado y cortado en `Registrar Riego` por 16.56; base: 4 mediciones (sin humedad), 0 riegos. **16.52 confirmado, y enmascarado por 16.56**: el riego no ocurrió por diseño sino porque otro defecto rompía WF5. **Aplicado (20/10, por el autor):** SQL bloque 1 (verificado por MCP) y bloque 3 (contadores en 4 y 2: llegó al final); **WF7 - Registro de arranque** importado y activado (A1 → arranque 5, A2 → 404, A3 → 400); la puerta en WF1 (26 nodos). Primer intento de la puerta: `500 "Unused Respond to Webhook node found"`, porque el `Webhook` seguía en *Immediately*; n8n lo frena antes de ejecutar nada. **Test en vivo, 8 casos** (Fase 18.3): 4 rechazos 400 con errores distintos y guardados; lectura sana aceptada; todo `null` → "Lectura Sin Datos"; sequía → riego 23 → control → `exitoso`. Datos del test limpiados (8 · 8 · 230 · 0 · 0). **Exports del 20/10 auditados:** WF1 26 nodos, solo cambiaron `Webhook`, `Resolver Cultivo` y el Motor; el resto idéntico al commit anterior; código de los nodos Code = código probado; 0 referencias rotas, 0 huérfanos. WF7 8 nodos. |
 | v61 | 19/10 | **Sesión 17: contrato de telemetría, pasos 1 y 2, escritos y probados fuera de línea; sin aplicar (Fase 18).** **Paso 1:** tabla `arranque_dispositivo` (el `id` es el `arranque_id`: identity `GENERATED ALWAYS` + clave primaria, no se repite por construcción), `fn_registrar_arranque`, `vista_ultimo_arranque` y **WF7 — Registro de Arranque** (`/webhook/arranque`; WF6 estaba reservado para 13.13). **Paso 2:** la puerta de WF1 (`Validar Contrato`, `Verificar Arranque` con `fn_verificar_arranque`, respuestas 200/400, `Registrar Rechazo` en la tabla nueva `lectura_rechazada`); el Motor lee la lectura validada y no el cuerpo crudo (**cierra 16.52** al aplicarse). **Decisiones del autor:** el firmware vigente se **deriva** del último arranque y se borra `dispositivo.version_firmware` (nadie la leía); los rechazos van a una tabla; una lectura con las 5 mediciones en `null` se trata como sospechosa. **Contrato corregido:** clave incorrecta = **403** (lo que responde n8n, verificado en su código), y `fw` se guarda en el arranque. **Pruebas fuera de línea:** test SQL `TEST OK` en un Postgres local, y con 3 defectos inyectados los detectó los 3; 29 casos del validador; el Motor original lee `""` como Sequía. **Hallazgo nuevo sin número (🟠):** una medición en `null` se saltea sin aviso. **16.8** queda a medias. **Hipótesis para T0:** WF5 se rompe por 16.56 y eso tapa a 16.52. |
 | v60 | 19/10 | **13.7.2 aplicado y verificado en vivo: 16.46 ✅ cerrado, 13.7.1 ✅ cerrado, y la mitad de 16.63 del recheck ✅.** SQL aplicado por el autor; el test de la base dio `TEST OK`. WF5: `Verificar Cooldown` lee `absorcion_completa`, más el IF `Riego Registrado?` y el Telegram `Aviso Tope de Riego` (9 nodos). WF1: el Motor y `Consolidar datos` nuevos, más el nodo `Registrar Recheck de Riego` (19 nodos). Los exports se cruzaron contra el código: idénticos y sin referencias rotas. **Test en vivo, seis caminos con filas en la base:** tope (4 riegos `insuficiente` y el 5º frenado, sin comando), freno en la misma lectura y persistido (`fallo_sistema`), diagnóstico según el estado de la orden, rearme por evidencia, espera de 15 min leída de la vista, y `exitoso`. El cierre del riego 17 dos segundos antes de la creación del 18 prueba que el control ocurre antes de la decisión. **Hallazgo nuevo sin número (🟢):** `dosis_ml` guarda la dosis calculada, no la entregada después del tope. Datos del test limpiados. |
@@ -5413,7 +5508,17 @@ where pe.id is null;
 
 Ojo con el orden si se aplica junto a B.1: el `UPDATE etapas_especie SET orden = 6` de la reordenación tiene que correr **antes** del `INSERT` de Fructificación con `orden = 5`, o el único parcial sobre `(especie_id, orden)` lo rechaza. Es una restricción que hoy no existe y por eso el script actual no se rompe — pero se rompería el día que se agregue, que es justamente lo que propone esta sección.
 
-**Estado:** identificado, **sin aplicar**. Requiere SQL en producción con confirmación previa (regla 2), y verificar antes que ningún dato existente lo viole.
+**Estado:** ✅ **CERRADO el 20/10/2026 (sesión 18, v63).** Script `SQL/sesion18_16.38_restricciones_catalogo.sql`, aplicado por el autor en el SQL Editor y verificado por MCP (10 restricciones, 0 columnas anulables). La base ahora rechaza al cargar:
+
+- **Duplicados:** una etapa repetida en una especie `(especie_id, etapa_id)`; dos etapas con el mismo orden `(especie_id, orden)`; dos filas de umbrales para una etapa `(etapa_especie_id)`; dos especies o dos tipos de etapa con el mismo nombre (`Conocimiento Experto` busca por nombre).
+- **Vacíos:** ids, duración y los 7 umbrales, `NOT NULL`.
+- **Valores sin sentido:** orden o duración ≤ 0; humedad fuera de 0–100 o con mín ≥ máx; pH fuera de 0–14 o con mín ≥ máx; NPK ideal ≤ 0.
+
+El único de `(especie_id, orden)` es *deferrable initially immediate*: un corrimiento `orden = orden + 1` en un solo UPDATE (como en B.1) pasa, y un duplicado real se rechaza igual. Ejemplo concreto: una segunda fila de umbrales para Fructificación hacía que `vista_conocimiento_experto` devolviera dos filas y el Motor evaluara con cualquiera de las dos, con todo en verde; ahora el INSERT falla frente a quien la cargó.
+
+**Test que se deshace solo** (BLOQUE 3 del script), corrido **antes** del cambio: `TEST FALLÓ: la base ACEPTÓ [update public.etapas_especie set etapa_id = 6 where id = 8]`. Después: `TEST OK: 13 de 13 errores frenados, cada uno por la regla esperada; los 2 cambios válidos pasaron`.
+
+**Lo que queda afuera, a propósito:** una etapa **sin ninguna** fila de umbrales. Son dos tablas que se cargan en dos pasos, y la base no distingue "todavía no" de "me olvidé". Lo cubre la guarda del Motor (16.37); el arreglo de fondo es juntar las dos tablas (la relación es 1 a 1), y eso toca la vista que leen WF1, WF3 y WF4: trabajo futuro.
 
 ---
 
@@ -5876,6 +5981,10 @@ El punto no es que estuviera apagado. El punto es lo que el sistema hizo con eso
 
 **Indicio del 06/10 (v57), no confirmado.** Al relevar el contenedor para B.13, `StartedAt` dio el 06/10 a las 20:49 UTC y el log de eventos anterior (`n8nEventLog-1.log`) se cortó el 01/10 a las 23:34. Compatible con ~5 días de n8n apagado, otra vez sin ninguna señal. Con la orquestación en una PC personal es el comportamiento esperable; el punto de 16.64 es que **nadie se entera**.
 
+**Tercera vez, el 25/10 (sesión 19).** La ventana de WF3 abría el 25/10 a las 23:18 UTC y Docker estaba apagado: la última ejecución era del 22/10 y la foto pendiente siguió sin evaluar, otra vez sin ninguna señal. Se evaluó a mano el 26/10 (`no_avanza`).
+
+**Decisión del autor (26/10).** No se automatiza el arranque de Docker en la laptop: se prende a mano cuando se trabaja. Si el sistema pasa a producto, la orquestación va a un VPS. El latido de arriba sigue siendo el fix de fondo, para después.
+
 **Estado:** identificado, **sin aplicar**. No bloquea el desarrollo; **sí bloquea la venta**, porque es la falla que un cliente no puede detectar por sí mismo.
 
 ---
@@ -6220,10 +6329,10 @@ Del autor (19/10): **firmware derivado y columna borrada** · **rechazos en una 
 ### 18.5 — Lo que queda abierto
 
 - **Pasos 3, 4 y 5 del contrato** (respuestas según el procesamiento, `ts`/`arranque_id`/`seq` en la base con unicidad, temperatura y conductividad). El 6 está escrito en el test; falta llevarlo a "Cómo probar" cuando la puerta esté aplicada.
-- 🟠 **Hallazgo nuevo, sin número:** una medición que decide, en `null`, se saltea sin aviso. Con **solo** la humedad en `null`, la lectura sale `OK`, no hay sequía posible y no se riega. Si el sensor de humedad muere y los demás siguen midiendo, la maceta se seca sin una alerta. Ya pasaba con el formato viejo (un campo ausente se salteaba igual); el contrato lo vuelve un estado declarado. Es 16.44 un nivel más abajo: la ausencia de un dato no existe como estado. Compone con B.7 (avisarlo en cada lectura sería fatiga de alertas).
+- ✅ **Resuelto el 20/10 (sesión 18, v63):** ~~🟠 **Hallazgo nuevo, sin número:** una medición que decide, en `null`, se saltea sin aviso.~~ Ahora el Motor la avisa ("Lectura Incompleta - Revisar Sensor" o la observación junto a otro diagnóstico). Texto original: Con **solo** la humedad en `null`, la lectura sale `OK`, no hay sequía posible y no se riega. Si el sensor de humedad muere y los demás siguen midiendo, la maceta se seca sin una alerta. Ya pasaba con el formato viejo (un campo ausente se salteaba igual); el contrato lo vuelve un estado declarado. Es 16.44 un nivel más abajo: la ausencia de un dato no existe como estado. Compone con B.7 (avisarlo en cada lectura sería fatiga de alertas).
 - **16.8, a medias:** una MAC desconocida pasa a ser un 400 registrado. Sigue mudo un dispositivo **registrado sin cultivo activo**: la puerta responde 200 y `Resolver Cultivo` corta en silencio. Lo resuelve el paso 3.
 - Los pedidos de arranque mal formados no se registran (el contrato solo lo pide para lecturas). Retención de `lectura_rechazada`: B.21.
-- 🟢 El Telegram muestra las mediciones `null` vacías ("Humedad: %"), confirmado el 20/10. Lo prolijo es "sin dato". Cosmético.
+- ✅ ~~🟢 El Telegram muestra las mediciones `null` vacías ("Humedad: %"), confirmado el 20/10. Lo prolijo es "sin dato". Cosmético.~~ **Resuelto el 20/10 (sesión 18, v63):** `Alerta Telegram` muestra "sin dato".
 
 ---
 

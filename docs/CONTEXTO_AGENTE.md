@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 21/10 con todo lo de la sesión 18: ver el bloque ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`) **todavía no registra la sesión 18**. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19: ver el bloque ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v64**) ya registra las dos. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -8,38 +8,32 @@
 
 ---
 
-## ▶ Sesión 18 — CERRADA en el código, FALTA anotarla en el plan (arrancar acá)
+## ▶ Sesión 19 — CERRADA y anotada en el plan (arrancar acá)
 
-> 20/10/2026, de 18:46 a ~00:00. Todo lo de abajo está **probado en vivo y verificado contra la base**, y los workflows tocados están re-exportados (WF1, WF2, WF3, auditados contra lo probado). **Falta:** el commit (lo hace Agustín) y **anotar la sesión en `implementation_plan.md`** (changelog v63, Tablero, Hallazgos abiertos, Cierre de sesión, cerrar 16.38). El resto de este archivo ya está actualizado con la sesión 18.
+> 21/10 → 26/10/2026. Todo lo de abajo está **probado en vivo y verificado contra la base**, y los workflows tocados están re-exportados (WF2 y WF3, auditados contra lo probado). **Ya está en el plan:** changelog **v64**, Tablero, Hallazgos abiertos, Cierre de sesión y 16.64. **Falta:** el commit (lo hace Agustín). La sesión 18 pasó al Historial de sesiones del plan.
 
-**Decisión de Agustín (20/10):** primero se desarrolla, hasta donde se llegue; **el guion de la demo se arma al final**, con lo que haya. No proponerlo antes de que él lo pida. Borrador ya escrito, sin commitear: `docs/guion_demo.md` + `SQL/sesion18_demo.sql` (mensaje en `.git/COMMIT_MSG_guion_demo`). El borrador todavía menciona `test/demo_clase.md`, que ya no existe.
+**Decisión de Agustín (20/10, sigue vigente):** primero se desarrolla; **el guion de la demo se arma al final**, cuando él lo pida. No proponerlo antes. Borrador sin commitear: `docs/guion_demo.md` + `SQL/sesion18_demo.sql` (todavía menciona `test/demo_clase.md`, que ya no existe, y las funciones de PowerShell en vez de la página).
 
 **Lo hecho, en orden:**
 
-1. **Una medición que decide, en `null`, ya no se saltea sin aviso** (era un 🟠 sin número). *Ejercido antes de arreglar:* `L $null` daba `aceptada`, sin Telegram, sin humedad guardada y sin riego. *Arreglo, solo en `Motor de Inferencia`* (ningún IF tocado): al final de la rama C lista cuáles de las 5 que deciden (humedad, pH, N, P, K) llegaron en `null` → `medicion_faltante` / `mediciones_faltantes`; una observación "❓ SIN DATO DE …" por cada una (la de humedad dice que no se puede evaluar sequía ni regar); `requiere_alerta` la incluye; `estado` = `'Lectura Incompleta - Revisar Sensor'` **solo si** no había otro diagnóstico. Ramas A y B emiten `false` / `[]`. *Probado:* en local, viejo contra nuevo en 6 casos (solo cambian los 2 con faltantes); en vivo, `L $null` → "Lectura Incompleta", `M $null 5.2` → "Estrés Químico" + la observación, `L` → sin Telegram. **Decisión de Agustín (opción A):** una lectura incompleta con foto dispara WF2 igual. Temperatura y conductividad no entran (no deciden, 16.48).
-2. **"sin dato" en el Telegram** de WF1 (`Alerta Telegram`): las 5 líneas de valores usan `valor == null ? 'sin dato' : valor + unidad`; el 0 se muestra como 0. Probado: `M $null 5.2` → `Humedad: sin dato`; `L 80` → `Humedad: 80%`. Se apagó *Append n8n Attribution* en los Telegram de WF1, WF2 y WF3. Las líneas del mensaje de WF1 quedaron con dos espacios adelante (cosmético, decisión de Agustín).
-3. **WF2 ejercido con el contrato v1, de punta a punta** (`F 68 5.2`): Telegram de WF1 + Telegram de WF2, fila 26 de `seguimiento_fenologico` con `path_foto` y `etapas_especie_id` 14. Antes, dos intentos dieron **`503` de Gemini ("high demand")**: WF2 degradó bien (cortó en `Diagnostico Fallido`, no guardó fila, WF1 siguió).
-4. **Modelo de Gemini: WF2 y WF3 pasaron de `gemini-3.5-flash` a `gemini-3.8-flash`** (lo cambió Agustín; verificado en los JSON). WF2 ya corrió con él; **WF3 no se ejerció todavía** con el modelo nuevo: su primera corrida real es el 25/10. En AI Studio, `3.5 Flash` ya no figura (el uso de esos pedidos apareció en `3.6 Flash`: hipótesis no confirmada de que el nombre viejo se redirige). **Cupo gratis: 20 pedidos por día por modelo Flash**: WF2 y WF3 lo comparten. No quemarlo en pruebas el 25/10 ni el día de la defensa.
-5. **WF3 ya tiene foto para el 25/10:** la del punto 3 quedó como `ultima_foto_path` sin evaluar. **Ya no hace falta mandar otra.** Sí hace falta la PC y n8n prendidos el 25/10 después de las 20:18 (Argentina) = 23:18 UTC (16.64). Lo esperable es `no_avanza` (frutos verdes).
-6. **16.38 cerrado: la base rechaza un catálogo mal cargado.** `SQL/sesion18_16.38_restricciones_catalogo.sql`, aplicado por Agustín. Ver el modelo de datos (sección 4). Test que se deshace solo: **antes** del cambio dio `TEST FALLÓ: la base ACEPTÓ …` y **después** `TEST OK: 13 de 13`. El control de permisos de Claude Code **bloqueó** que el agente corriera el DDL (como en la sesión 14): los cambios de esquema los corre Agustín.
-7. Limpieza: se borró `test/demo_clase.md` (obsoleta). **La copia vieja de `implementation_plan.md` en la raíz del repo la saca Agustín con `git rm implementation_plan.md`** (el control de permisos no dejó que la borrara el agente), y también `.git/COMMIT_MSG_sesion17_cierre`, que sobró de la sesión 17. Se descartó el "posible secreto versionado" en `test/test_escenarios.txt`: **Agustín confirmó que esa línea no es la clave. No volver a plantearlo.**
+1. **Página del simulador, `test/simulador.html`** (la pidió Agustín; quiso que fuera linda). Se abre con doble clic; la clave se escribe al abrirla y vive solo en memoria. Encender placa, casos de lectura y de rechazo, foto (`test/foto_demo_base64.txt`), avisos antes de mandar, registro de lo enviado y recibido, y una **ficha del cultivo** con la planta dibujada por etapa y la ventana de WF3. **La ficha es una foto de la base del 21/10** (etapa, inicio y umbrales escritos en la página; los días se calculan en vivo): si WF3 cambia la etapa, hay que actualizar `CULTIVO` y `ETAPAS` en el script de la página. Verla en vivo pediría un webhook de solo lectura en n8n (no hecho). **CORS verificado:** el pedido previo da `204` y la respuesta real se lee. Una página publicada en claude.ai **no** puede hablar con `localhost`: la página es local.
+2. **WF3 el 25/10 no corrió: Docker estaba apagado** (16.64, tercera vez). Ejecutado a mano el 26/10: evaluación 14, `no_avanza`, 0,98, primera corrida con `gemini-3.8-flash`. **Decisión de Agustín:** Docker a mano cuando trabaja; un VPS si pasa a producto. No proponer automatizar el arranque en la laptop.
+3. **El `undefined%` del prompt de WF2, cerrado.** Ejercido antes (`Humedad del suelo: undefined%`), arreglado con `??` y la unidad dentro de la regla, verificado después (`sin dato`; el `0` se respeta).
+4. **Respaldo de Gemini en WF2 y WF3** (modelo elegido por Agustín: `gemini-3.5-flash-lite`). El principal sale por la **salida de error** al nodo `IA Vision Gemini Respaldo` / `IA Vision Fenologica Respaldo`, que entrega a `Parsear …`. Tope de 60 s y 2 intentos en los cuatro nodos. Probado forzando un `404` en los dos workflows y con un **`503` real** (3 de 4 llamadas al 3.8 en WF2 fallaron el 26/10).
+5. **Rangos de la etapa en el prompt de WF2** (lo planteó Agustín): bloque "RANGOS SANOS PARA ESTA ETAPA", desde el `umbrales` que el Motor ya mandaba.
+6. **Rechazos verificados desde la página:** humedad 150, `""` y arranque 999999 → `400`, filas 7 a 9 de `lectura_rechazada`.
 
-**Hallazgos nuevos, SIN número** (también en la sección 8):
+**Datos de prueba SIN limpiar, a propósito** (se limpia una sola vez, al final del desarrollo): `lectura_sensores` id > 289, `arranque_dispositivo` 6 a 8, `lectura_rechazada` 7 a 9, `seguimiento_fenologico` 27 a 29. Las evaluaciones 14 y 15 son reales (WF3 sobre la foto de demo). Las fotos de los tests están en Storage (se borran desde el dashboard, nunca por SQL). **Hay una foto sin evaluar** (la de N bajo): WF3 la evalúa en su próximo turno con n8n prendido, o a mano (1 pedido de Gemini).
 
-- 🟠 **Un solo modelo de Gemini, sin alternativa.** Cuando Google satura o retira un modelo, el diagnóstico de esa lectura se pierde, y el cambio es manual y por separado en WF2, WF3 y WF4. WF2 reintenta 2 veces con 5 s, poco contra un pico de demanda. Arreglo propuesto, **no discutido**: modelo de respaldo ante 503 (*fallback*) y el nombre del modelo en un solo lugar.
-- 🟡 **El prompt de WF2 manda `undefined%` a Gemini** cuando la humedad (o cualquier valor) llega en `null`, y también con `0`: arma `${$json.body?.humedad || $json.humedad}%`, y `||` trata el 0 como falta. Con la opción A, una lectura incompleta con foto llega a WF2. No ejercido todavía.
+**Heredado de la sesión 18, sigue valiendo:** una medición que decide, en `null`, avisa ("❓ SIN DATO DE …", estado "Lectura Incompleta" si no hay otro diagnóstico); **opción A** de Agustín: una lectura incompleta con foto dispara WF2 igual. El Telegram de WF1 dice "sin dato"; sus líneas tienen dos espacios adelante (cosmético, decisión de Agustín). 16.38 cerrado. **La copia vieja de `implementation_plan.md` en la raíz la saca Agustín con `git rm`**, y también `.git/COMMIT_MSG_sesion17_cierre`. **El "posible secreto" en `test/test_escenarios.txt` está descartado: Agustín confirmó que no es la clave. No volver a plantearlo.**
 
-**Datos de prueba SIN limpiar, a propósito** (se limpia una sola vez, al final del desarrollo): `lectura_sensores` id > 289 (50 filas), `arranque_dispositivo` id 6. **No borrar** la fila 26 de `seguimiento_fenologico` ni tocar `ultima_foto_path`: son la foto de WF3 para el 25/10. Las fotos de los tests están en Storage (se borran desde el dashboard, nunca por SQL).
+**Lo que sigue** (Agustín trabaja con el **28/10** como límite; la simulación de defensa es el 27/10; confirmar el orden con él):
 
-**Lo que sigue** (orden propuesto; confirmarlo con Agustín):
+1. Telegram de WF1 más prolijo (opcional): "mínimo (6.0)" y la hora en Argentina.
+2. El guion de la demo, cuando él diga.
+3. Después del 28/10: 16.51; respaldo en WF4 al reactivarlo; los nombres de los modelos en un solo lugar; 16.64 con un VPS.
 
-1. Anotar la sesión 18 en el plan.
-2. **Página HTML local para el simulador** (la pidió Agustín): en `test/`, se abre desde el navegador; la clave se escribe al abrirla y **nunca** se guarda en el archivo. Probar primero el CORS del Webhook de n8n (la cabecera `X-Device-Key` provoca un pedido previo del navegador). Una página publicada en claude.ai **no** puede hablar con `localhost`.
-3. El `undefined%` del prompt de WF2: ejercer (`F $null 5.2`, gasta cupo de Gemini) y después arreglar.
-4. **16.51** (WF5 inventa volumen y caudal): el 🔴 que más daña, pero toca el riego: mejor después del 27/10, salvo que Agustín diga otra cosa.
-5. El modelo de respaldo de Gemini (discutir el diseño primero).
-
-**Recordatorio con fecha:** el **25/10** tener la PC y n8n prendidos después de las 20:18 (Argentina). Recordárselo a Agustín a partir del 23/10. La simulación de defensa es el **27/10**.
+**Para copiar código a n8n:** dejalo también en un `.txt` del scratchpad y decíselo. Copiado desde la terminal, cada renglón le llega con 2 espacios adelante y las líneas largas cortadas.
 
 ---
 
@@ -50,7 +44,7 @@
 1. Este archivo, entero (~40 KB).
 2. `WORKFLOWS/WF1.json` — es el corazón del sistema y donde está casi todo el trabajo abierto.
 3. `WORKFLOWS/WF3.json` — el segundo en importancia. Prompt nuevo desde el 01/10 (16.42).
-   `WF5.json` se re-exportó el 19/10 (lazo de riego, 13.7.2); `WF7.json` el 20/10 (contrato v1, Fase 18); `WF1.json`, `WF2.json` y `WF3.json` **al cierre de la sesión 18** (Motor, Telegram y modelo de Gemini).
+   `WF5.json` se re-exportó el 19/10 (lazo de riego, 13.7.2); `WF7.json` y `WF1.json` el 20/10 (contrato v1, Fase 18, y la sesión 18); `WF2.json` y `WF3.json` **al cierre de la sesión 19** (26/10: respaldo de Gemini y prompt de WF2).
 4. WF2, WF4, WF5 y WF7 **solo si la tarea los toca.** WF4 está apagado a propósito.
 
 **No leas `implementation_plan.md` entero.** Si necesitás el detalle de un hallazgo, abrí solo esa sección — el **mapa del final** dice dónde está cada una.
@@ -149,28 +143,33 @@ El freno también lee el resultado guardado de lecturas anteriores, y se suelta 
 
 El Motor emite `recheck_riego` (null si la lectura no es un control) **en las tres ramas**. `Consolidar datos` arma `rpc_recheck`, y `Registrar Recheck de Riego` llama a `fn_registrar_recheck_riego` **en cada lectura**: con `p_evento_id` null no hace nada. Ese nodo tiene *Retry* encendido, porque la RPC es idempotente.
 
-### WF2 — `Diagnostico IA Emergencia` · 7 nodos · **activo**
+### WF2 — `Diagnostico IA Emergencia` · 8 nodos · **activo**
 
 Webhook `/diagnostico-ia`. Lo dispara WF1 cuando hay alerta **y** foto.
 
 ```
-Webhook → IA Vision Gemini → Parsear Respuesta IA → Diagnostico Valido? ─[sí]→ Persistir Diagnotico → Telegram
-                                                                        └[no]→ Diagnostico Fallido (Stop and Error)
+Webhook → IA Vision Gemini ─[ok]──────────────────────────→ Parsear Respuesta IA → Diagnostico Valido? ─[sí]→ Persistir Diagnotico → Telegram
+              └[error]→ IA Vision Gemini Respaldo ─────────↗                                            └[no]→ Diagnostico Fallido (Stop and Error)
 ```
+
+**Respaldo (26/10):** `IA Vision Gemini` (`gemini-3.8-flash`) tiene *On Error → Continue (using error output)*; la salida de error va a `IA Vision Gemini Respaldo` (`gemini-3.5-flash-lite`, *On Error → Continue*), que lee los datos de `$('Webhook').first()` porque por la salida de error solo llega el error. Los dos: 2 intentos, 5 s, tope de 60 s. `Parsear Respuesta IA` no cambió: lee `$input` y `$('Webhook')`. **El prompt** dice "sin dato" para un `null` (con `??`, el `0` se respeta) y lleva los **rangos de la etapa** desde `body.umbrales`.
 
 Escribe en `seguimiento_fenologico`. **El nodo se llama `Persistir Diagnotico`, sin la `s`** — `$('...')` resuelve por coincidencia literal, así que el typo es el nombre real.
 
-### WF3 — `Validacion Fenologica` · 17 nodos · **activo** · Schedule cada 8 h
+### WF3 — `Validacion Fenologica` · 18 nodos · **activo** · Schedule cada 8 h
 
 Decide si el cultivo avanzó de etapa, mirando una foto con Gemini.
 
 ```
 Schedule (8h) → Obtener Cultivos Activos → Obtener Orden Etapas [executeOnce] → Calcular Dias en Etapa
   → Hay cultivos a evaluar? → Validacion de foto → Descargar Foto → Extract from File
-  → Convertir a Base64 → Foto Descargada? → IA Vision Fenologica → Parsear y decidir
+  → Convertir a Base64 → Foto Descargada? → IA Vision Fenologica ─[ok]→ Parsear y decidir
+                                              └[error]→ IA Vision Fenologica Respaldo ↗
   → Registrar Evaluacion (RPC transaccional) → Cambio de etapa? → Notificar Cambio de Etapa
   → Generar URL Firmada → Mandar foto
 ```
+
+**Respaldo (26/10):** igual que en WF2 (`gemini-3.5-flash-lite`, tope de 60 s), pero el respaldo lee de `$('Foto Descargada').item` (`.item`, no `.first()`: hay un ítem por cultivo). **Limitación aceptada:** con 2 o más cultivos, si a uno le responde el principal y a otro el respaldo, `Parsear y decidir` corre dos veces con la mitad de los ítems y corta con "Desalineación" (seguro: no guarda nada y reintenta en el próximo turno). Con un solo cultivo no pasa. **Ejecutarlo a mano** (*Execute workflow*) es válido para probar: corre lo mismo que un turno programado.
 
 **Ventana de evaluación:** solo evalúa si `diasEnEtapa >= duracion_estimada_dias * 0.8`, y solo si **hay etapa siguiente** en el catálogo (si no, saltea en silencio — ver B.11).
 
@@ -295,28 +294,30 @@ Esto es lo más valioso del paquete. Cada línea costó al menos una sesión de 
 
 ---
 
-## 7 · Estado verificado el 20/10/2026
+## 7 · Estado verificado el 26/10/2026
 
 Consultado contra Supabase, no asumido.
 
 | Dato | Valor |
 |---|---|
 | Cultivos activos | 1 — Tomate Cherry - Demo Tesis, **Fructificación desde el 23/09 23:18 UTC** (avanzó por WF3) |
-| Próxima evaluación de etapa posible | **25/10, 23:18 UTC** (ventana = 80 % de 40 días, ver 16.65). **✅ Hay foto nueva sin evaluar** (la mandó el test de WF2 del 20/10). WF3 la evalúa en el primer tick después de esa hora, **si n8n está prendido** (16.64). Será la primera corrida de WF3 con `gemini-3.8-flash` |
-| `lectura_sensores` | 280 · las 50 con id > 289 son de los tests de la sesión 18 (sin limpiar, a propósito) |
+| Evaluación de etapa | **La ventana está abierta desde el 25/10, 23:18 UTC** (80 % de 40 días, ver 16.65). Evaluada el 26/10 dos veces (`no_avanza`). **Hay foto nueva sin evaluar** (la de N bajo, del 26/10): WF3 la evalúa en su próximo turno **si n8n está prendido** (16.64), o a mano |
+| `lectura_sensores` | 312 (max id 461) · las de id > 289 son de los tests de las sesiones 18 y 19 (sin limpiar, a propósito) |
 | `evento_riego` | 8. Son los de agosto, en `pendiente`, con el control vencido: no frenan nada. Los de los tests del 19 y 20/10 se limpiaron |
-| `arranque_dispositivo` | **1** (id 6, de los tests de la sesión 18). El próximo será el **7** (los contadores no vuelven atrás) |
-| `lectura_rechazada` | 0 (los rechazos del test se limpiaron) |
+| `arranque_dispositivo` | **3** (ids 6, 7 y 8, de los tests). El próximo será el **9** (los contadores no vuelven atrás) |
+| `lectura_rechazada` | 3 (ids 7 a 9, los rechazos de la página del 26/10) |
 | `comando_dispositivo` | 8 — **ninguno consumido por nadie** (la otra mitad de 16.63) |
-| `evaluacion_fenologica` | **3** — 11 `etapa_no_coincide` (19/09), 12 `avanza` (23/09), 13 `no_avanza` (01/10, test) |
-| `seguimiento_fenologico` | 26 (la 26 es del test de WF2 del 20/10, con la foto que evalúa WF3: **no borrarla**) |
+| `evaluacion_fenologica` | **5** — 11 `etapa_no_coincide` (19/09), 12 `avanza` (23/09), 13 `no_avanza` (01/10, test), 14 `no_avanza` (26/10, 3.8), 15 `no_avanza` (26/10, por el respaldo lite) |
+| `seguimiento_fenologico` | 29 (26 a 29 son de los tests de WF2) |
 | Especies | **1** (la Albahaca se dio de baja el 01/10) |
 | Etapas sin umbrales | **0** |
 | Claves JWT heredadas de Supabase | **deshabilitadas** (16.40 cerrado) |
 | n8n | `n8nio/n8n:2.19.5`, clave de cifrado en `.env` (fuera de git), respaldo en `D:\respaldos_n8n` con simulacro de restauración ✅ |
 | Contrato de telemetría | **Vigente desde el 20/10:** pasos 1 (arranque, WF7) y 2 (puerta de WF1) aplicados y verificados en vivo. Faltan los pasos 3 a 5 |
 
-**Workflows:** WF1 ✅ (26 nodos) · WF2 ✅ (7 nodos, ejercido con el contrato v1 el 20/10) · WF3 ✅ (17 nodos; con `gemini-3.8-flash` todavía sin ejercer) — los tres re-exportados al cierre de la sesión 18 · WF4 ⬜ (a propósito) · WF5 ✅ (9 nodos, re-exportado 19/10) · WF7 ✅ (8 nodos, re-exportado 20/10)
+**Workflows:** WF1 ✅ (26 nodos, re-exportado 20/10) · WF2 ✅ (8 nodos, con respaldo) · WF3 ✅ (18 nodos, con respaldo, ejercido con `gemini-3.8-flash` el 26/10) — los dos re-exportados el 26/10 · WF4 ⬜ (a propósito) · WF5 ✅ (9 nodos, re-exportado 19/10) · WF7 ✅ (8 nodos, re-exportado 20/10)
+
+**Gemini:** principal `gemini-3.8-flash`, respaldo `gemini-3.5-flash-lite`, en WF2 y WF3. **Cupo gratis: 20 pedidos por día por modelo** (el respaldo tiene el suyo). El 26/10, 3 de 4 llamadas al 3.8 en WF2 dieron `503` ("high demand"): la saturación es la condición normal, no la excepción. WF4 sigue en `gemini-2.5-flash`, sin respaldo.
 
 **Contrato v1, verificado en vivo el 20/10 (Fase 18.3):** arranque → 5 / MAC desconocida → 404 / sin `fw` → 400; formato viejo, `humedad: ""`, humedad 150 y arranque ajeno → `400` cada uno con su error y su fila en `lectura_rechazada`; lectura sana → aceptada; todo `null` → "Lectura Sin Datos"; sequía → riego → control `exitoso`. **T0 (19/10, antes del fix):** `humedad: ""` dio una sequía falsa y el riego no ocurrió solo porque 16.56 rompía WF5.
 
@@ -351,7 +352,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 ## 8 · Hallazgos abiertos
 
-**El registro tiene 64 hallazgos numerados (`16.1`–`16.65`, con `16.50` sin asignar a propósito), 4 hallazgos nuevos abiertos todavía sin número (más 2 sin número que la sesión 18 encontró y ya resolvió: la medición en `null` sin aviso y el `Humedad: %` del Telegram), y 23 diferidos (`B.1`–`B.23`).** Nomenclatura: `16.x` = hallazgo de auditoría · `B.x` = diferido a propósito.
+**El registro tiene 64 hallazgos numerados (`16.1`–`16.65`, con `16.50` sin asignar a propósito), 6 hallazgos abiertos todavía sin número (más 3 sin número ya resueltos: la medición en `null` sin aviso y el `Humedad: %` del Telegram en la sesión 18, y el `undefined%` del prompt de WF2 en la 19), y 23 diferidos (`B.1`–`B.23`).** Nomenclatura: `16.x` = hallazgo de auditoría · `B.x` = diferido a propósito.
 
 > [!IMPORTANT]
 > **Numeración estable, y NO la asignes vos.** Los números no se reasignan nunca, ni siquiera los que quedan libres — un hueco es inocuo, reusar un número no lo es. **Si encontrás algo nuevo, describilo SIN número** y dejá que se le asigne al integrarlo al plan. Este archivo es una foto y puede estar desactualizado respecto del registro: el último número que ves acá no es necesariamente el último que existe. **El número lo da el registro, no el hallazgo.**
@@ -364,13 +365,19 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 | **16.63** | Lazo de riego | **El control del riego se cerró el 19/10 (13.7.2). Sigue abierta la entrega:** nadie consume `comando_dispositivo` | Falta decidir cómo lee la placa sus órdenes sin la clave maestra (D-auth, B.23). Para la defensa: trabajo futuro con diseño escrito |
 | **16.37** | WF1 | Cultivo en etapa sin umbrales se reporta sano | Guarda aplicada, **nunca ejercida**, y ya **sin datos reales que la ejerzan** (la especie 4 se borró). **16.38 (20/10) no lo vuelve imposible:** la base no puede exigir que cada etapa tenga su fila de umbrales (dos tablas, dos pasos de carga). El fondo es juntar las dos tablas |
 
-> ✅ **Cerrados:** **16.38** (20/10, sesión 18: reglas del catálogo en la base, test 13 de 13; falta registrarlo en el plan) · **16.52** (20/10, la puerta del contrato, Fase 18; confirmado antes en vivo con T0) · **16.46** y **13.7.1** (19/10, lazo de riego, 13.7.2, verificado en vivo) · **B.1** y **16.41** (23/09, catálogo completo) · **16.40** (01/10, claves JWT heredadas deshabilitadas) · **16.42** (01/10, criterio visual desde el catálogo, test en vivo) · **B.13** y **B.14** (06/10, respaldo de n8n y versión fijada) · **B.22** (13/10, contrato de telemetría escrito).
+> ✅ **Cerrados:** **16.38** (20/10, sesión 18: reglas del catálogo en la base, test 13 de 13) · **16.52** (20/10, la puerta del contrato, Fase 18; confirmado antes en vivo con T0) · **16.46** y **13.7.1** (19/10, lazo de riego, 13.7.2, verificado en vivo) · **B.1** y **16.41** (23/09, catálogo completo) · **16.40** (01/10, claves JWT heredadas deshabilitadas) · **16.42** (01/10, criterio visual desde el catálogo, test en vivo) · **B.13** y **B.14** (06/10, respaldo de n8n y versión fijada) · **B.22** (13/10, contrato de telemetría escrito).
 >
-> ✅ **Resuelto en la sesión 18, SIN número (20/10):** una medición que decide, en `null`, **se salteaba sin aviso** (con solo la humedad en `null` la lectura salía `OK` y no se regaba). Ejercido en vivo antes y después del arreglo. Ver ▶ Sesión 18. Queda el costo aceptado: avisa en cada lectura mientras el sensor siga sin medir (B.7).
+> ✅ **Resuelto en la sesión 18, SIN número (20/10):** una medición que decide, en `null`, **se salteaba sin aviso** (con solo la humedad en `null` la lectura salía `OK` y no se regaba). Ejercido en vivo antes y después del arreglo (plan, changelog v63). Queda el costo aceptado: avisa en cada lectura mientras el sensor siga sin medir (B.7).
 >
-> 🟠 **Hallazgo nuevo, SIN número (20/10):** **un solo modelo de Gemini, sin alternativa.** Un `503` ("high demand") o un modelo retirado deja la lectura sin diagnóstico, y el cambio es manual en WF2, WF3 y WF4 por separado. WF2 reintenta 2 veces con 5 s. Propuesto, sin discutir: modelo de respaldo ante 503 y el nombre en un solo lugar. Visto en vivo el 20/10 (dos `503` seguidos).
+> ✅ **Resuelto en la sesión 19, SIN número (26/10):** el prompt de WF2 mandaba `undefined%` con un valor en `null` o en `0` (el `||` trata el 0 como falta). Ejercido antes y después; ahora `??` y "sin dato".
 >
-> 🟡 **Hallazgo nuevo, SIN número (20/10):** el prompt de WF2 (`IA Vision Gemini`) manda `undefined%` cuando un valor llega en `null`, y también con `0` (`${$json.body?.humedad || $json.humedad}%`: el `||` trata el 0 como falta). Leído en el JSON, **no ejercido**. Mismo criterio que el "sin dato" del Telegram de WF1 (regla 1 de abajo: propagar el criterio a todos los consumidores).
+> 🟡 **SIN número (20/10, bajó de 🟠 el 26/10):** **un solo modelo de Gemini.** **Respaldo aplicado en WF2 y WF3** (`gemini-3.5-flash-lite`, salida de error, tope de 60 s). **Sigue abierto:** WF4 sin respaldo (apagado), y el nombre de cada modelo escrito en la URL de cada nodo (6 lugares): cuando Google da de baja un modelo, ese nodo pasa a `404` sin aviso. Falta tenerlos en un solo lugar (probar antes qué permite el n8n de Agustín) y revisar las fechas de baja. Para después del 28/10.
+>
+> 🟢 **SIN número (26/10):** en WF3, con 2 o más cultivos y respuestas mezcladas entre principal y respaldo, `Parsear y decidir` corta con "Desalineación". Seguro e inalcanzable con un cultivo; aceptado a sabiendas.
+>
+> 🟢 **SIN número (26/10):** el respaldo lite es menos preciso: con pH 5.2 dijo "elevar la acidez" (es al revés) e inventó un síntoma en las hojas que la foto no muestra.
+>
+> 🟢 **SIN número (26/10):** el Telegram de WF1 muestra "mínimo (6)" en vez de 6.0, y la hora en UTC ISO. Cosmético.
 >
 > 🟢 **Hallazgo nuevo, SIN número (19/10):** `dosis_ml` (en `evento_riego` y en el Telegram) es la dosis **calculada**, no la **entregada** después del tope de 30 s: en el test decía ~1.375 ml y se entregaron ~1.200. Compone con 16.51. Fix natural: guardar o derivar `duracion_segundos × caudal`.
 >
@@ -382,7 +389,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 |---|---|---|
 | **16.47** | Contrato · BD | Sin tiempo de dispositivo ni número de secuencia. El `arranque_id` ya lo asigna la base (20/10) y la puerta valida `ts` y `seq`, pero **todavía no se guardan** por lectura (paso 4 del contrato) |
 | **16.55** | WF5 | Ejecuta lo que le mandan sin verificar contra la base. Compone con B.23 |
-| **16.64** | Infra · Producto | **El orquestador apagado es monitoreo apagado.** n8n no recupera corridas perdidas, la pantalla sigue diciendo *Active*, y no hay señal. Es 16.44 un piso más arriba |
+| **16.64** | Infra · Producto | **El orquestador apagado es monitoreo apagado.** n8n no recupera corridas perdidas, la pantalla sigue diciendo *Active*, y no hay señal. Es 16.44 un piso más arriba. **Pasó otra vez el 25/10.** Decisión de Agustín (26/10): Docker a mano; un VPS si pasa a producto |
 | **16.44** | Todos | El silencio del dispositivo no existe como estado: 34 días sin lecturas y cero avisos |
 | **16.43** | WF1 · WF2 | Una foto sin alerta de umbral no la analiza nadie |
 | **16.39** | WF1 | Sensor desconectado + foto: la lectura se pierde entera y sin aviso. Confirmado en vivo 31/08, fix de 2 capas escrito |
@@ -415,7 +422,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 ## 9 · Qué hacer, en orden
 
-**El 27/10/2026 Agustín da una simulación de defensa de tesis.** **(1) Lazo de riego: ✅ 19/10** (13.7.2). **(2) Contrato, pasos 1 y 2: ✅ 20/10** (Fase 18; cerró 16.52; el test de riego corto con el simulador nuevo también pasó). **(3) Guion de demo y ensayo: POSPUESTO por decisión de Agustín (20/10). Primero se desarrolla; ver ▶ Sesión 18.** Cuando se haga (hay un borrador en `docs/guion_demo.md`), con el simulador nuevo: lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo (mostrar la fila en `lectura_rechazada`); todo `null` → Sin Datos; foto → diagnóstico IA; y el resultado real de WF3 el 25/10. **WF3 ya tiene foto nueva sin evaluar (20/10):** solo hace falta la PC y n8n prendidos el 25/10 después de las 23:18 UTC. La foto de demo tiene frutos verdes: lo esperable es `no_avanza`. T0 sirve como relato de defectos que se enmascaran. **La sesión 18 cerró** la medición en `null` sin aviso y 16.38. **Queda como trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato, la entrega de órdenes a la placa (16.63), 16.51 y la dosis entregada, el modelo de respaldo de Gemini, endurecer WF5 y WF4.
+**El 27/10/2026 Agustín da una simulación de defensa de tesis; trabaja con el 28/10 como límite.** **(1) Lazo de riego: ✅ 19/10** (13.7.2). **(2) Contrato, pasos 1 y 2: ✅ 20/10** (Fase 18; cerró 16.52). **(3) Respaldo de Gemini en WF2 y WF3: ✅ 26/10** (sesión 19). **(4) Guion de demo y ensayo: POSPUESTO por decisión de Agustín (20/10). Primero se desarrolla; él avisa cuándo.** Cuando se haga (hay un borrador en `docs/guion_demo.md`), con la página `test/simulador.html`: lectura sana → OK; sequía → alerta, riego y control; riego sin efecto → freno; lectura inválida → rechazo (mostrar la fila en `lectura_rechazada`); todo `null` → Sin Datos; foto → diagnóstico IA (por el principal o por el respaldo); y WF3 ejecutado a mano sobre la foto pendiente (`no_avanza`, frutos verdes). T0 sirve como relato de defectos que se enmascaran. **Queda como trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato, la entrega de órdenes a la placa (16.63), 16.51 y la dosis entregada, los nombres de los modelos en un solo lugar, endurecer WF5 y WF4.
 
 La lista de abajo es el orden general del proyecto, sin la fecha.
 
@@ -426,15 +433,17 @@ La lista de abajo es el orden general del proyecto, sin la fecha.
 3. ~~16.38~~ ✅ 20/10. Lo que queda del hueco de umbrales (etapa sin fila) se resuelve juntando las dos tablas: trabajo futuro.
 4. **Endurecer WF5**: 16.51, 16.55, 16.53, 16.56 (16.52 se cerró en la puerta de WF1).
 5. **No encender WF4** hasta resolver 16.57, 16.58, 16.59, 16.49, 16.60 y 16.30.
-6. **Pendientes chicos:** copia de la clave de n8n y del respaldo fuera de la laptop (los hace Agustín); confirmar 16.64 (indicio de ~5 días apagado, 01/10 → 06/10); verificar las referencias BBCH antes de citarlas (17.3).
+6. **Pendientes chicos:** copia de la clave de n8n y del respaldo fuera de la laptop (los hace Agustín); verificar las referencias BBCH antes de citarlas (17.3).
 
-> **El 25/10 a las 23:18 UTC abre la ventana de evaluación de WF3** (16.65). Si n8n no está levantado en el tick siguiente, la corrida no ocurre y no deja rastro (16.64).
+> **La ventana de evaluación de WF3 está abierta desde el 25/10** (16.65). WF3 solo corre si n8n está levantado en un turno (cada 8 h): si no, la corrida no ocurre y no deja rastro (16.64, pasó el 25/10). Para la demo, ejecutarlo a mano.
 
 ---
 
 ## 10 · Cómo probar
 
-**No hay ESP32.** Se simula con PowerShell desde la máquina de Agustín, **con el formato del contrato v1** (desde el 20/10 el formato viejo, con `planta` y sin `v`, se rechaza con `400`). Los webhooks tienen Header Auth (`X-Device-Key`); la clave está en la credencial `ESP32 Telemetra Key`, no en los JSON. Un **403** es la clave mal puesta.
+**Desde el 26/10, la forma habitual es la página `test/simulador.html`** (doble clic; la clave se escribe al abrirla y no se guarda). Encender placa primero; los casos cargan todos los valores, así que "sin dato" se tilda **después** de elegir el caso. "Sin dato" manda `null` (válido); la humedad vacía manda `""` (se rechaza). "Arranque ajeno" manda `999999` solo en ese envío. El aviso de 16.39 (foto + todo sin dato) pide una segunda confirmación. Si la página dice "sin respuesta", n8n está apagado o cambió el CORS. **Para probar el respaldo de Gemini:** cambiar la URL del principal a un modelo inexistente (`gemini-3.8-flash-NOEXISTE`), publicar, probar, **y volver a ponerla**.
+
+**Las funciones de PowerShell siguen sirviendo.** Se simula con PowerShell desde la máquina de Agustín, **con el formato del contrato v1** (desde el 20/10 el formato viejo, con `planta` y sin `v`, se rechaza con `400`). Los webhooks tienen Header Auth (`X-Device-Key`); la clave está en la credencial `ESP32 Telemetra Key`, no en los JSON. Un **403** es la clave mal puesta.
 
 **Simulador** (en `SQL/sesion17_test_puerta_en_vivo.sql`). Se pega una vez por ventana, **una línea por vez** (su terminal no acepta multilínea):
 
@@ -502,7 +511,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 
 ## 12 · Mapa del plan, si hace falta profundizar
 
-`docs/implementation_plan.md` (v62, ~6.700 líneas). **Abrí solo la sección que necesites.** (Si todavía hay una copia vieja en la raíz del repo, ignorala: está anotada para sacarla.) **La sesión 18 todavía no está en el plan:** está solo en el bloque ▶ de este archivo.
+`docs/implementation_plan.md` (v64, ~6.800 líneas). **Abrí solo la sección que necesites.** (Si todavía hay una copia vieja en la raíz del repo, ignorala: está anotada para sacarla.)
 
 | Buscás | Andá a |
 |---|---|
@@ -520,7 +529,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en la sesión 17 | Changelog **v61 y v62**, **Cierre de sesión** y **Fase 18**. La sesión 16 (v59, v60) está en **Historial de sesiones** |
+| Lo hecho en la sesión 19 | Changelog **v64** y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
 | El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10, pasos 1 y 2) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |

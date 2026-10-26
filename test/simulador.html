@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador de placa</title>
+<!--
+  Simulador de placa · contrato de telemetría v1 (docs/contrato_telemetria.md)
+  Hace lo mismo que las funciones A, L, M, N y F de PowerShell, desde el navegador.
+  Se abre como archivo (doble clic). La clave se escribe al abrir la página y vive
+  solo en la memoria de esta pestaña: no se guarda en este archivo ni en el navegador.
+  CORS verificado el 21/10/2026: n8n contesta la consulta previa con 204 y permite
+  Origin null, POST y la cabecera x-device-key.
+  La ficha del cultivo es una FOTO de la base del 21/10 (no se actualiza sola): los
+  días y la cuenta regresiva sí se calculan con la fecha de hoy.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: arriba la ficha del cultivo (la planta dibujada según su etapa + la línea de etapas);
+   abajo el banco de pruebas en dos columnas: la placa a la izquierda, el registro de n8n a la derecha. */
+:root {
+  --bg: #edf1ea;          /* fondo: gris con sesgo a hoja */
+  --surface: #fafcf8;     /* paneles */
+  --sunken: #e2e8dd;      /* campos y pistas */
+  --line: #cfd8ca;
+  --fg: #162019;
+  --muted: #5b6b5e;
+  --accent: #2b6a3e;      /* verde hoja: acciones y etapa actual */
+  --accent-fg: #f3faf2;
+  --accent-soft: #d6e9d6;
+  --band: #b5d6b4;
+  --ok: #2b7a45;  --ok-bg: #dbeedf;
+  --warn: #965800; --warn-bg: #f6e6c6;
+  --crit: #b3261e; --crit-bg: #f6dbd8;
+  --info: #2e5d88; --info-bg: #dbe7f2;
+  /* la planta */
+  --leaf: #3f8a4f; --leaf-2: #2f6f3e; --stem: #4d7a3a; --soil: #6b4f3a; --pot: #b5683f; --pot-2: #9a5432;
+  --flower: #e9c13b; --fruit-green: #8dbb4c; --fruit-red: #d4472f; --seed: #c9a77a;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --r: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1410; --surface: #151d17; --sunken: #1d2820; --line: #2b392e;
+    --fg: #e3ebe2; --muted: #93a395; --accent: #7cc48f; --accent-fg: #0c1a10; --accent-soft: #1f3a27; --band: #2c5636;
+    --ok: #7cc48f; --ok-bg: #1c3423; --warn: #e5b35b; --warn-bg: #382b13;
+    --crit: #f0857c; --crit-bg: #3c1c19; --info: #89b7df; --info-bg: #19293a;
+    --leaf: #5ea56c; --leaf-2: #46895a; --stem: #6a9a52; --soil: #4a3829; --pot: #a85e39; --pot-2: #87492b;
+    --flower: #e2bb3a; --fruit-green: #9cc65c; --fruit-red: #e0573d; --seed: #a88c66;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1410; --surface: #151d17; --sunken: #1d2820; --line: #2b392e;
+  --fg: #e3ebe2; --muted: #93a395; --accent: #7cc48f; --accent-fg: #0c1a10; --accent-soft: #1f3a27; --band: #2c5636;
+  --ok: #7cc48f; --ok-bg: #1c3423; --warn: #e5b35b; --warn-bg: #382b13;
+  --crit: #f0857c; --crit-bg: #3c1c19; --info: #89b7df; --info-bg: #19293a;
+  --leaf: #5ea56c; --leaf-2: #46895a; --stem: #6a9a52; --soil: #4a3829; --pot: #a85e39; --pot-2: #87492b;
+  --flower: #e2bb3a; --fruit-green: #9cc65c; --fruit-red: #e0573d; --seed: #a88c66;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 22px 48px;
+}
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font: 500 0.92em var(--mono); }
+
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 22px; }
+
+/* ---------- Cabecera ---------- */
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; }
+.marca { display: flex; align-items: center; gap: 12px; }
+.marca h1 { margin: 0; font: 800 clamp(24px, 3.4vw, 32px)/1 var(--display); font-stretch: 82%; letter-spacing: -0.01em; }
+.marca p { margin: 3px 0 0; color: var(--muted); font-size: 13.5px; }
+.conexion-pill {
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px 7px 10px;
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+  font: 500 13px/1 var(--mono);
+}
+.conexion-pill i { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.conexion-pill[data-estado="ok"] i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+.conexion-pill[data-estado="crit"] i { background: var(--crit); box-shadow: 0 0 0 3px var(--crit-bg); }
+
+/* ---------- Ficha del cultivo ---------- */
+.ficha {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+  display: grid; grid-template-columns: 210px minmax(0, 1fr); overflow: hidden;
+}
+@media (max-width: 720px) { .ficha { grid-template-columns: minmax(0, 1fr); } }
+.lamina {
+  background:
+    radial-gradient(120% 80% at 50% 100%, var(--accent-soft), transparent 70%),
+    var(--sunken);
+  display: grid; place-items: end center; padding: 18px 12px 0; min-height: 230px; position: relative;
+}
+.lamina svg { width: 100%; max-width: 180px; height: auto; display: block; }
+.lamina .previa {
+  position: absolute; top: 12px; left: 12px; font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase;
+  background: var(--warn-bg); color: var(--warn); padding: 5px 8px; border-radius: 6px;
+}
+.ficha-cuerpo { padding: 20px 22px; display: grid; gap: 16px; min-width: 0; }
+.ficha-cab { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 20px; align-items: start; }
+.ficha-cab .especie { font: 600 12px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.ficha-cab h2 { margin: 6px 0 0; font: 800 clamp(30px, 5vw, 46px)/0.95 var(--display); font-stretch: 78%; letter-spacing: -0.015em; text-wrap: balance; }
+.ficha-cab .criterio { margin: 8px 0 0; color: var(--muted); max-width: 52ch; font-size: 14px; }
+.contador { text-align: right; display: grid; gap: 2px; }
+.contador b { font: 600 clamp(30px, 4.6vw, 40px)/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.contador b small { font-size: 0.45em; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+.contador span { font-size: 13px; color: var(--muted); }
+@media (max-width: 520px) { .contador { text-align: left; } }
+
+.umbrales { display: flex; flex-wrap: wrap; gap: 6px; }
+.umbral { display: inline-flex; gap: 6px; align-items: baseline; padding: 5px 10px; border-radius: 7px; background: var(--sunken); font-size: 13px; }
+.umbral span { color: var(--muted); }
+.umbral b { font: 500 13px/1 var(--mono); font-variant-numeric: tabular-nums; }
+
+/* Línea de etapas: barra proporcional a los días + botones por etapa */
+.linea { display: grid; gap: 10px; }
+.barra { position: relative; display: flex; gap: 3px; height: 12px; }
+.barra .seg { position: relative; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.barra .seg.pasada { background: var(--band); }
+.barra .seg.actual { background: var(--accent-soft); outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+.barra .seg .lleno { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.barra .ventana { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--warn); border-radius: 1px; }
+.etapas { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 720px) { .etapas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.etapa {
+  text-align: left; border: 1px solid var(--line); background: transparent; border-radius: 8px;
+  padding: 7px 9px; cursor: pointer; display: grid; gap: 1px; min-width: 0;
+}
+.etapa:hover { border-color: var(--accent); }
+.etapa b { font: 600 13px/1.2 var(--display); font-stretch: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.etapa span { font: 400 11.5px/1.2 var(--mono); color: var(--muted); }
+.etapa.actual { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.etapa.actual span { color: inherit; opacity: .8; }
+.etapa[aria-pressed="true"]:not(.actual) { border-color: var(--warn); background: var(--warn-bg); }
+.ficha-pie { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--muted); }
+.ficha-pie .wf3 { display: inline-flex; gap: 8px; align-items: center; color: var(--fg); }
+.ficha-pie .wf3 i { width: 10px; height: 2px; background: var(--warn); display: inline-block; }
+.link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- Banco de pruebas ---------- */
+.grid { display: grid; gap: 22px; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 960px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 22px; min-width: 0; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.panel > header { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.panel h2 { margin: 0; font: 700 20px/1.2 var(--display); font-stretch: 88%; display: flex; align-items: center; gap: 10px; }
+.paso {
+  width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font: 600 13px/1 var(--mono);
+}
+.nota { margin: 0; color: var(--muted); font-size: 13.5px; }
+
+.campos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.campos.conexion { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 520px) { .campos.conexion { grid-template-columns: minmax(0, 1fr); } }
+.campo { display: grid; gap: 5px; min-width: 0; }
+.campo.ancho { grid-column: 1 / -1; }
+.campo label, .etq { font: 600 11.5px/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.in {
+  width: 100%; min-width: 0; padding: 9px 11px; border-radius: 8px;
+  background: var(--sunken); border: 1px solid transparent;
+  font: 500 15px/1.3 var(--mono); font-variant-numeric: tabular-nums;
+}
+.in::placeholder { color: var(--muted); opacity: .8; font-family: var(--body); }
+.in:focus { border-color: var(--accent); outline: none; background: var(--surface); }
+.in:disabled { opacity: .45; }
+.con-boton { display: flex; gap: 6px; }
+.con-boton .in { flex: 1; }
+
+.btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 9px;
+  padding: 9px 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  transition: border-color .15s, filter .15s, transform .05s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:active { transform: translateY(1px); }
+.btn.primario { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.primario:hover { filter: brightness(1.08); }
+.btn.grande { padding: 13px 22px; font-size: 16px; }
+.btn.alerta { background: var(--warn); color: var(--surface); border-color: var(--warn); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-chico { padding: 6px 10px; font-size: 13px; }
+
+.arranque-fila { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.arranque-fila .campo { flex: 1 1 130px; }
+
+/* Casos */
+.casos { display: grid; gap: 10px; padding: 12px; border-radius: 12px; background: var(--bg); }
+.casos-fila { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.casos-fila .etq { width: 70px; flex: none; }
+.caso {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+  padding: 5px 12px; font-size: 13.5px; font-weight: 500; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
+}
+.caso:hover { border-color: var(--accent); }
+.caso[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.caso small { font: 500 11px/1 var(--mono); opacity: .75; }
+.caso.rechazo:hover { border-color: var(--warn); }
+.caso.rechazo[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: var(--surface); }
+
+/* Mediciones */
+.mediciones { display: grid; }
+.med {
+  display: grid; align-items: center; gap: 6px 14px; padding: 11px 2px;
+  grid-template-columns: 124px 128px minmax(0, 1fr) auto;
+  border-top: 1px solid var(--line);
+}
+.med:first-child { border-top: 0; padding-top: 2px; }
+.med .nom { display: grid; gap: 1px; }
+.med .nom b { font-weight: 600; }
+.med .nom span { font-size: 12px; color: var(--muted); }
+.med .valor { display: flex; align-items: center; gap: 6px; }
+.med .valor .in { padding: 7px 9px; }
+.med .uni { font: 500 12px/1 var(--mono); color: var(--muted); width: 44px; }
+.sindato { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.sindato input { accent-color: var(--accent); width: 16px; height: 16px; }
+.med.nulo .valor .in { text-decoration: line-through; }
+
+.escala { display: grid; gap: 5px; min-width: 0; }
+.pista { position: relative; height: 8px; border-radius: 4px; background: var(--sunken); }
+.pista .banda { position: absolute; top: 0; bottom: 0; background: var(--band); border-radius: 4px; }
+.pista .marca {
+  position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; margin: -7px 0 0 -7px;
+  background: var(--ok); border: 2.5px solid var(--surface); transition: left .2s ease;
+}
+.pista .marca.fuera { background: var(--warn); }
+.escala small { font: 400 11.5px/1.2 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 8px; }
+.escala small em { font-style: normal; color: var(--warn); }
+.escala .sin-banda { font-size: 12.5px; color: var(--muted); }
+.escala .sin-medir { font-size: 12.5px; color: var(--warn); font-weight: 500; }
+
+@media (max-width: 620px) {
+  .med { grid-template-columns: minmax(0, 1fr) auto; }
+  .med .nom { grid-column: 1 / -1; }
+  .med .escala { grid-column: 1 / -1; }
+}
+
+/* Foto */
+.foto {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center;
+  padding: 12px; border: 1.5px dashed var(--line); border-radius: 12px;
+}
+.foto.arrastrando { border-color: var(--accent); background: var(--accent-soft); }
+.foto .mini {
+  width: 76px; height: 76px; border-radius: 9px; background: var(--sunken); object-fit: cover;
+  display: grid; place-items: center; color: var(--muted); font: 500 11px/1.2 var(--mono); text-align: center;
+}
+.foto .txt { display: grid; gap: 6px; min-width: 0; }
+.foto .txt b { font-weight: 600; overflow-wrap: anywhere; }
+.foto .acciones { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Avisos */
+.avisos { display: grid; gap: 8px; }
+.avisos:empty { display: none; }
+.aviso { padding: 10px 12px; border-radius: 9px; font-size: 13.5px; display: flex; gap: 10px; align-items: start; }
+.aviso::before { content: ""; flex: none; width: 3px; align-self: stretch; border-radius: 2px; background: currentColor; }
+.aviso.warn { background: var(--warn-bg); color: var(--warn); }
+.aviso.info { background: var(--info-bg); color: var(--info); }
+.aviso.crit { background: var(--crit-bg); color: var(--crit); }
+.aviso p { margin: 0; color: var(--fg); }
+.aviso p b { color: inherit; }
+
+.enviar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding-top: 4px; border-top: 1px solid var(--line); }
+.enviar .meta { font: 400 13px/1.4 var(--mono); color: var(--muted); padding-top: 12px; }
+.enviar .btn { margin-top: 12px; }
+@media (max-width: 520px) { .enviar .btn { width: 100%; } }
+kbd { font: 500 11.5px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
+
+/* Registro */
+.registro { position: sticky; top: max(16px, env(safe-area-inset-top, 0px)); max-height: calc(100vh - 32px); grid-template-rows: auto minmax(0, 1fr); }
+@media (max-width: 960px) { .registro { position: static; max-height: none; } }
+.lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; overflow-y: auto; align-content: start; min-height: 0; }
+.vacio { color: var(--muted); font-size: 14px; padding: 18px; border: 1.5px dashed var(--line); border-radius: 12px; display: grid; gap: 6px; }
+.vacio b { color: var(--fg); }
+.entrada { padding: 12px 4px 12px 14px; display: grid; gap: 7px; min-width: 0; border-left: 3px solid var(--line); }
+.entrada + .entrada { border-top: 1px solid var(--line); }
+.entrada.ok { border-left-color: var(--ok); }
+.entrada.warn { border-left-color: var(--warn); }
+.entrada.crit { border-left-color: var(--crit); }
+.entrada.info { border-left-color: var(--info); }
+.entrada .linea1 { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.pill { font: 600 12px/1 var(--mono); padding: 5px 8px; border-radius: 6px; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.crit { background: var(--crit-bg); color: var(--crit); }
+.pill.info { background: var(--info-bg); color: var(--info); }
+.ruta { font: 500 13px/1 var(--mono); }
+.hora { margin-left: auto; font: 400 12px/1 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.entrada .resumen { margin: 0; font-size: 14px; }
+.entrada ul.errores { margin: 0; padding-left: 18px; font: 400 12.5px/1.45 var(--mono); color: var(--warn); }
+.entrada ul.errores li { overflow-wrap: anywhere; }
+.valores { display: flex; flex-wrap: wrap; gap: 3px 12px; font: 400 12.5px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.valores .falta { color: var(--warn); }
+details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+details pre {
+  margin: 8px 0 0; padding: 10px; border-radius: 8px; background: var(--sunken);
+  font: 400 12px/1.45 var(--mono); overflow-x: auto; max-height: 260px;
+}
+
+@keyframes entra { from { opacity: .3; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.entrada.nueva { animation: entra .35s ease-out; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="marca">
+      <div>
+        <h1>Simulador de placa</h1>
+        <p>Manda a n8n lo que mandaría el ESP32 de la maceta, con el contrato de telemetría v1.</p>
+      </div>
+    </div>
+    <span class="conexion-pill" id="conexionPill" data-estado="nada" aria-live="polite"><i></i><span id="conexionTxt">n8n · sin probar</span></span>
+  </header>
+
+  <!-- Ficha del cultivo: foto de la base del 21/10 -->
+  <section class="ficha" aria-labelledby="t-etapa">
+    <div class="lamina">
+      <span class="previa" id="previaTag" hidden>Vista previa</span>
+      <svg id="planta" viewBox="0 0 160 200" role="img" aria-label="Dibujo de la planta en su etapa"></svg>
+    </div>
+    <div class="ficha-cuerpo">
+      <div class="ficha-cab">
+        <div>
+          <div class="especie">Tomate Cherry · Demo Tesis</div>
+          <h2 id="t-etapa">Fructificación</h2>
+          <p class="criterio" id="criterio"></p>
+        </div>
+        <div class="contador" id="contador"></div>
+      </div>
+      <div class="umbrales" id="umbrales" aria-label="Umbrales de la etapa"></div>
+      <div class="linea">
+        <div class="barra" id="barra" aria-hidden="true"></div>
+        <div class="etapas" id="etapas" role="group" aria-label="Etapas del Tomate Cherry"></div>
+      </div>
+      <div class="ficha-pie">
+        <span class="wf3" id="wf3"></span>
+        <span id="fuente">Datos de la base del 21/10 · no se actualizan solos</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div class="col">
+
+      <section class="panel" aria-labelledby="t-conexion">
+        <header><h2 id="t-conexion">Conexión</h2></header>
+        <div class="campos conexion">
+          <div class="campo">
+            <label for="url">Dirección de n8n</label>
+            <input class="in" id="url" value="http://localhost:5678/webhook" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="campo">
+            <label for="mac">MAC de la placa</label>
+            <input class="in" id="mac" value="24:0A:C4:A1:B2:C3" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="campo ancho">
+            <label for="clave">Clave del dispositivo · X-Device-Key</label>
+            <div class="con-boton">
+              <input class="in" id="clave" type="password" placeholder="La de la credencial ESP32 Telemetra Key" autocomplete="off" spellcheck="false">
+              <button class="btn" id="verClave" type="button" aria-pressed="false">Mostrar</button>
+            </div>
+          </div>
+        </div>
+        <p class="nota">La clave queda solo en esta pestaña. No se guarda en el archivo ni en el navegador: al cerrar la pestaña, se borra.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="t-arranque">
+        <header>
+          <h2 id="t-arranque"><span class="paso">1</span>Encender la placa</h2>
+          <span class="nota">Siempre primero, y después de cada limpieza</span>
+        </header>
+        <div class="arranque-fila">
+          <div class="campo">
+            <label for="fw">Firmware (fw)</label>
+            <input class="in" id="fw" value="sim-html" spellcheck="false">
+          </div>
+          <div class="campo">
+            <label for="arranqueId">arranque_id</label>
+            <input class="in" id="arranqueId" inputmode="numeric" placeholder="lo asigna la base">
+          </div>
+          <div class="campo">
+            <label for="seq">Próximo seq</label>
+            <input class="in" id="seq" inputmode="numeric" value="0">
+          </div>
+          <button class="btn primario" id="btnArranque" type="button">Encender placa</button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="t-lectura">
+        <header>
+          <h2 id="t-lectura"><span class="paso">2</span>Mandar una lectura</h2>
+          <div class="campo" style="grid-auto-flow: column; align-items: center; gap: 8px">
+            <label for="motivo">Motivo</label>
+            <select class="in" id="motivo" style="padding:6px 8px; width:auto">
+              <option value="programada">programada</option>
+              <option value="recheck">recheck</option>
+            </select>
+          </div>
+        </header>
+
+        <div class="casos" id="casos">
+          <div class="casos-fila" role="group" aria-label="Casos normales">
+            <span class="etq">Casos</span>
+            <button class="caso" data-caso="sana" type="button">Sana <small>68 %</small></button>
+            <button class="caso" data-caso="sequia" type="button">Sequía <small>55 %</small></button>
+            <button class="caso" data-caso="exceso" type="button">Exceso hídrico <small>80 %</small></button>
+            <button class="caso" data-caso="acido" type="button">pH ácido <small>5.2</small></button>
+            <button class="caso" data-caso="humNull" type="button">Humedad sin dato</button>
+            <button class="caso" data-caso="todoNull" type="button">Todo sin dato</button>
+          </div>
+          <div class="casos-fila" role="group" aria-label="Casos de rechazo">
+            <span class="etq">Rechazo</span>
+            <button class="caso rechazo" data-caso="vacia" type="button">Humedad vacía <small>""</small></button>
+            <button class="caso rechazo" data-caso="h150" type="button">Humedad 150</button>
+            <button class="caso rechazo" data-caso="ajeno" type="button">Arranque ajeno <small>999999</small></button>
+          </div>
+        </div>
+
+        <div class="mediciones" id="mediciones"></div>
+
+        <div class="foto" id="zonaFoto">
+          <div class="mini" id="miniFoto">sin foto</div>
+          <div class="txt">
+            <b id="fotoTitulo">Foto (opcional)</b>
+            <span class="nota" id="fotoDetalle">Arrastrá una foto acá, o elegí un .jpg o el archivo <code>test/foto_demo_base64.txt</code>.</span>
+            <div class="acciones">
+              <label class="btn btn-chico" for="archivoFoto">Elegir archivo</label>
+              <input id="archivoFoto" type="file" accept=".jpg,.jpeg,.png,.txt,image/jpeg,image/png,text/plain" hidden>
+              <button class="btn btn-chico" id="quitarFoto" type="button" hidden>Quitar foto</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="avisos" id="avisos" aria-live="polite"></div>
+
+        <div class="enviar">
+          <span class="meta" id="metaEnvio"></span>
+          <button class="btn primario grande" id="btnEnviar" type="button">Mandar lectura</button>
+        </div>
+        <p class="nota"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> también manda la lectura. Las bandas son los umbrales de Fructificación, como referencia: el que decide es el Motor de WF1.</p>
+      </section>
+    </div>
+
+    <section class="panel registro" aria-labelledby="t-registro">
+      <header>
+        <h2 id="t-registro">Lo que respondió n8n</h2>
+        <button class="btn btn-chico" id="limpiarRegistro" type="button">Vaciar</button>
+      </header>
+      <ol class="lista" id="registro" reversed>
+        <li class="vacio" id="registroVacio">
+          <b>Todavía no mandaste nada.</b>
+          <span>Escribí la clave, encendé la placa y mandá una lectura. Acá aparece cada pedido con lo que contestó n8n: <code>200 aceptada</code> quiere decir que pasó la puerta de WF1; el diagnóstico llega por Telegram.</span>
+        </li>
+      </ol>
+    </section>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- Datos (foto de la base del 21/10/2026) ----------
+// Catálogo del Tomate Cherry (vigente desde el 23/09; criterio visual resumido, el texto exacto está en la base).
+const ETAPAS = [
+  { nombre: "Germinación",    dias: 10, humedad: [80, 95], ph: [6.0, 7.0], npk: [10, 10, 10], criterio: "Emergencia: la plántula asoma del sustrato." },
+  { nombre: "Plántula",       dias: 15, humedad: [70, 85], ph: [6.0, 6.5], npk: [20, 15, 15], criterio: "Cotiledones abiertos." },
+  { nombre: "Vegetativo",     dias: 40, humedad: [60, 75], ph: [6.0, 6.8], npk: [50, 30, 30], criterio: "Cuatro hojas verdaderas o más, sin botones florales." },
+  { nombre: "Floración",      dias: 20, humedad: [50, 65], ph: [6.2, 6.8], npk: [30, 50, 60], criterio: "Racimos con flores amarillas, todavía sin frutos." },
+  { nombre: "Fructificación", dias: 40, humedad: [60, 75], ph: [6.0, 6.8], npk: [25, 40, 60], criterio: "Frutos cuajados verdes; puede haber flores." },
+  { nombre: "Cosecha",        dias: 30, humedad: [45, 60], ph: [6.0, 6.8], npk: [20, 30, 45], criterio: "Frutos con cambio de color hacia rojo." },
+];
+const CULTIVO = { etapa: 4, inicio: new Date("2026-09-23T23:18:15Z") };   // cultivo.fecha_inicio_etapa
+const VENTANA = 0.8;   // WF3 evalúa desde el 80 % de la duración (16.65)
+const DIA = 86400000;
+
+// Las 7 mediciones del contrato (sección 2): unidad y rango físico del sensor.
+// Las 5 que deciden toman su banda de la etapa actual. NPK: ideal ±30 %. `escala` es solo para dibujar.
+const actual = ETAPAS[CULTIVO.etapa];
+const tol = (x) => [+(x * 0.7).toFixed(1), +(x * 1.3).toFixed(1)];
+const MEDICIONES = [
+  { k: "humedad",       nombre: "Humedad",       detalle: "del suelo", uni: "%",     fisico: [0, 100],  escala: [0, 100], banda: actual.humedad,     sana: 68.0 },
+  { k: "temperatura",   nombre: "Temperatura",   detalle: "del suelo", uni: "°C",    fisico: [-40, 80], sana: 22.5 },
+  { k: "ph",            nombre: "pH",            detalle: "",          uni: "",      fisico: [0, 14],   escala: [4, 9],   banda: actual.ph,          sana: 6.4 },
+  { k: "conductividad", nombre: "Conductividad", detalle: "eléctrica", uni: "mS/cm", fisico: [0, 20],   sana: 1.2 },
+  { k: "n",             nombre: "Nitrógeno",     detalle: "ideal " + actual.npk[0], uni: "mg/kg", fisico: [0, 2000], escala: [0, actual.npk[0] * 2], banda: tol(actual.npk[0]), sana: actual.npk[0] },
+  { k: "p",             nombre: "Fósforo",       detalle: "ideal " + actual.npk[1], uni: "mg/kg", fisico: [0, 2000], escala: [0, actual.npk[1] * 2], banda: tol(actual.npk[1]), sana: actual.npk[1] },
+  { k: "k",             nombre: "Potasio",       detalle: "ideal " + actual.npk[2], uni: "mg/kg", fisico: [0, 2000], escala: [0, actual.npk[2] * 2], banda: tol(actual.npk[2]), sana: actual.npk[2] },
+];
+const DECIDEN = MEDICIONES.filter(m => m.banda).map(m => m.k);
+
+// Cada caso parte de la lectura sana y cambia lo suyo. `null` = sin dato.
+const CASOS = {
+  sana:     {},
+  sequia:   { humedad: 55 },
+  exceso:   { humedad: 80 },
+  acido:    { ph: 5.2 },
+  humNull:  { humedad: null },
+  todoNull: Object.fromEntries(MEDICIONES.map(m => [m.k, null])),
+  vacia:    { humedad: "" },
+  h150:     { humedad: 150 },
+  ajeno:    {},
+};
+
+const $ = (id) => document.getElementById(id);
+const estado = { foto: null, caso: "sana", arranqueAjeno: false, confirmar16_39: false, enviando: false, vista: CULTIVO.etapa };
+const fmtFecha = (d, conHora) => d.toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "numeric", ...(conHora ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : {}) });
+const fmtFalta = (ms) => { const h = Math.floor(ms / 3600000); return h >= 24 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${h} h`; };
+
+// ---------- La planta, dibujada según la etapa ----------
+function hoja(x, y, lado, tam, color) {
+  const rx = 15 * tam, ry = 6 * tam, cx = x + lado * (rx - 2);
+  return `<ellipse cx="${cx}" cy="${y}" rx="${rx}" ry="${ry}" fill="${color}" transform="rotate(${lado * -24} ${x} ${y})"/>`;
+}
+function racimo(x, y, color, n, r) {
+  let s = `<path d="M${x} ${y - 8} q ${-4} 4 ${-2} 8" stroke="var(--stem)" stroke-width="1.5" fill="none"/>`;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 1.2 + 0.4;
+    s += `<circle cx="${(x + Math.cos(a) * r * 1.3).toFixed(1)}" cy="${(y + Math.sin(a) * r * 1.1).toFixed(1)}" r="${r}" fill="${color}"/>`;
+  }
+  return s;
+}
+function flor(x, y) {
+  let s = "";
+  for (let i = 0; i < 5; i++) {
+    const a = i / 5 * Math.PI * 2;
+    s += `<ellipse cx="${(x + Math.cos(a) * 3).toFixed(1)}" cy="${(y + Math.sin(a) * 3).toFixed(1)}" rx="2.6" ry="1.6" fill="var(--flower)" transform="rotate(${(a * 180 / Math.PI).toFixed(0)} ${(x + Math.cos(a) * 3).toFixed(1)} ${(y + Math.sin(a) * 3).toFixed(1)})"/>`;
+  }
+  return s + `<circle cx="${x}" cy="${y}" r="1.4" fill="var(--pot-2)"/>`;
+}
+function dibujarPlanta(i) {
+  const suelo = 150;
+  const alto = [8, 34, 82, 104, 114, 116][i];
+  const top = suelo - alto;
+  let s = "";
+  // maceta y sustrato
+  s += `<path d="M30 ${suelo - 4} L130 ${suelo - 4} L120 196 L40 196 Z" fill="var(--pot)"/>`;
+  s += `<rect x="26" y="${suelo - 10}" width="108" height="10" rx="3" fill="var(--pot-2)"/>`;
+  s += `<ellipse cx="80" cy="${suelo - 9}" rx="50" ry="5" fill="var(--soil)"/>`;
+  if (i === 0) {
+    s += `<ellipse cx="86" cy="${suelo - 10}" rx="5" ry="3" fill="var(--seed)"/>`;
+    s += `<path d="M80 ${suelo - 9} q 0 -10 6 -10 q 4 0 3 4" stroke="var(--stem)" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+    return s;
+  }
+  // tallo
+  s += `<path d="M80 ${suelo - 9} Q 74 ${(suelo + top) / 2} 80 ${top}" stroke="var(--stem)" stroke-width="${i < 2 ? 2.5 : 4}" fill="none" stroke-linecap="round"/>`;
+  // cotiledones
+  if (i <= 2) s += hoja(80, top + (i === 1 ? 2 : 74), -1, 0.55, "var(--leaf)") + hoja(80, top + (i === 1 ? 2 : 74), 1, 0.55, "var(--leaf)");
+  // hojas verdaderas
+  const pares = [0, 1, 4, 5, 5, 5][i];
+  for (let p = 0; p < pares; p++) {
+    const y = top + 8 + p * ((alto - 30) / Math.max(pares, 1));
+    const tam = 1.05 - p * 0.06 - (i === 1 ? 0.45 : 0);
+    s += hoja(79, y + (p % 2 ? 6 : 0), p % 2 ? 1 : -1, tam, p % 2 ? "var(--leaf-2)" : "var(--leaf)");
+    s += hoja(79, y + (p % 2 ? 0 : 6), p % 2 ? -1 : 1, tam * 0.9, p % 2 ? "var(--leaf)" : "var(--leaf-2)");
+  }
+  // flores y frutos
+  if (i === 3) { s += flor(104, top + 30) + flor(110, top + 38) + flor(56, top + 52) + flor(50, top + 60) + flor(84, top + 4); }
+  if (i === 4) { s += racimo(108, top + 44, "var(--fruit-green)", 4, 5) + racimo(52, top + 64, "var(--fruit-green)", 3, 5) + flor(98, top + 16) + flor(62, top + 30); }
+  if (i === 5) { s += racimo(108, top + 44, "var(--fruit-red)", 4, 5.5) + racimo(52, top + 64, "var(--fruit-red)", 4, 5.5) + racimo(96, top + 18, "var(--fruit-green)", 2, 4.5); }
+  return s;
+}
+
+// ---------- Ficha del cultivo ----------
+function armarFicha() {
+  const total = ETAPAS.reduce((a, e) => a + e.dias, 0);
+  const dias = (Date.now() - CULTIVO.inicio) / DIA;
+  $("barra").innerHTML = ETAPAS.map((e, i) => {
+    const clase = i < CULTIVO.etapa ? "pasada" : i === CULTIVO.etapa ? "actual" : "";
+    const lleno = i === CULTIVO.etapa ? `<div class="lleno" style="width:${Math.min(100, dias / e.dias * 100)}%"></div>` : "";
+    return `<div class="seg ${clase}" style="flex:${e.dias / total}">${lleno}</div>`;
+  }).join("");
+  // La marca de la ventana de WF3 va sobre el segmento actual, como hermana (el segmento recorta lo que sobresale).
+  const seg = $("barra").children[CULTIVO.etapa];
+  const marca = document.createElement("div");
+  marca.className = "ventana";
+  marca.title = "WF3 evalúa desde acá";
+  requestAnimationFrame(() => { marca.style.left = (seg.offsetLeft + seg.offsetWidth * VENTANA) + "px"; });
+  $("barra").appendChild(marca);
+
+  $("etapas").innerHTML = ETAPAS.map((e, i) => `
+    <button type="button" class="etapa${i === CULTIVO.etapa ? " actual" : ""}" data-i="${i}" aria-pressed="false">
+      <b>${e.nombre}</b><span>${i === CULTIVO.etapa ? "actual · " : ""}${e.dias} días</span>
+    </button>`).join("");
+  $("etapas").querySelectorAll(".etapa").forEach(b => b.addEventListener("click", () => verEtapa(+b.dataset.i)));
+  verEtapa(CULTIVO.etapa);
+}
+
+function verEtapa(i) {
+  estado.vista = i;
+  const e = ETAPAS[i], esActual = i === CULTIVO.etapa;
+  $("planta").innerHTML = dibujarPlanta(i);
+  $("planta").setAttribute("aria-label", `Dibujo de la planta en ${e.nombre}`);
+  $("t-etapa").textContent = e.nombre;
+  $("criterio").textContent = "Cómo se reconoce en una foto: " + e.criterio;
+  $("previaTag").hidden = esActual;
+  $("etapas").querySelectorAll(".etapa").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.i === i)));
+  $("umbrales").innerHTML = [
+    ["Humedad", `${e.humedad[0]}–${e.humedad[1]} %`],
+    ["pH", `${e.ph[0].toFixed(1)}–${e.ph[1].toFixed(1)}`],
+    ["N · P · K ideal", `${e.npk.join(" · ")} mg/kg`],
+  ].map(([n, v]) => `<span class="umbral"><span>${n}</span><b>${v}</b></span>`).join("");
+
+  const inicioVentana = new Date(CULTIVO.inicio.getTime() + e.dias * VENTANA * DIA);
+  if (esActual) {
+    const dias = (Date.now() - CULTIVO.inicio) / DIA;
+    $("contador").innerHTML = `<b>Día ${Math.floor(dias) + 1}<small> de ${e.dias}</small></b><span>desde el ${fmtFecha(CULTIVO.inicio)}</span>`;
+    const faltan = inicioVentana - Date.now();
+    $("wf3").innerHTML = faltan > 0
+      ? `<i></i>WF3 evalúa la etapa desde el ${fmtFecha(inicioVentana, true)} h, en ${fmtFalta(faltan)}, si n8n está prendido`
+      : `<i></i>Ventana de WF3 abierta desde el ${fmtFecha(inicioVentana, true)}: evalúa en el próximo turno, cada 8 h, si n8n está prendido`;
+    $("fuente").innerHTML = "Datos de la base del 21/10 · no se actualizan solos";
+  } else {
+    $("contador").innerHTML = `<b>${e.dias}<small> días</small></b><span>duración estimada</span>`;
+    $("wf3").innerHTML = `<i></i>WF3 la evalúa desde el día ${Math.round(e.dias * VENTANA)} (el 80 % de su duración)`;
+    $("fuente").innerHTML = `<button class="link" type="button" id="volver">Volver a ${actual.nombre}</button>`;
+    $("volver").addEventListener("click", () => verEtapa(CULTIVO.etapa));
+  }
+}
+
+// ---------- Mediciones ----------
+function armarMediciones() {
+  const cont = $("mediciones");
+  for (const m of MEDICIONES) {
+    const fila = document.createElement("div");
+    fila.className = "med";
+    fila.id = "fila-" + m.k;
+    fila.innerHTML = `
+      <div class="nom"><b>${m.nombre}</b><span>${m.detalle || (m.banda ? "decide" : "")}</span></div>
+      <div class="valor">
+        <input class="in" id="v-${m.k}" inputmode="decimal" aria-label="${m.nombre}" spellcheck="false">
+        <span class="uni">${m.uni}</span>
+      </div>
+      <div class="escala" id="e-${m.k}"></div>
+      <label class="sindato"><input type="checkbox" id="n-${m.k}"> sin dato</label>`;
+    cont.appendChild(fila);
+    $("v-" + m.k).addEventListener("input", () => { marcarCaso(null); refrescar(); });
+    $("n-" + m.k).addEventListener("change", () => { marcarCaso(null); refrescar(); });
+  }
+}
+
+// Lee un campo tal como se va a mandar: null, "" (texto vacío), número, o el texto tal cual.
+function leer(m) {
+  if ($("n-" + m.k).checked) return null;
+  const t = $("v-" + m.k).value.trim();
+  if (t === "") return "";
+  const x = Number(t.replace(",", "."));
+  return Number.isFinite(x) ? x : t;
+}
+
+function dibujarEscala(m) {
+  const e = $("e-" + m.k);
+  const v = leer(m);
+  $("fila-" + m.k).classList.toggle("nulo", v === null);
+  $("v-" + m.k).disabled = v === null;
+  if (v === null) { e.innerHTML = `<span class="sin-medir">Se manda null: el sensor no pudo medir</span>`; return; }
+  if (typeof v !== "number") { e.innerHTML = `<span class="sin-medir">${v === "" ? "Texto vacío" : "No es un número"}: WF1 la rechaza</span>`; return; }
+  if (v < m.fisico[0] || v > m.fisico[1]) { e.innerHTML = `<span class="sin-medir">Fuera del rango del sensor (${m.fisico[0]} a ${m.fisico[1]}): WF1 la rechaza</span>`; return; }
+  if (!m.banda) { e.innerHTML = `<span class="sin-banda">Se guarda, no decide</span>`; return; }
+  const [a, b] = m.escala, pos = (x) => Math.min(100, Math.max(0, (x - a) / (b - a) * 100));
+  const fuera = v < m.banda[0] || v > m.banda[1];
+  e.innerHTML = `
+    <div class="pista" role="img" aria-label="${m.nombre} ${v}, banda ${m.banda[0]} a ${m.banda[1]}">
+      <div class="banda" style="left:${pos(m.banda[0])}%;width:${pos(m.banda[1]) - pos(m.banda[0])}%"></div>
+      <div class="marca${fuera ? " fuera" : ""}" style="left:${pos(v)}%"></div>
+    </div>
+    <small><span>${actual.nombre} ${m.banda[0]}–${m.banda[1]}</span>${fuera ? `<em>${v < m.banda[0] ? "bajo" : "sobre"} la banda</em>` : ""}</small>`;
+}
+
+function aplicarCaso(nombre) {
+  const caso = CASOS[nombre];
+  for (const m of MEDICIONES) {
+    const v = Object.prototype.hasOwnProperty.call(caso, m.k) ? caso[m.k] : m.sana;
+    $("n-" + m.k).checked = v === null;
+    $("v-" + m.k).value = v === null ? String(m.sana) : String(v);
+  }
+  estado.arranqueAjeno = nombre === "ajeno";
+  marcarCaso(nombre);
+  refrescar();
+}
+
+function marcarCaso(nombre) {
+  estado.caso = nombre;
+  if (nombre !== "ajeno") estado.arranqueAjeno = false;
+  document.querySelectorAll(".caso").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.caso === nombre)));
+}
+
+// ---------- Foto ----------
+function cargarArchivo(file) {
+  if (!file) return;
+  const lector = new FileReader();
+  const esTexto = file.type === "text/plain" || /\.txt$/i.test(file.name);
+  lector.onload = () => {
+    let b64 = String(lector.result);
+    b64 = esTexto ? b64.trim() : b64.slice(b64.indexOf(",") + 1);
+    if (b64.length < 1000) {
+      avisoSuelto("crit", `<b>Esa foto no sirve.</b> Tiene ${b64.length} caracteres en base64; WF1 solo la toma como foto si tiene más de 1.000.`);
+      return;
+    }
+    estado.foto = b64;
+    estado.confirmar16_39 = false;
+    const tipo = b64.startsWith("iVBOR") ? "png" : "jpeg";
+    const img = document.createElement("img");
+    img.className = "mini"; img.id = "miniFoto"; img.alt = "Foto que se va a mandar";
+    img.src = `data:image/${tipo};base64,${b64}`;
+    $("miniFoto").replaceWith(img);
+    $("fotoTitulo").textContent = file.name;
+    $("fotoDetalle").textContent = `${b64.length.toLocaleString("es-AR")} caracteres en base64. Va con cada lectura hasta que la quites.`;
+    $("quitarFoto").hidden = false;
+    refrescar();
+  };
+  lector.onerror = () => avisoSuelto("crit", "<b>No se pudo leer el archivo.</b> Probá elegirlo de nuevo.");
+  esTexto ? lector.readAsText(file) : lector.readAsDataURL(file);
+}
+
+function quitarFoto() {
+  estado.foto = null; estado.confirmar16_39 = false;
+  const div = document.createElement("div");
+  div.className = "mini"; div.id = "miniFoto"; div.textContent = "sin foto";
+  $("miniFoto").replaceWith(div);
+  $("fotoTitulo").textContent = "Foto (opcional)";
+  $("fotoDetalle").innerHTML = "Arrastrá una foto acá, o elegí un .jpg o el archivo <code>test/foto_demo_base64.txt</code>.";
+  $("quitarFoto").hidden = true;
+  $("archivoFoto").value = "";
+  refrescar();
+}
+
+// ---------- Avisos (antes de mandar) ----------
+let avisoTemporal = null;
+function avisoSuelto(tipo, html) { avisoTemporal = { tipo, html }; refrescar(); }
+
+function avisos() {
+  const lista = [];
+  if (avisoTemporal) lista.push(avisoTemporal);
+  const v = Object.fromEntries(MEDICIONES.map(m => [m.k, leer(m)]));
+  const todosNull = DECIDEN.every(k => v[k] === null);
+  if (!$("clave").value) lista.push({ tipo: "info", html: "<b>Falta la clave.</b> Sin ella, n8n contesta 403 a todo." });
+  if (!$("arranqueId").value && !estado.arranqueAjeno) lista.push({ tipo: "info", html: "<b>La placa no está encendida.</b> Tocá «Encender placa» para que la base le asigne un arranque_id." });
+  if (estado.arranqueAjeno) lista.push({ tipo: "warn", html: "<b>Se manda con arranque_id 999999</b>, que no es de esta placa. WF1 la rechaza con 400. El arranque de la placa no se toca." });
+  if (typeof v.humedad === "number" && v.humedad >= 0 && v.humedad < actual.humedad[0])
+    lista.push({ tipo: "warn", html: `<b>Con humedad bajo ${actual.humedad[0]} % el Motor decide sequía</b> y WF5 registra un riego real. Cuenta para el tope de 4 riegos en 6 horas.` });
+  if (estado.foto && todosNull)
+    lista.push({ tipo: "crit", html: "<b>Foto con todo sin dato:</b> es el camino de 16.39, donde la lectura se pierde entera y sin aviso. Si querés mandarla igual, tocá el botón otra vez." });
+  else if (estado.foto)
+    lista.push({ tipo: "info", html: "<b>Va con foto.</b> Si la lectura tiene alerta, WF2 gasta hasta 2 pedidos de Gemini, de un cupo de 20 por día. Sin alerta, WF1 solo la sube y la deja para WF3." });
+  return { lista, bloquea16_39: !!estado.foto && todosNull };
+}
+
+function refrescar() {
+  MEDICIONES.forEach(dibujarEscala);
+  const { lista, bloquea16_39 } = avisos();
+  $("avisos").innerHTML = lista.map(a => `<div class="aviso ${a.tipo}"><p>${a.html}</p></div>`).join("");
+  const btn = $("btnEnviar"), confirmar = bloquea16_39 && estado.confirmar16_39;
+  btn.classList.toggle("alerta", confirmar);
+  btn.classList.toggle("primario", !confirmar);
+  btn.textContent = estado.enviando ? "Mandando…" : (confirmar ? "Mandar igual" : "Mandar lectura");
+  btn.disabled = estado.enviando;
+  const arr = estado.arranqueAjeno ? "999999" : ($("arranqueId").value || "—");
+  $("metaEnvio").textContent = `arranque ${arr} · seq ${$("seq").value || "0"}${estado.foto ? " · con foto" : ""}`;
+}
+
+function conexion(estadoPill, texto) {
+  $("conexionPill").dataset.estado = estadoPill;
+  $("conexionTxt").textContent = texto;
+}
+
+// ---------- Pedidos ----------
+async function pedir(ruta, cuerpo) {
+  const base = $("url").value.trim().replace(/\/+$/, "");
+  const inicio = performance.now();
+  try {
+    const r = await fetch(`${base}/${ruta}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Device-Key": $("clave").value },
+      body: JSON.stringify(cuerpo),
+    });
+    const texto = await r.text();
+    let json = null;
+    try { json = JSON.parse(texto); } catch (_) { /* respuesta que no es JSON */ }
+    if (r.status === 403) conexion("crit", "n8n · clave incorrecta");
+    else conexion("ok", "n8n · responde");
+    return { status: r.status, json, texto, ms: Math.round(performance.now() - inicio) };
+  } catch (err) {
+    conexion("crit", "n8n · sin respuesta");
+    return { status: 0, json: null, texto: String(err), ms: Math.round(performance.now() - inicio) };
+  }
+}
+
+// Vacío → null (WF1 lo rechaza con su error), no 0: Number("") daría 0 y el registro mentiría.
+function entero(t) { const s = String(t).trim(); if (s === "") return null; const x = Number(s); return Number.isSafeInteger(x) ? x : s; }
+
+async function encender() {
+  const cuerpo = { v: 1, dispositivo_mac: $("mac").value.trim(), fw: $("fw").value.trim() };
+  $("btnArranque").disabled = true;
+  const res = await pedir("arranque", cuerpo);
+  $("btnArranque").disabled = false;
+  if (res.status === 200 && res.json && res.json.arranque_id) {
+    $("arranqueId").value = res.json.arranque_id;
+    $("seq").value = 0;
+  }
+  anotar("arranque", cuerpo, res);
+  refrescar();
+}
+
+async function enviar() {
+  if (estado.enviando) return;
+  const { bloquea16_39 } = avisos();
+  if (bloquea16_39 && !estado.confirmar16_39) { estado.confirmar16_39 = true; refrescar(); return; }
+  avisoTemporal = null;
+
+  const cuerpo = {
+    v: 1,
+    dispositivo_mac: $("mac").value.trim(),
+    arranque_id: estado.arranqueAjeno ? 999999 : entero($("arranqueId").value),
+    seq: entero($("seq").value || "0"),
+    ts: Math.floor(Date.now() / 1000),
+    motivo: $("motivo").value,
+  };
+  for (const m of MEDICIONES) cuerpo[m.k] = leer(m);
+  if (estado.foto) cuerpo.foto_base64 = estado.foto;
+
+  estado.enviando = true; refrescar();
+  const res = await pedir("telemetria", cuerpo);
+  estado.enviando = false;
+  estado.confirmar16_39 = false;
+  // Como la placa: el seq sube con cada envío, haya salido bien o no.
+  if (typeof cuerpo.seq === "number") $("seq").value = cuerpo.seq + 1;
+  if (estado.arranqueAjeno) marcarCaso(null);
+  anotar("telemetria", cuerpo, res);
+  refrescar();
+}
+
+// ---------- Registro ----------
+function veredicto(ruta, res) {
+  const s = res.status, j = res.json || {};
+  if (s === 0) return { clase: "crit", pill: "sin respuesta", texto: "No hubo respuesta. O n8n está apagado, o el navegador no dejó leer la respuesta. Si n8n está prendido, mirá en las ejecuciones de WF1 si la lectura llegó. Con la clave mal, n8n contesta 403 y el navegador a veces lo muestra así." };
+  if (s === 403) return { clase: "crit", pill: "403", texto: "Clave incorrecta. Revisala contra la credencial ESP32 Telemetra Key." };
+  if (s === 500) return { clase: "crit", pill: "500", texto: "n8n falló al procesar. Si dice «Unused Respond to Webhook node», el Webhook volvió a Respond: Immediately." };
+  if (ruta === "arranque") {
+    if (s === 200 && j.arranque_id) return { clase: "ok", pill: "200", texto: `Placa encendida. La base le asignó el arranque ${j.arranque_id}; seq vuelve a 0.` };
+    if (s === 404) return { clase: "warn", pill: "404", texto: "Esa MAC no corresponde a ninguna placa registrada." };
+    if (s === 400) return { clase: "warn", pill: "400", texto: "Pedido de arranque inválido." };
+  } else {
+    if (s === 200 && j.estado === "aceptada") return { clase: "ok", pill: "200 aceptada", texto: "Pasó la puerta de WF1 y se guardó. Si el Motor encuentra algo para avisar, llega por Telegram; si está sana, no llega nada." };
+    if (s === 400) return { clase: "warn", pill: "400 rechazada", texto: "WF1 la rechazó y la anotó en lectura_rechazada. No llegó al Motor." };
+    if (s === 404) return { clase: "warn", pill: "404", texto: "No existe ese webhook. ¿WF1 está activo y publicado?" };
+  }
+  return { clase: "info", pill: String(s), texto: "Respuesta inesperada. Mirá el detalle." };
+}
+
+function anotar(ruta, cuerpo, res) {
+  $("registroVacio").hidden = true;
+  const v = veredicto(ruta, res);
+  const li = document.createElement("li");
+  li.className = `entrada nueva ${v.clase}`;
+  const hora = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  const errores = (res.json && Array.isArray(res.json.errores)) ? res.json.errores : [];
+  const mostrado = { ...cuerpo };
+  if (mostrado.foto_base64) mostrado.foto_base64 = `[foto, ${cuerpo.foto_base64.length} caracteres]`;
+
+  let valores = "";
+  if (ruta === "telemetria") {
+    const partes = MEDICIONES.map(m => {
+      const x = cuerpo[m.k];
+      if (x === null) return `<span class="falta">${m.k} null</span>`;
+      if (typeof x !== "number") return `<span class="falta">${m.k} ${esc(JSON.stringify(x))}</span>`;
+      return `<span>${m.k} ${x}</span>`;
+    });
+    partes.unshift(`<span>arranque ${esc(String(cuerpo.arranque_id))} · seq ${esc(String(cuerpo.seq))}</span>`);
+    if (cuerpo.foto_base64) partes.push(`<span>con foto</span>`);
+    valores = `<div class="valores">${partes.join("")}</div>`;
+  }
+
+  li.innerHTML = `
+    <div class="linea1">
+      <span class="pill ${v.clase}">${esc(v.pill)}</span>
+      <span class="ruta">/${ruta}</span>
+      <span class="hora">${hora} · ${res.ms} ms</span>
+    </div>
+    <p class="resumen">${esc(v.texto)}</p>
+    ${errores.length ? `<ul class="errores">${errores.map(e => `<li>${esc(String(e))}</li>`).join("")}</ul>` : ""}
+    ${valores}
+    <details>
+      <summary>Ver lo que se mandó y lo que volvió</summary>
+      <pre>${esc(JSON.stringify(mostrado, null, 2))}</pre>
+      <pre>${esc(res.json ? JSON.stringify(res.json, null, 2) : (res.texto || "(vacío)"))}</pre>
+    </details>`;
+  $("registro").prepend(li);
+}
+
+function esc(s) { return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ---------- Arranque de la página ----------
+armarFicha();
+armarMediciones();
+aplicarCaso("sana");
+
+document.querySelectorAll(".caso").forEach(b => b.addEventListener("click", () => { avisoTemporal = null; aplicarCaso(b.dataset.caso); }));
+["clave", "arranqueId", "seq"].forEach(id => $(id).addEventListener("input", refrescar));
+$("verClave").addEventListener("click", () => {
+  const ver = $("clave").type === "password";
+  $("clave").type = ver ? "text" : "password";
+  $("verClave").textContent = ver ? "Ocultar" : "Mostrar";
+  $("verClave").setAttribute("aria-pressed", String(ver));
+});
+$("btnArranque").addEventListener("click", encender);
+$("btnEnviar").addEventListener("click", enviar);
+$("archivoFoto").addEventListener("change", (e) => cargarArchivo(e.target.files[0]));
+$("quitarFoto").addEventListener("click", quitarFoto);
+$("limpiarRegistro").addEventListener("click", () => {
+  document.querySelectorAll("#registro .entrada").forEach(li => li.remove());
+  $("registroVacio").hidden = false;
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); enviar(); } });
+window.addEventListener("resize", () => {
+  const seg = $("barra").children[CULTIVO.etapa], marca = $("barra").querySelector(".ventana");
+  if (seg && marca) marca.style.left = (seg.offsetLeft + seg.offsetWidth * VENTANA) + "px";
+});
+
+const zona = $("zonaFoto");
+["dragenter", "dragover"].forEach(t => zona.addEventListener(t, (e) => { e.preventDefault(); zona.classList.add("arrastrando"); }));
+["dragleave", "drop"].forEach(t => zona.addEventListener(t, (e) => { e.preventDefault(); zona.classList.remove("arrastrando"); }));
+zona.addEventListener("drop", (e) => cargarArchivo(e.dataTransfer.files[0]));
+// Que soltar un archivo fuera de la zona no haga que el navegador lo abra y cierre la página (y la clave).
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+</script>
+</body>
+</html>

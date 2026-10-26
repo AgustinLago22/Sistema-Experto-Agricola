@@ -11,7 +11,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        0,
+        -128,
         0
       ],
       "id": "656667c9-edb9-438a-82cb-c8bcb6cba5ca",
@@ -65,14 +65,16 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{\n  JSON.stringify({\n    \"contents\": [\n      {\n        \"parts\": [\n          {\n            \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\nCONTEXTO DEL CULTIVO:\n- Planta: ${$json.body?.planta || $json.planta}\n- Etapa fenológica: ${$json.body?.etapa || $json.etapa}\n- Dispositivo: ${$json.body?.mac_address || $json.mac_address}\n\nDATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n- Humedad del suelo: ${$json.body?.humedad || $json.humedad}%\n- pH: ${$json.body?.ph || $json.ph}\n- Nitrógeno (N): ${$json.body?.n || $json.n} mg/kg\n- Fósforo (P): ${$json.body?.p || $json.p} mg/kg\n- Potasio (K): ${$json.body?.k || $json.k} mg/kg\n\nDIAGNÓSTICO DEL SISTEMA DE REGLAS:\n- Estado: ${$json.body?.estado || $json.estado}\n- Observaciones: ${(Array.isArray($json.body?.observaciones) ? $json.body.observaciones : ($json.observaciones || [])).join('. ')}\n\nTAREA:\n1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n2. Correlacioná los signos visuales con los datos de sensores.\n3. Generá un plan de acción inmediato.\n\nRESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n{\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [], \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n          },\n          {\n            \"inline_data\": {\n              \"mime_type\": \"image/jpeg\",\n              \"data\": $json.body.foto_base64\n            }\n          }\n        ]\n      }\n    ],\n    \"generationConfig\": {\n      \"temperature\": 0,\n      \"responseMimeType\": \"application/json\"\n    }\n  })\n}}",
-        "options": {}
+        "jsonBody": "={{\n    JSON.stringify({\n      \"contents\": [\n        {\n          \"parts\": [\n            {\n              \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\n  CONTEXTO DEL CULTIVO:\n  - Planta: ${$json.body?.planta || $json.planta}\n  - Etapa fenológica: ${$json.body?.etapa || $json.etapa}\n  - Dispositivo: ${$json.body?.mac_address || $json.mac_address}\n\n  DATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n  (\"sin dato\" = el sensor no reportó esa medición; no la supongas ni la infieras.)\n  - Humedad del suelo: ${(x => x == null ? 'sin dato' : x + '%')($json.body?.humedad ?? $json.humedad)}\n  - pH: ${(x => x == null ? 'sin dato' : x)($json.body?.ph ?? $json.ph)}\n  - Nitrógeno (N): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.n ?? $json.n)}\n  - Fósforo (P): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.p ?? $json.p)}\n  - Potasio (K): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.k ?? $json.k)}\nRANGOS SANOS PARA ESTA ETAPA (los mismos que usa el sistema de reglas):\n ${(u => u ? [\n   '- Humedad del suelo: ' + (u.humedad?.min ?? '?') + ' – ' + (u.humedad?.max ?? '?') + ' %',\n   '- pH: ' + (u.ph?.min ?? '?') + ' – ' + (u.ph?.max ?? '?'),\n   '- N · P · K ideal: ' + (u.n_ideal ?? '?') + ' · ' + (u.p_ideal ?? '?') + ' · ' + (u.k_ideal ?? '?') + ' mg/kg (se acepta ±30 %)'\n ].join('\\n') : '- No informados: no supongas rangos.')($json.body?.umbrales ?? $json.umbrales)}\n\n  DIAGNÓSTICO DEL SISTEMA DE REGLAS:\n  - Estado: ${$json.body?.estado || $json.estado}\n  - Observaciones: ${(Array.isArray($json.body?.observaciones) ? $json.body.observaciones : ($json.observaciones || [])).join('. ')}\n\n  TAREA:\n  1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n  2. Correlacioná los signos visuales con los datos de sensores.\n  3. Generá un plan de acción inmediato.\n\n  RESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n  {\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [],\n  \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n            },\n            {\n              \"inline_data\": {\n                \"mime_type\": \"image/jpeg\",\n                \"data\": $json.body.foto_base64\n              }\n            }\n          ]\n        }\n      ],\n      \"generationConfig\": {\n        \"temperature\": 0,\n        \"responseMimeType\": \"application/json\"\n      }\n    })\n  }}",
+        "options": {
+          "timeout": 60000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        224,
-        0
+        144,
+        -112
       ],
       "id": "cf92bc53-35b8-4e19-8720-c4424bae0d83",
       "name": "IA Vision Gemini",
@@ -85,7 +87,7 @@
           "name": "Gemini"
         }
       },
-      "onError": "continueRegularOutput"
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -94,7 +96,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        416,
+        480,
         0
       ],
       "id": "ec2a7f9a-af88-4759-bd54-ee41a8253350",
@@ -189,6 +191,47 @@
       ],
       "id": "716d9947-d83a-4c50-8ac8-036857f1a804",
       "name": "Diagnostico Fallido"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n   JSON.stringify({\n     \"contents\": [\n       {\n         \"parts\": [\n           {\n             \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\n CONTEXTO DEL CULTIVO:\n - Planta: ${$('Webhook').first().json.body?.planta || $('Webhook').first().json.planta}\n - Etapa fenológica: ${$('Webhook').first().json.body?.etapa || $('Webhook').first().json.etapa}\n - Dispositivo: ${$('Webhook').first().json.body?.mac_address || $('Webhook').first().json.mac_address}\n\n DATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n (\"sin dato\" = el sensor no reportó esa medición; no la supongas ni la infieras.)\n - Humedad del suelo: ${(x => x == null ? 'sin dato' : x + '%')($('Webhook').first().json.body?.humedad ?? $('Webhook').first().json.humedad)}\n - pH: ${(x => x == null ? 'sin dato' : x)($('Webhook').first().json.body?.ph ?? $('Webhook').first().json.ph)}\n - Nitrógeno (N): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.n ?? $('Webhook').first().json.n)}\n - Fósforo (P): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.p ?? $('Webhook').first().json.p)}\n - Potasio (K): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.k ?? $('Webhook').first().json.k)}\nRANGOS SANOS PARA ESTA ETAPA (los mismos que usa el sistema de reglas):\n  ${(u => u ? [\n    '- Humedad del suelo: ' + (u.humedad?.min ?? '?') + ' – ' + (u.humedad?.max ?? '?') + ' %',\n    '- pH: ' + (u.ph?.min ?? '?') + ' – ' + (u.ph?.max ?? '?'),\n    '- N · P · K ideal: ' + (u.n_ideal ?? '?') + ' · ' + (u.p_ideal ?? '?') + ' · ' + (u.k_ideal ?? '?') + ' mg/kg (se acepta ±30 %)'\n  ].join('\\n') : '- No informados: no supongas rangos.')($('Webhook').first().json.body?.umbrales ?? $('Webhook').first().json.umbrales)}\n\n DIAGNÓSTICO DEL SISTEMA DE REGLAS:\n - Estado: ${$('Webhook').first().json.body?.estado || $('Webhook').first().json.estado}\n - Observaciones: ${(Array.isArray($('Webhook').first().json.body?.observaciones) ? $('Webhook').first().json.body.observaciones :\n ($('Webhook').first().json.observaciones || [])).join('. ')}\n\n TAREA:\n 1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n 2. Correlacioná los signos visuales con los datos de sensores.\n 3. Generá un plan de acción inmediato.\n\n RESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n {\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [],\n \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n           },\n           {\n             \"inline_data\": {\n               \"mime_type\": \"image/jpeg\",\n               \"data\": $('Webhook').first().json.body.foto_base64\n             }\n           }\n         ]\n       }\n     ],\n     \"generationConfig\": {\n       \"temperature\": 0,\n       \"responseMimeType\": \"application/json\"\n     }\n   })\n }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        256,
+        160
+      ],
+      "id": "2b56731e-3256-4f37-b9c3-67a37614230b",
+      "name": "IA Vision Gemini Respaldo",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 2,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "CvqQva9wKhAA1ltK",
+          "name": "Gemini"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {},
@@ -209,6 +252,13 @@
         [
           {
             "node": "Parsear Respuesta IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IA Vision Gemini Respaldo",
             "type": "main",
             "index": 0
           }
@@ -254,6 +304,17 @@
           }
         ]
       ]
+    },
+    "IA Vision Gemini Respaldo": {
+      "main": [
+        [
+          {
+            "node": "Parsear Respuesta IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -261,7 +322,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "c1cf015e-9e7e-4784-8af7-f239820ad491",
+  "versionId": "9e439858-067e-4950-87f4-f889cfe92768",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

@@ -111,7 +111,8 @@
             "batch": {
               "batchSize": 1
             }
-          }
+          },
+          "timeout": 60000
         }
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -124,13 +125,14 @@
       "name": "IA Vision Fenologica",
       "retryOnFail": true,
       "waitBetweenTries": 5000,
+      "maxTries": 2,
       "credentials": {
         "httpQueryAuth": {
           "id": "CvqQva9wKhAA1ltK",
           "name": "Gemini"
         }
       },
-      "onError": "continueRegularOutput"
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -139,7 +141,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2128,
+        2224,
         -224
       ],
       "id": "81610dec-7c71-429e-96b7-dae24d3bedbb",
@@ -477,6 +479,52 @@
           "name": "Sup S"
         }
       }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n    contents: [{\n      parts: [\n        { text:\n  `Analizá la foto de un cultivo de ${$('Foto Descargada').item.json.planta}.\n\n  ETAPA ACTUAL REGISTRADA: ${$('Foto Descargada').item.json.etapa_actual}\n  Se reconoce por: ${$('Foto Descargada').item.json.criterio_etapa_actual}\n\n  ETAPA SIGUIENTE EN EL CATÁLOGO: ${$('Foto Descargada').item.json.etapa_siguiente}\n  Se reconoce por: ${$('Foto Descargada').item.json.criterio_etapa_siguiente}\n\n  TAREA:\n  Decidí, basándote solo en lo que se ve en la imagen, si la planta ya dejó la etapa actual.\n  - Si se ve el criterio de la etapa siguiente: cambio_confirmado = true y etapa_detectada = \"${$('Foto Descargada').item.json.etapa_siguiente}\".\n  - Si la planta sigue en la etapa actual: cambio_confirmado = false y etapa_detectada = \"${$('Foto Descargada').item.json.etapa_actual}\".\n  - Si la planta ya dejó la etapa actual pero muestra una etapa distinta de la siguiente, cambio_confirmado = true y nombrá en etapa_detectada la etapa que\n  ves, con su nombre agronómico.\n  - Si la imagen no permite decidir (borrosa, planta no visible), cambio_confirmado = false y confianza baja.\n\n  RESPONDÉ SOLO con un objeto JSON con estas claves:\n  - cambio_confirmado: booleano\n  - etapa_detectada: texto\n  - evidencia_visual: texto, lo que se observa en la foto\n  - confianza: número entre 0 y 1\n  - justificacion: texto de 1 o 2 oraciones` },\n        { inline_data: { mime_type: \"image/jpeg\", data: $('Foto Descargada').item.json.foto_base64 } }\n      ]\n    }],\n    generationConfig: { temperature: 0, responseMimeType: \"application/json\" }\n  }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2064,
+        -16
+      ],
+      "id": "275509aa-94a8-4863-8cf7-d06faaab97cb",
+      "name": "IA Vision Fenologica Respaldo",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 2,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "CvqQva9wKhAA1ltK",
+          "name": "Gemini"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {},
@@ -530,6 +578,13 @@
         [
           {
             "node": "Parsear y decidir",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IA Vision Fenologica Respaldo",
             "type": "main",
             "index": 0
           }
@@ -657,6 +712,17 @@
           }
         ]
       ]
+    },
+    "IA Vision Fenologica Respaldo": {
+      "main": [
+        [
+          {
+            "node": "Parsear y decidir",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -664,7 +730,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "5c1e34f8-b166-409a-87b5-6e53cfc847ae",
+  "versionId": "82071ba1-c63e-4e60-8454-7defbac512d0",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
