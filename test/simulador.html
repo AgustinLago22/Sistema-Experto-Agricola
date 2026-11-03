@@ -194,7 +194,6 @@ code { font: 500 0.92em var(--mono); }
 .btn.primario { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .btn.primario:hover { filter: brightness(1.08); }
 .btn.grande { padding: 13px 22px; font-size: 16px; }
-.btn.alerta { background: var(--warn); color: var(--surface); border-color: var(--warn); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn-chico { padding: 6px 10px; font-size: 13px; }
 
@@ -506,7 +505,6 @@ const MEDICIONES = [
   { k: "p",             nombre: "Fósforo",       detalle: "ideal " + actual.npk[1], uni: "mg/kg", fisico: [0, 2000], escala: [0, actual.npk[1] * 2], banda: tol(actual.npk[1]), sana: actual.npk[1] },
   { k: "k",             nombre: "Potasio",       detalle: "ideal " + actual.npk[2], uni: "mg/kg", fisico: [0, 2000], escala: [0, actual.npk[2] * 2], banda: tol(actual.npk[2]), sana: actual.npk[2] },
 ];
-const DECIDEN = MEDICIONES.filter(m => m.banda).map(m => m.k);
 
 // Cada caso parte de la lectura sana y cambia lo suyo. `null` = sin dato.
 const CASOS = {
@@ -522,7 +520,7 @@ const CASOS = {
 };
 
 const $ = (id) => document.getElementById(id);
-const estado = { foto: null, caso: "sana", arranqueAjeno: false, confirmar16_39: false, enviando: false, vista: CULTIVO.etapa };
+const estado = { foto: null, caso: "sana", arranqueAjeno: false, enviando: false, vista: CULTIVO.etapa };
 const fmtFecha = (d, conHora) => d.toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "numeric", ...(conHora ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : {}) });
 const fmtFalta = (ms) => { const h = Math.floor(ms / 3600000); return h >= 24 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${h} h`; };
 
@@ -717,7 +715,6 @@ function cargarArchivo(file) {
       return;
     }
     estado.foto = b64;
-    estado.confirmar16_39 = false;
     const tipo = b64.startsWith("iVBOR") ? "png" : "jpeg";
     const img = document.createElement("img");
     img.className = "mini"; img.id = "miniFoto"; img.alt = "Foto que se va a mandar";
@@ -733,7 +730,7 @@ function cargarArchivo(file) {
 }
 
 function quitarFoto() {
-  estado.foto = null; estado.confirmar16_39 = false;
+  estado.foto = null;
   const div = document.createElement("div");
   div.className = "mini"; div.id = "miniFoto"; div.textContent = "sin foto";
   $("miniFoto").replaceWith(div);
@@ -752,27 +749,22 @@ function avisos() {
   const lista = [];
   if (avisoTemporal) lista.push(avisoTemporal);
   const v = Object.fromEntries(MEDICIONES.map(m => [m.k, leer(m)]));
-  const todosNull = DECIDEN.every(k => v[k] === null);
   if (!$("clave").value) lista.push({ tipo: "info", html: "<b>Falta la clave.</b> Sin ella, n8n contesta 403 a todo." });
   if (!$("arranqueId").value && !estado.arranqueAjeno) lista.push({ tipo: "info", html: "<b>La placa no está encendida.</b> Tocá «Encender placa» para que la base le asigne un arranque_id." });
   if (estado.arranqueAjeno) lista.push({ tipo: "warn", html: "<b>Se manda con arranque_id 999999</b>, que no es de esta placa. WF1 la rechaza con 400. El arranque de la placa no se toca." });
   if (typeof v.humedad === "number" && v.humedad >= 0 && v.humedad < actual.humedad[0])
     lista.push({ tipo: "warn", html: `<b>Con humedad bajo ${actual.humedad[0]} % el Motor decide sequía</b> y WF5 registra un riego real. Cuenta para el tope de 4 riegos en 6 horas.` });
-  if (estado.foto && todosNull)
-    lista.push({ tipo: "crit", html: "<b>Foto con todo sin dato:</b> es el camino de 16.39, donde la lectura se pierde entera y sin aviso. Si querés mandarla igual, tocá el botón otra vez." });
-  else if (estado.foto)
+  if (estado.foto)
     lista.push({ tipo: "info", html: "<b>Va con foto.</b> Si la lectura tiene alerta, WF2 gasta hasta 2 pedidos de Gemini, de un cupo de 20 por día. Sin alerta, WF1 solo la sube y la deja para WF3." });
-  return { lista, bloquea16_39: !!estado.foto && todosNull };
+  return lista;
 }
 
 function refrescar() {
   MEDICIONES.forEach(dibujarEscala);
-  const { lista, bloquea16_39 } = avisos();
+  const lista = avisos();
   $("avisos").innerHTML = lista.map(a => `<div class="aviso ${a.tipo}"><p>${a.html}</p></div>`).join("");
-  const btn = $("btnEnviar"), confirmar = bloquea16_39 && estado.confirmar16_39;
-  btn.classList.toggle("alerta", confirmar);
-  btn.classList.toggle("primario", !confirmar);
-  btn.textContent = estado.enviando ? "Mandando…" : (confirmar ? "Mandar igual" : "Mandar lectura");
+  const btn = $("btnEnviar");
+  btn.textContent = estado.enviando ? "Mandando…" : "Mandar lectura";
   btn.disabled = estado.enviando;
   const arr = estado.arranqueAjeno ? "999999" : ($("arranqueId").value || "—");
   $("metaEnvio").textContent = `arranque ${arr} · seq ${$("seq").value || "0"}${estado.foto ? " · con foto" : ""}`;
@@ -823,8 +815,6 @@ async function encender() {
 
 async function enviar() {
   if (estado.enviando) return;
-  const { bloquea16_39 } = avisos();
-  if (bloquea16_39 && !estado.confirmar16_39) { estado.confirmar16_39 = true; refrescar(); return; }
   avisoTemporal = null;
 
   const cuerpo = {
@@ -841,7 +831,6 @@ async function enviar() {
   estado.enviando = true; refrescar();
   const res = await pedir("telemetria", cuerpo);
   estado.enviando = false;
-  estado.confirmar16_39 = false;
   // Como la placa: el seq sube con cada envío, haya salido bien o no.
   if (typeof cuerpo.seq === "number") $("seq").value = cuerpo.seq + 1;
   if (estado.arranqueAjeno) marcarCaso(null);
