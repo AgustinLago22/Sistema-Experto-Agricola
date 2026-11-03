@@ -10,11 +10,19 @@
 
 ## ▶ Sesión 21 — EN CURSO (03/11): el contrato, un paso por vez
 
-**Paso 5 ✅ (16.48 cerrado, 03/11):** temperatura y conductividad **se guardan, no deciden**. `fn_registrar_telemetria` tiene 9 parámetros (`p_temperatura`, `p_conductividad`, `DEFAULT NULL`; script `SQL/sesion21_contrato_paso5_temp_cond.sql`, FALLÓ antes y OK 4 de 4 después). `Consolidar datos` (WF1) las toma de `$('Validar Contrato').first().json.lectura`: el Motor no las emite ni las lee. Export de WF1 comparado: idéntico. En vivo (17:21 de Argentina): lectura sana → 7 filas (520 a 526); con las dos en "sin dato" → 5 (527 a 531). **Decisión de Agustín:** siguen obligatorias con `null` permitido (un sensor que no las mide manda `null`). Detalle: changelog **v67** del plan.
+**Paso 5 ✅ (16.48 cerrado, 03/11):** temperatura y conductividad **se guardan, no deciden**. `fn_registrar_telemetria` recibe `p_temperatura` y `p_conductividad` (`DEFAULT NULL`; script `SQL/sesion21_contrato_paso5_temp_cond.sql`, FALLÓ antes y OK 4 de 4 después). `Consolidar datos` (WF1) las toma de `$('Validar Contrato').first().json.lectura`: el Motor no las emite ni las lee. Export de WF1 comparado: idéntico. En vivo (17:21 de Argentina): lectura sana → 7 filas (520 a 526); con las dos en "sin dato" → 5 (527 a 531). **Decisión de Agustín:** siguen obligatorias con `null` permitido (un sensor que no las mide manda `null`). Detalle: changelog **v67** del plan.
 
 **Corrección de estado:** la foto de la prueba de 16.39 **ya está evaluada**: WF3 corrió solo el 01/11 a las 01:01 de Argentina (evaluación 16, `no_avanza`, 0,95). Datos de prueba nuevos, sin limpiar a propósito: arranque 10, lecturas 520 a 531 (497 a 519 es el hueco que dejó el test).
 
-**Lo que sigue:** paso 4 (16.47: `ts`, hora de recepción, `arranque_id` y `seq` por lectura, con unicidad) y paso 3 (responder según el procesamiento).
+**Hallazgo nuevo, SIN número (ejercido el 03/11): una falla de Storage se llevaba la lectura entera.** URL de `Subir Foto a Storage` rota a propósito + sequía 55 % con foto → la página recibió `200 "aceptada"`, la ejecución murió en ese nodo (*On Error* por defecto) y no quedó nada: ni lectura, ni Telegram, ni riego. Una placa real no la reintentaría. **El paso 4 lo arregla en parte** (la lectura ya se guarda antes de la foto); **sigue abierto** que el workflow se detiene ahí y no llegan el Telegram ni el riego.
+
+**Paso 4 ✅ (16.47 cerrado, 03/11):** cada lectura con su DNI y su hora. **Tabla nueva `lectura`** (una fila por lectura: `arranque_id`, `seq`, `ts_dispositivo` en segundos Unix tal como llega, `fecha_recepcion`, `motivo`; `unique (arranque_id, seq)`; FK `(arranque_id, dispositivo_id)` → `arranque_dispositivo`: el arranque tiene que ser de esa placa; RLS, solo `service_role`). `lectura_sensores.lectura_id` apunta a ella (las 359 filas viejas en `null`; una regla `NOT VALID` lo exige en las nuevas; una medición por métrica por lectura). `fn_registrar_telemetria` (13 parámetros) crea lectura + mediciones en una transacción y devuelve `lectura_id`; sin DNI corta; un DNI repetido corta con "Lectura duplicada" (23505 → la API responde 409). **Ya no es `SECURITY DEFINER` y solo la ejecuta `service_role`** (la credencial "Sup S" de n8n lo es). Script: `SQL/sesion21_contrato_paso4_dni_lectura.sql` (FALLÓ antes, OK 7 de 7 después). **WF1 con orden nuevo (JSON importado):** Motor → `Consolidar datos` (agrega el DNI y decide el nombre de la foto) → `fn_registrar_telemetria` → `Hay foto nueva?` (lee `tiene_foto` del Motor) → `Preparar Foto binaria` (lee de `Consolidar datos`) → Storage → `Actualizar Ultima Foto Cultivo` → `Registrar Recheck de Riego` → lo demás. Al pegar, n8n cambió los `id` internos de los nodos (no importa: se referencian por nombre). En vivo: lecturas 5 y 6 (arranque 15, `seq` 0 y 1) con 7 mediciones cada una; el reintento de `seq` 0 → WF1 en rojo en `fn_registrar_telemetria` con "Lectura duplicada… (lectura 5)", sin mediciones, foto, Telegram ni riego. Detalle: changelog **v68**.
+
+**Limpiezas, desde el paso 4:** sin cascadas, a propósito. Orden: `lectura_sensores` → `lectura` → `arranque_dispositivo`. Los scripts de limpieza viejos (sesiones 16 y 17) no conocen `lectura`: revisarlos antes de usarlos.
+
+**Datos de prueba nuevos, sin limpiar a propósito:** arranques 10 y 15, lecturas 5 y 6, mediciones 520 a 531 y 545 a 559 (los huecos son de los tests).
+
+**Lo que sigue:** (1) que una falla de Storage no frene el Telegram ni el riego, y avise; (2) el paso 3 del contrato: responder `"duplicada"` (200) sin error y según el procesamiento.
 
 ---
 
@@ -143,10 +151,13 @@ Webhook → Validar Contrato → Contrato Valido? ─[no]───────�
                                                             └[sí]→ Responder Aceptada (200)
                                           Responder Rechazo (400) ◄─────────────┘ → Registrar Rechazo
 Responder Aceptada → Resolver Cultivo → Conocimiento Experto → Obtener Ultimo Riego → Motor de Inferencia
+   → Consolidar datos → fn_registrar_telemetria (la lectura con su DNI; un duplicado corta acá)
    → Hay foto nueva?  ─[sí]→ Preparar Foto binaria → Subir Foto a Storage → Actualizar Ultima Foto Cultivo ─┐
                       └[no]────────────────────────────────────────────────────────────────────────────────┤
-   → Consolidar datos → fn_registrar_telemetria → Registrar Recheck de Riego → Esta en mantenimiento ─[no]→ Requiere Alerta?
+   → Registrar Recheck de Riego → Esta en mantenimiento ─[no]→ Requiere Alerta?
         → [3 ramas PARALELAS e INDEPENDIENTES]  Dispara WF 2 · Alerta Telegram · Dispara WF5
+
+(Orden desde el 03/11, paso 4 del contrato: la lectura se registra ANTES de la foto.)
 ```
 
 **La puerta (contrato v1, paso 2, desde el 20/10).** `Validar Contrato` revisa el cuerpo contra `docs/contrato_telemetria.md`: campos presentes, las 7 mediciones como número dentro del rango **físico** o `null`, `v` = 1, MAC con formato. Arma `lectura`, el **único** objeto que leen los nodos de abajo (la MAC va en mayúsculas). `Verificar Arranque` (`fn_verificar_arranque`, siempre devuelve una fila, con reintento) comprueba que el `arranque_id` se le dio a esa placa. Si algo falla: `400` con la lista de errores y una fila en `lectura_rechazada` (el cuerpo sin la foto). Si pasa: `200 {"estado":"aceptada"}` **antes de procesar**, y el flujo sigue como siempre (el nodo Respond deja pasar los ítems). `Resolver Cultivo` toma la MAC de `$('Validar Contrato').first().json.lectura`, porque su entrada ya no trae el `body`. **El formato viejo (`planta`, sin `v`) se rechaza.**
@@ -266,7 +277,9 @@ Webhook → Validar Arranque → Pedido Valido? ─[no]→ Responder Pedido Inva
 
 **Vistas:** `vista_cultivos_activos` (la que consumen WF1/WF3/WF4; desde el 27/10 trae `riego_automatico_disponible`, y la base exige caudal y volumen > 0 si están cargados), `vista_conocimiento_experto` (umbrales por especie+etapa), `vista_promedios_recientes`, `vista_ultimo_arranque` (firmware vigente por placa, `security_invoker`), `vista_ultimo_riego`. Esta última, desde el 19/10, trae además `evento_id`, `comando_estado`, `absorcion_completa` (≥ 15 min), `recheck_vencido` (> 60 min) y `humedad_max_posterior`. **Los dos tiempos se definen solo ahí**: los leen WF5 y el Motor.
 
-**Funciones RPC:** `fn_registrar_telemetria` (desde el 03/11 también guarda temperatura y conductividad, métricas 2 y 7), `fn_registrar_riego` (con tope duro), `fn_registrar_recheck_riego` (solo cierra eventos `pendiente` del mismo cultivo), `fn_registrar_evaluacion_fenologica`, y desde el 20/10 `fn_registrar_arranque`, `fn_verificar_arranque` y `fn_registrar_rechazo` (las tres solo para `service_role`, sin `SECURITY DEFINER`; las tablas nuevas con RLS y sin permisos para `anon`/`authenticated`).
+**Tabla `lectura` (desde el 03/11, 16.47):** una fila por lectura, con su DNI `(arranque_id, seq)` único y sus horas; `lectura_sensores.lectura_id` apunta a ella.
+
+**Funciones RPC:** `fn_registrar_telemetria` (desde el 03/11 crea la `lectura` con su DNI, guarda también temperatura y conductividad, métricas 2 y 7, devuelve `lectura_id` y es solo de `service_role`), `fn_registrar_riego` (con tope duro), `fn_registrar_recheck_riego` (solo cierra eventos `pendiente` del mismo cultivo), `fn_registrar_evaluacion_fenologica`, y desde el 20/10 `fn_registrar_arranque`, `fn_verificar_arranque` y `fn_registrar_rechazo` (las tres solo para `service_role`, sin `SECURITY DEFINER`; las tablas nuevas con RLS y sin permisos para `anon`/`authenticated`).
 
 > ⚠️ **`vista_conocimiento_experto` hace INNER JOIN contra `parametro_etapa`.** Una etapa sin umbrales no devuelve nulos: **no devuelve nada**. Es la raíz del hallazgo 16.37.
 
@@ -460,7 +473,7 @@ La lista de abajo es el orden general del proyecto, sin la fecha.
 
 `docs/revisiones/REVISION_04_hoja_de_ruta.md` organiza lo que queda en **tres carriles** —lo que bloquea la tesis, lo que bloquea la venta, y la deuda tolerable— y define un **mínimo viable para un primer cliente**. Ese mínimo descansa en tres defensas independientes contra el mismo riesgo (regar de más): el control del riego (13.7.2 ✅), el tope duro por ventana (16.46 ✅) y **la válvula local de 30 segundos en el firmware**, la única que sigue funcionando si n8n, la red o Supabase se caen. Son capas separadas a propósito.
 
-1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10), paso 5 ✅ (03/11, **16.48**). Faltan el 3 (responder según el procesamiento, que también resuelve el resto de 16.8) y el 4 (`ts`/`arranque_id`/`seq` por lectura con unicidad, **16.47**).
+1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10), pasos 5 y 4 ✅ (03/11, **16.48** y **16.47**). Falta el 3 (responder según el procesamiento, incluido `"duplicada"`, que también resuelve el resto de 16.8).
 2. **Entrega de órdenes a la placa** (16.63): el control y el tope ya están (13.7.2, 19/10). Falta quien consuma `comando_dispositivo`, y decidir antes cómo se autentica la placa (D-auth, B.23).
 3. ~~16.38~~ ✅ 20/10. Lo que queda del hueco de umbrales (etapa sin fila) se resuelve juntando las dos tablas: trabajo futuro.
 4. **Endurecer WF5**: ~~16.51~~ ✅ (27/10), 16.55, 16.53, 16.56 (16.52 se cerró en la puerta de WF1).

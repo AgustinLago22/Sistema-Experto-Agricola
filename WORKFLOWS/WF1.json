@@ -12,10 +12,10 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -1072,
-        96
+        -1936,
+        320
       ],
-      "id": "be813c77-ac24-4d43-90dc-60ab3b9fcf32",
+      "id": "1b61c376-9da6-42b1-8264-36ec038d2ad9",
       "name": "Webhook",
       "webhookId": "7316c265-5e02-47e0-a3f0-56e80124155f",
       "credentials": {
@@ -43,10 +43,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        272,
-        -64
+        -592,
+        160
       ],
-      "id": "47a36a19-f0ef-4367-a7b5-aaa9f99e56af",
+      "id": "6bac75cd-94a9-45f7-802f-161cac5ec577",
       "name": "Resolver Cultivo",
       "credentials": {
         "supabaseApi": {
@@ -62,10 +62,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        944,
-        -64
+        80,
+        160
       ],
-      "id": "2e185220-6856-4bee-98bc-997a1df3be1b",
+      "id": "8fa7dc60-377f-4f48-a40d-8f0861ee5a62",
       "name": "Motor de Inferencia"
     },
     {
@@ -91,10 +91,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        2288,
-        -64
+        528,
+        160
       ],
-      "id": "e57ab88f-dc1a-4ddd-a362-93815cbaa5e6",
+      "id": "1dfda3d6-818f-4a6c-af1d-37d12d7bcfe3",
       "name": "fn_registrar_telemetria",
       "credentials": {
         "httpHeaderAuth": {
@@ -131,10 +131,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2960,
-        -64
+        2096,
+        160
       ],
-      "id": "38e98333-9cee-499c-bc8a-3d42af97dfa3",
+      "id": "45e00989-f2c7-4553-b133-b270aaac73e4",
       "name": "Requiere Alerta?"
     },
     {
@@ -148,10 +148,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        3184,
-        -32
+        2320,
+        192
       ],
-      "id": "375c7aa5-75e5-42ce-9638-01c8b5470017",
+      "id": "4a1ac8c2-4ca2-44ad-9c55-afe9d7276719",
       "name": "Alerta Telegram",
       "webhookId": "5a61ff2e-6736-451b-bd09-46076a782f2b",
       "credentials": {
@@ -189,10 +189,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        496,
-        -64
+        -368,
+        160
       ],
-      "id": "87919333-2a70-4f52-ac66-d97302faf59e",
+      "id": "72e4e3a5-d813-4324-8da4-7ee4d76975fd",
       "name": "Conocimiento Experto",
       "alwaysOutputData": true,
       "credentials": {
@@ -225,10 +225,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        3408,
-        -224
+        2544,
+        -16
       ],
-      "id": "ffe6ec7e-673e-4e4a-9798-6f566a8672ab",
+      "id": "55b90d0a-6b39-4427-8033-ec87256ac7fe",
       "name": "Trigger a WF2",
       "retryOnFail": true,
       "credentials": {
@@ -251,7 +251,7 @@
           "conditions": [
             {
               "id": "67be0e29-5bc1-4b74-8c43-32e536c58e5d",
-              "leftValue": "={{ $json.tiene_foto }}",
+              "leftValue": "={{ $('Motor de Inferencia').item.json.tiene_foto }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -266,23 +266,23 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        1168,
-        -64
+        752,
+        160
       ],
-      "id": "66bd2c73-01ac-4998-a42e-c7151e058f60",
+      "id": "ec3bbb1a-85c7-4ba8-98df-ff588a306409",
       "name": "Hay foto nueva?"
     },
     {
       "parameters": {
-        "jsCode": "// ============================================================\n// PREPARAR FOTO BINARIA — WF1\n// Última actualización: 27/10/2026 (sesión 20) — 16.39, capa (b)\n// ------------------------------------------------------------\n// `undefined` en un campo binario no es un error de JavaScript: sin esta guarda, el\n// nodo terminaba en verde con `data: undefined` y la ejecución moría un nodo más\n// abajo, en `Subir Foto a Storage`. El operador veía \"un problema de Storage\" cuando\n// la causa era una salida del Motor que no pasaba la foto. La capa (a) lo arregló en\n// el Motor; esta capa hace que una salida nueva que se olvide la foto falle acá, con\n// el nombre de la causa.\n// ============================================================\nconst fotoBase64 = $json.foto_base64;\nif (!fotoBase64) {\n  throw new Error(\n    'Preparar Foto binaria: llegó un ítem con tiene_foto=true pero sin foto_base64. ' +\n    'Es una salida incompleta del Motor de Inferencia, no un problema de Storage (16.39). ' +\n    `estado=\"${$json.estado}\" lectura_sospechosa=${$json.lectura_sospechosa}`\n  );\n}\nconst cultivoId = $json.cultivo_id;\nconst timestamp = Date.now();\nconst path = `${cultivoId}/${timestamp}.jpg`;\n\nreturn [{\n  json: { ...$json, path_foto_evento: path },\n  binary: {\n    data: {\n      data: fotoBase64,\n      mimeType: 'image/jpeg',\n      fileName: `${timestamp}.jpg`\n    }\n  }\n}];\n"
+        "jsCode": "// ============================================================\n// PREPARAR FOTO BINARIA — WF1\n// Última actualización: 03/11/2026 (sesión 21) — contrato v1, paso 4\n// Antes: 27/10/2026 (sesión 20) — 16.39, capa (b)\n// ------------------------------------------------------------\n// Desde el paso 4 la foto se sube DESPUÉS de registrar la lectura. Este nodo ya\n// no recibe la salida del Motor por su entrada (le llega la respuesta de\n// `fn_registrar_telemetria`), así que lee los datos de `Consolidar datos`, que\n// además ya decidió el nombre de la foto (path_foto_evento).\n//\n// 16.39: `undefined` en un campo binario no es un error de JavaScript: sin esta\n// guarda, el nodo terminaba en verde con `data: undefined` y la ejecución moría un\n// nodo más abajo, en `Subir Foto a Storage`. Una salida que se olvide la foto\n// falla acá, con el nombre de la causa.\n// ============================================================\nconst d = $('Consolidar datos').item.json;\n\nconst fotoBase64 = d.foto_base64;\nif (!fotoBase64) {\n  throw new Error(\n    'Preparar Foto binaria: llegó un ítem con tiene_foto=true pero sin foto_base64. ' +\n    'Es una salida incompleta del Motor de Inferencia, no un problema de Storage (16.39). ' +\n    `estado=\"${d.estado}\" lectura_sospechosa=${d.lectura_sospechosa}`\n  );\n}\nif (!d.path_foto_evento) {\n  throw new Error(\n    'Preparar Foto binaria: Consolidar datos no armó path_foto_evento para una lectura con foto ' +\n    '— falta actualizar Consolidar datos (contrato v1, paso 4).'\n  );\n}\n\nreturn [{\n  json: { ...d },\n  binary: {\n    data: {\n      data: fotoBase64,\n      mimeType: 'image/jpeg',\n      fileName: d.path_foto_evento.split('/').pop()\n    }\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1392,
-        -208
+        976,
+        -48
       ],
-      "id": "90a8591e-5c45-4e56-a507-675495e25939",
+      "id": "0b2242df-effb-4481-98c5-216ee0129b2d",
       "name": "Preparar Foto binaria"
     },
     {
@@ -299,10 +299,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1616,
-        -208
+        1200,
+        -48
       ],
-      "id": "a0195634-e42b-48f2-ac84-64afcb0e3659",
+      "id": "06fc9df0-ef11-4dfc-b2c1-39ed190b4bdd",
       "name": "Subir Foto a Storage",
       "credentials": {
         "httpHeaderAuth": {
@@ -337,10 +337,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1840,
-        -208
+        1424,
+        -48
       ],
-      "id": "98b428e2-6203-4f32-a0a3-85ae7c5c74d8",
+      "id": "5bf21210-9f55-4ffa-9b79-fbc36ca0d11c",
       "name": "Actualizar Ultima Foto Cultivo",
       "credentials": {
         "supabaseApi": {
@@ -351,15 +351,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// ============================================================\n// CONSOLIDAR DATOS — WF1\n// Última actualización: 03/11/2026 (sesión 21) — contrato v1, paso 5 (16.48)\n// Antes: 16/10/2026 (sesión 16) — incluye 16.34 y 13.7.2\n// ============================================================\nconst motor = $('Motor de Inferencia').item.json;\n\nlet pathFotoEvento = null;\nlet pathFotoWarn = null;\ntry {\n  pathFotoEvento = $('Preparar Foto binaria').first()?.json?.path_foto_evento ?? null;\n} catch (e) {\n  // Caso esperado: no había foto, esta rama no corrió.\n  // Caso bug: el nodo no existe o cambió de nombre — queda registrado en vez de morir en silencio.\n  pathFotoEvento = null;\n  pathFotoWarn = e.message;\n}\n\n// ============================================================\n// 16.48 — TEMPERATURA Y CONDUCTIVIDAD: SE GUARDAN, NO DECIDEN (contrato, sección 5)\n// ------------------------------------------------------------\n// El Motor no las usa para decidir, así que no las emite. Se leen de la\n// lectura normalizada de la puerta (`Validar Contrato`), igual que el Motor\n// lee las suyas: ahí ya llegan como número o null, nunca como \"\".\n// Validación positiva: si la puerta no emitió los dos campos, es una versión\n// vieja de `Validar Contrato`, y guardar sin ellos perdería el dato callado.\n// ============================================================\nconst lectura = $('Validar Contrato').first().json.lectura;\nif (!lectura || !('temperatura' in lectura) || !('conductividad' in lectura)) {\n  throw new Error(\n    'Consolidar datos: la lectura de Validar Contrato no trae temperatura y conductividad ' +\n    '— falta actualizar Validar Contrato (contrato v1, paso 5).'\n  );\n}\n\n// ============================================================\n// 16.34 — EL CUERPO DE LA RPC SE ARMA COMO OBJETO, NUNCA CONCATENANDO TEXTO\n// ------------------------------------------------------------\n// `fn_registrar_telemetria` declara sus métricas como DEFAULT NULL y filtra con\n// `WHERE v.valor IS NOT NULL`: acepta lecturas parciales POR DISEÑO. El nodo que la\n// llamaba armaba el JSON interpolando texto, así que un sensor que no reportaba\n// dejaba el cuerpo como `\"p_humedad\": ,` — JSON inválido, telemetría perdida entera.\n// Acá el cliente pasa a poder expresar lo que la base ya sabía recibir.\n// ============================================================\n\n// OJO con la coerción: Number(null) === 0 y Number('') === 0.\n// Un sensor ausente convertido a 0 no es un dato faltante: es una lectura de 0%\n// de humedad, que el Motor interpreta como sequía y que dispara riego real.\n// Por eso la ausencia se decide ANTES de convertir, nunca después.\nconst num = (v) => {\n  if (v === null || v === undefined || v === '') return null;\n  const n = Number(v);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst rpcTelemetria = {\n  p_cultivo_id:     motor.cultivo_id,\n  p_dispositivo_id: motor.dispositivo_id,\n  p_humedad:       num(motor.humedad),\n  p_ph:            num(motor.ph),\n  p_n:             num(motor.n),\n  p_p:             num(motor.p),\n  p_k:             num(motor.k),\n  p_temperatura:   num(lectura.temperatura),\n  p_conductividad: num(lectura.conductividad)\n};\n\n// Validación positiva, no negativa: se verifica afirmativamente que están los dos\n// campos de identidad. Una fila de telemetría sin cultivo es peor que una perdida,\n// porque queda en la base y miente.\nif (!rpcTelemetria.p_cultivo_id || !rpcTelemetria.p_dispositivo_id) {\n  throw new Error(\n    'Consolidar datos: falta cultivo_id o dispositivo_id — no se registra telemetría sin identidad. ' +\n    `mac=${motor.mac_address ?? 'desconocida'}`\n  );\n}\n\n// ============================================================\n// 13.7.2 — CUERPO DE fn_registrar_recheck_riego, también como objeto (16.34)\n// ------------------------------------------------------------\n// `Registrar Recheck de Riego` llama en CADA lectura: si esta lectura no es un\n// recheck, va p_evento_id null y la función no hace nada. Así no hace falta un\n// IF que abra una rama paralela en el camino principal.\n// Validación positiva: el Motor tiene que haber emitido el campo, aunque sea null.\n// Si falta, el Motor es una versión vieja y el freno de riego no funciona.\n// ============================================================\nif (!('recheck_riego' in motor)) {\n  throw new Error('Consolidar datos: el Motor no emitió recheck_riego — falta actualizar el Motor de Inferencia (13.7.2).');\n}\nconst rc = motor.recheck_riego;\nconst rpcRecheck = {\n  p_cultivo_id: motor.cultivo_id,\n  p_evento_id:  rc ? rc.evento_id : null,\n  p_humedad:    rc ? rc.humedad   : null,\n  p_resultado:  rc ? rc.resultado : null\n};\n\n// Cuántas métricas trae realmente esta lectura (= cuántas filas va a escribir la\n// RPC). Un fallo manejado tiene que seguir siendo contado: si esto llega a 0, la\n// RPC escribiría cero filas sin dar error, y eso es una señal operativa, no un caso normal.\nconst metricasPresentes = ['p_humedad', 'p_ph', 'p_n', 'p_p', 'p_k', 'p_temperatura', 'p_conductividad']\n  .filter(k => rpcTelemetria[k] !== null).length;\n\nreturn [{\n  json: {\n    ...motor,\n    path_foto_evento: pathFotoEvento,\n    path_foto_warn: pathFotoWarn,\n    rpc_telemetria: rpcTelemetria,\n    rpc_recheck: rpcRecheck,\n    metricas_presentes: metricasPresentes\n  }\n}];\n"
+        "jsCode": "// ============================================================\n// CONSOLIDAR DATOS — WF1\n// Última actualización: 03/11/2026 (sesión 21) — contrato v1, pasos 4 y 5 (16.47, 16.48)\n// Antes: 16/10/2026 (sesión 16) — incluye 16.34 y 13.7.2\n// ------------------------------------------------------------\n// Desde el paso 4 este nodo corre ANTES de la foto: primero se registra la\n// lectura (con su DNI), después se hace todo lo demás. Así, un reintento que la\n// base rechaza como duplicado no vuelve a subir la foto, y una falla de Storage\n// ya no se lleva la lectura con ella.\n// ============================================================\nconst motor = $('Motor de Inferencia').item.json;\n\n// ============================================================\n// LA LECTURA NORMALIZADA DE LA PUERTA (`Validar Contrato`)\n// ------------------------------------------------------------\n// De ahí salen los datos que el Motor no usa para decidir y por eso no emite:\n// el DNI de la lectura (arranque_id, seq), la hora de la placa (ts), el motivo\n// (paso 4) y la temperatura y la conductividad (paso 5). Ya llegan validados.\n// Validación positiva: si la puerta no emitió alguno, es una versión vieja de\n// `Validar Contrato`, y guardar sin ellos perdería el dato callado.\n// ============================================================\nconst lectura = $('Validar Contrato').first().json.lectura;\nconst CAMPOS_LECTURA = ['arranque_id', 'seq', 'ts', 'motivo', 'temperatura', 'conductividad'];\nconst faltan = lectura ? CAMPOS_LECTURA.filter(k => !(k in lectura)) : CAMPOS_LECTURA;\nif (faltan.length > 0) {\n  throw new Error(\n    `Consolidar datos: la lectura de Validar Contrato no trae ${faltan.join(', ')} ` +\n    '— falta actualizar Validar Contrato (contrato v1, pasos 4 y 5).'\n  );\n}\n\n// ============================================================\n// EL NOMBRE DE LA FOTO SE DECIDE ACÁ, UNA SOLA VEZ\n// ------------------------------------------------------------\n// Antes lo armaba `Preparar Foto binaria`, que corría antes que este nodo.\n// Ahora la foto va después, y WF2 (que recibe la salida de este nodo) necesita\n// el mismo nombre para guardarlo en su diagnóstico. `Preparar Foto binaria`,\n// `Subir Foto a Storage` y `Actualizar Ultima Foto Cultivo` usan este.\n// ============================================================\nconst pathFotoEvento = motor.tiene_foto === true\n  ? `${motor.cultivo_id}/${Date.now()}.jpg`\n  : null;\n\n// ============================================================\n// 16.34 — EL CUERPO DE LA RPC SE ARMA COMO OBJETO, NUNCA CONCATENANDO TEXTO\n// ------------------------------------------------------------\n// `fn_registrar_telemetria` declara sus métricas como DEFAULT NULL y filtra con\n// `WHERE v.valor IS NOT NULL`: acepta lecturas parciales POR DISEÑO. El nodo que la\n// llamaba armaba el JSON interpolando texto, así que un sensor que no reportaba\n// dejaba el cuerpo como `\"p_humedad\": ,` — JSON inválido, telemetría perdida entera.\n// Acá el cliente pasa a poder expresar lo que la base ya sabía recibir.\n// ============================================================\n\n// OJO con la coerción: Number(null) === 0 y Number('') === 0.\n// Un sensor ausente convertido a 0 no es un dato faltante: es una lectura de 0%\n// de humedad, que el Motor interpreta como sequía y que dispara riego real.\n// Por eso la ausencia se decide ANTES de convertir, nunca después.\nconst num = (v) => {\n  if (v === null || v === undefined || v === '') return null;\n  const n = Number(v);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst rpcTelemetria = {\n  p_cultivo_id:     motor.cultivo_id,\n  p_dispositivo_id: motor.dispositivo_id,\n  // El DNI y la hora de la placa (paso 4). Un DNI repetido lo rechaza la base\n  // (\"Lectura duplicada\") y el workflow se detiene ahí: no avisa ni riega dos veces.\n  p_arranque_id:   lectura.arranque_id,\n  p_seq:           lectura.seq,\n  p_ts:            lectura.ts,\n  p_motivo:        lectura.motivo,\n  p_humedad:       num(motor.humedad),\n  p_ph:            num(motor.ph),\n  p_n:             num(motor.n),\n  p_p:             num(motor.p),\n  p_k:             num(motor.k),\n  p_temperatura:   num(lectura.temperatura),\n  p_conductividad: num(lectura.conductividad)\n};\n\n// Validación positiva, no negativa: se verifica afirmativamente que están los dos\n// campos de identidad. Una fila de telemetría sin cultivo es peor que una perdida,\n// porque queda en la base y miente.\nif (!rpcTelemetria.p_cultivo_id || !rpcTelemetria.p_dispositivo_id) {\n  throw new Error(\n    'Consolidar datos: falta cultivo_id o dispositivo_id — no se registra telemetría sin identidad. ' +\n    `mac=${motor.mac_address ?? 'desconocida'}`\n  );\n}\n\n// ============================================================\n// 13.7.2 — CUERPO DE fn_registrar_recheck_riego, también como objeto (16.34)\n// ------------------------------------------------------------\n// `Registrar Recheck de Riego` llama en CADA lectura: si esta lectura no es un\n// recheck, va p_evento_id null y la función no hace nada. Así no hace falta un\n// IF que abra una rama paralela en el camino principal.\n// Validación positiva: el Motor tiene que haber emitido el campo, aunque sea null.\n// Si falta, el Motor es una versión vieja y el freno de riego no funciona.\n// ============================================================\nif (!('recheck_riego' in motor)) {\n  throw new Error('Consolidar datos: el Motor no emitió recheck_riego — falta actualizar el Motor de Inferencia (13.7.2).');\n}\nconst rc = motor.recheck_riego;\nconst rpcRecheck = {\n  p_cultivo_id: motor.cultivo_id,\n  p_evento_id:  rc ? rc.evento_id : null,\n  p_humedad:    rc ? rc.humedad   : null,\n  p_resultado:  rc ? rc.resultado : null\n};\n\n// Cuántas métricas trae realmente esta lectura (= cuántas filas de medición va a\n// escribir la RPC). Con 0, la lectura igual queda registrada (sin mediciones).\nconst metricasPresentes = ['p_humedad', 'p_ph', 'p_n', 'p_p', 'p_k', 'p_temperatura', 'p_conductividad']\n  .filter(k => rpcTelemetria[k] !== null).length;\n\nreturn [{\n  json: {\n    ...motor,\n    path_foto_evento: pathFotoEvento,\n    rpc_telemetria: rpcTelemetria,\n    rpc_recheck: rpcRecheck,\n    metricas_presentes: metricasPresentes\n  }\n}];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2064,
-        -64
+        304,
+        160
       ],
-      "id": "be6fec9a-2a51-466e-90e8-afd23be5f869",
+      "id": "edbda1c2-880b-426b-9fe4-0c9c85f4dc0f",
       "name": "Consolidar datos"
     },
     {
@@ -381,10 +381,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        720,
-        -64
+        -144,
+        160
       ],
-      "id": "7f869164-ca74-4d8c-821e-e4c70218d2c9",
+      "id": "24a55cb3-c600-4bc1-83dc-0bfb535f10ed",
       "name": "Obtener Ultimo Riego",
       "alwaysOutputData": true,
       "credentials": {
@@ -422,10 +422,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2736,
-        -64
+        1872,
+        160
       ],
-      "id": "9f2c23ee-2dcc-4a4d-adb5-6ac7d275e2bd",
+      "id": "90a25c47-2e12-4eb4-995f-43f5a76aef36",
       "name": "Esta en mantenimiento"
     },
     {
@@ -466,10 +466,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        3184,
-        -224
+        2320,
+        -16
       ],
-      "id": "bd4b4342-3c98-4757-b62f-27a88daa48c6",
+      "id": "c3a1bf16-88bb-4161-86ee-360f503eca77",
       "name": "Dispara WF 2"
     },
     {
@@ -520,10 +520,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        3184,
-        160
+        2320,
+        384
       ],
-      "id": "ac6acf92-2bf0-49ed-8f07-21b495074659",
+      "id": "c49dc9f1-dddd-45c3-bd35-f7ea23e02ba4",
       "name": "Dispara WF5"
     },
     {
@@ -540,10 +540,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        3408,
-        160
+        2544,
+        384
       ],
-      "id": "02f9c179-6222-4d8a-9678-6dd2192b298f",
+      "id": "81c36a8a-d2f3-466a-bb07-fdda2b753e87",
       "name": "Trigger WF5",
       "retryOnFail": true,
       "credentials": {
@@ -577,10 +577,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        2512,
-        -64
+        1648,
+        160
       ],
-      "id": "70af1ae6-a244-4879-9671-4c03378b0396",
+      "id": "585b632e-c3f3-4352-84eb-a131081c1559",
       "name": "Registrar Recheck de Riego",
       "retryOnFail": true,
       "credentials": {
@@ -594,13 +594,13 @@
       "parameters": {
         "jsCode": "// ============================================================\n// VALIDAR CONTRATO — WF1 · contrato de telemetría v1, paso 2\n// Escrito el 19/10/2026 (sesión 17). Cierra 16.52.\n// ------------------------------------------------------------\n// La puerta del sistema. Corre ANTES de `Resolver Cultivo`, o sea antes del\n// primer nodo que decide. Hace dos cosas, una sola vez:\n//   1. VALIDA el cuerpo contra docs/contrato_telemetria.md (secciones 2 y 3).\n//      Si algo no cumple, la lectura se rechaza ENTERA y se informa cada campo\n//      con problema: una lectura mal formada no puede disparar un riego.\n//   2. NORMALIZA: arma `lectura`, el único objeto que leen los nodos de abajo.\n//      Nadie aguas abajo vuelve a leer el cuerpo crudo del Webhook.\n//\n// 16.52: el Motor comparaba el valor crudo, y en JavaScript `\"\" < 60` es true\n// (la cadena vacía se convierte a 0): un sensor sin dato era SEQUÍA y regaba.\n// La normalización existía, pero vivía en `Consolidar datos`, DESPUÉS del\n// Motor. Normalizar en el borde quiere decir el borde del SISTEMA, no el de la\n// función que se estaba tocando.\n//\n// Lo que NO se valida acá: que el arranque_id sea de esta placa. Eso es un\n// dato de la base y lo verifica el nodo siguiente, `Verificar Arranque`.\n// ============================================================\nconst VERSION_CONTRATO = 1;\nconst MAC_RE = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/i;\n\n// Rango FÍSICO del sensor (contrato, regla 2): límites de lo POSIBLE, no de lo\n// sano (lo sano lo deciden los umbrales de la etapa). Un valor afuera tenía que\n// llegar como null; si llega el número, la placa no cumple el contrato.\nconst MEDICIONES = {\n  humedad:       [0, 100],\n  temperatura:   [-40, 80],\n  ph:            [0, 14],\n  conductividad: [0, 20],\n  n:             [0, 2000],\n  p:             [0, 2000],\n  k:             [0, 2000],\n};\nconst MOTIVOS = ['programada', 'recheck'];\n\nconst crudo = $('Webhook').first().json.body;\nconst esObjeto = crudo !== null && typeof crudo === 'object' && !Array.isArray(crudo);\nconst b = esObjeto ? crudo : {};\nconst errores = [];\nconst tiene = (k) => Object.prototype.hasOwnProperty.call(b, k);\nconst esEntero = (x) => typeof x === 'number' && Number.isSafeInteger(x);\nconst mostrar = (x) => JSON.stringify(x) ?? String(x);\n\nif (!esObjeto) {\n  errores.push('cuerpo: tiene que ser un objeto JSON');\n} else if (tiene('v') && b.v !== VERSION_CONTRATO) {\n  // Otra versión: el resto del cuerpo puede significar otra cosa. No se lo\n  // revisa campo por campo, porque esos errores serían ruido.\n  errores.push(`v: versión ${mostrar(b.v)} desconocida; este servidor entiende la ${VERSION_CONTRATO}`);\n} else {\n  if (!tiene('v')) errores.push('v: falta');\n\n  // dispositivo_mac — se normaliza a mayúsculas, como está en la base.\n  if (!tiene('dispositivo_mac')) errores.push('dispositivo_mac: falta');\n  else if (typeof b.dispositivo_mac !== 'string' || !MAC_RE.test(b.dispositivo_mac.trim()))\n    errores.push(`dispositivo_mac: ${mostrar(b.dispositivo_mac)} no tiene el formato AA:BB:CC:DD:EE:FF`);\n\n  // arranque_id y seq — el DNI de la lectura (contrato, regla 3).\n  if (!tiene('arranque_id')) errores.push('arranque_id: falta');\n  else if (!esEntero(b.arranque_id) || b.arranque_id < 1)\n    errores.push(`arranque_id: ${mostrar(b.arranque_id)} no es un entero positivo`);\n\n  if (!tiene('seq')) errores.push('seq: falta');\n  else if (!esEntero(b.seq) || b.seq < 0)\n    errores.push(`seq: ${mostrar(b.seq)} no es un entero mayor o igual a 0`);\n\n  // ts — obligatorio, pero puede ser null (la placa no tiene hora confiable).\n  if (!tiene('ts')) errores.push('ts: falta (si la placa no tiene hora, mandar null)');\n  else if (b.ts !== null && (!esEntero(b.ts) || b.ts < 0))\n    errores.push(`ts: ${mostrar(b.ts)} no es un entero (segundos Unix) ni null`);\n\n  if (!tiene('motivo')) errores.push('motivo: falta');\n  else if (!MOTIVOS.includes(b.motivo))\n    errores.push(`motivo: ${mostrar(b.motivo)} no es \"programada\" ni \"recheck\"`);\n\n  // Las 7 mediciones: siempre presentes; número dentro del rango físico, o null.\n  // La ausencia se declara en el origen, no se adivina acá (contrato, regla 1).\n  for (const [campo, [min, max]] of Object.entries(MEDICIONES)) {\n    if (!tiene(campo)) {\n      errores.push(`${campo}: falta (si el sensor no pudo medir, mandar null)`);\n    } else if (b[campo] === null) {\n      // válido: \"el sensor no pudo medir esta variable\"\n    } else if (typeof b[campo] !== 'number' || !Number.isFinite(b[campo])) {\n      errores.push(`${campo}: ${mostrar(b[campo])} no es un número ni null`);\n    } else if (b[campo] < min || b[campo] > max) {\n      errores.push(`${campo}: ${b[campo]} está fuera del rango físico del sensor (${min} a ${max}); un valor imposible se manda como null`);\n    }\n  }\n\n  // foto_base64 — opcional. Si no hay foto, el campo NO se manda.\n  if (tiene('foto_base64') && (typeof b.foto_base64 !== 'string' || b.foto_base64.trim() === ''))\n    errores.push('foto_base64: si se manda, tiene que ser texto no vacío (sin foto, no mandar el campo)');\n\n  // Campos que el contrato no conoce (p. ej. el viejo `planta`): se ignoran (regla 6).\n}\n\nconst contratoOk = errores.length === 0;\n\n// La lectura normalizada: solo los campos del contrato, con sus tipos.\nconst lectura = contratoOk ? {\n  dispositivo_mac: b.dispositivo_mac.trim().toUpperCase(),\n  arranque_id:     b.arranque_id,\n  seq:             b.seq,\n  ts:              b.ts,\n  motivo:          b.motivo,\n  humedad:         b.humedad,\n  temperatura:     b.temperatura,\n  ph:              b.ph,\n  conductividad:   b.conductividad,\n  n:               b.n,\n  p:               b.p,\n  k:               b.k,\n  ...(tiene('foto_base64') ? { foto_base64: b.foto_base64.trim() } : {}),\n} : null;\n\n// Lo que se guarda si se rechaza: el cuerpo SIN la foto, con un tope de tamaño.\nconst { foto_base64: _foto, ...sinFoto } = b;\nlet cuerpo = tiene('foto_base64') ? { ...sinFoto, foto_base64: '[omitida]' } : sinFoto;\nif (!esObjeto) cuerpo = { _no_es_objeto: mostrar(crudo).slice(0, 500) };\nif (JSON.stringify(cuerpo).length > 8000) cuerpo = { _truncado: true, claves: Object.keys(b).slice(0, 50) };\n\nreturn [{\n  json: {\n    contrato_ok: contratoOk,\n    errores,\n    lectura,\n    registro: {\n      mac:    typeof b.dispositivo_mac === 'string' ? b.dispositivo_mac.slice(0, 64) : null,\n      cuerpo,\n    },\n  },\n}];\n"
       },
-      "id": "91fe8d0a-dfd7-44e3-aac0-539dd7931d17",
+      "id": "37dc5bd5-4fab-482c-a079-b19854842c90",
       "name": "Validar Contrato",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -848,
-        96
+        -1712,
+        320
       ]
     },
     {
@@ -628,13 +628,13 @@
         },
         "options": {}
       },
-      "id": "69b54254-77dd-4648-a1dd-7ea44850afc4",
+      "id": "2188294c-84c5-41dd-a51a-70a24d1ba91e",
       "name": "Contrato Valido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -624,
-        96
+        -1488,
+        320
       ]
     },
     {
@@ -657,13 +657,13 @@
         "jsonBody": "={{ JSON.stringify({ p_mac: $json.lectura.dispositivo_mac, p_arranque_id: $json.lectura.arranque_id }) }}",
         "options": {}
       },
-      "id": "026558fb-7cf4-48d0-b46e-237bd1a29f22",
+      "id": "9e0f0fda-500e-4136-a7f9-781bde6a2bd0",
       "name": "Verificar Arranque",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -400,
-        16
+        -1264,
+        240
       ],
       "retryOnFail": true,
       "credentials": {
@@ -698,13 +698,13 @@
         },
         "options": {}
       },
-      "id": "2a4776da-8da6-4ffa-a73c-543834a577a0",
+      "id": "e6fe1930-e56b-4adc-88f9-67830b4166fa",
       "name": "Arranque Valido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -176,
-        16
+        -1040,
+        240
       ]
     },
     {
@@ -713,13 +713,13 @@
         "responseBody": "={{ JSON.stringify({ estado: \"aceptada\" }) }}",
         "options": {}
       },
-      "id": "7b52fe2f-9a14-4cea-9872-1eeb423c7370",
+      "id": "39dc50e6-7622-4c01-9fc2-e3781fd01f24",
       "name": "Responder Aceptada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        48,
-        -64
+        -816,
+        160
       ]
     },
     {
@@ -730,13 +730,13 @@
           "responseCode": 400
         }
       },
-      "id": "e705bdd1-ad26-4c24-8729-c9538f60ed51",
+      "id": "d51f01ab-76b4-4c1d-96e0-08819e1b1e3d",
       "name": "Responder Rechazo",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        48,
-        192
+        -816,
+        416
       ]
     },
     {
@@ -759,13 +759,13 @@
         "jsonBody": "={{ JSON.stringify({ p_mac: $('Validar Contrato').first().json.registro.mac, p_errores: $json.errores, p_cuerpo: $('Validar Contrato').first().json.registro.cuerpo }) }}",
         "options": {}
       },
-      "id": "970294c8-b141-48e6-b87a-ed24db0be54a",
+      "id": "808eece5-a9f2-4eb9-a318-c68ca26bd82e",
       "name": "Registrar Rechazo",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        272,
-        192
+        -592,
+        416
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -803,7 +803,7 @@
       "main": [
         [
           {
-            "node": "Hay foto nueva?",
+            "node": "Consolidar datos",
             "type": "main",
             "index": 0
           }
@@ -814,7 +814,7 @@
       "main": [
         [
           {
-            "node": "Registrar Recheck de Riego",
+            "node": "Hay foto nueva?",
             "type": "main",
             "index": 0
           }
@@ -853,11 +853,6 @@
         ]
       ]
     },
-    "Alerta Telegram": {
-      "main": [
-        []
-      ]
-    },
     "Hay foto nueva?": {
       "main": [
         [
@@ -869,7 +864,7 @@
         ],
         [
           {
-            "node": "Consolidar datos",
+            "node": "Registrar Recheck de Riego",
             "type": "main",
             "index": 0
           }
@@ -902,7 +897,7 @@
       "main": [
         [
           {
-            "node": "Consolidar datos",
+            "node": "Registrar Recheck de Riego",
             "type": "main",
             "index": 0
           }
@@ -1062,7 +1057,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "80a87d35-96a2-4493-ae68-b660dbed3da6",
+  "versionId": "fb4a793a-ebd7-4016-a96e-331baeac756a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
