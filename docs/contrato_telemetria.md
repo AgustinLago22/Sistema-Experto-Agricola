@@ -1,6 +1,6 @@
 # Contrato de telemetría — versión 1
 
-> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** Faltan los pasos 3 a 5. Detalle en `implementation_plan.md`, Fase 18.
+> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** **Paso 5 aplicado y verificado en vivo el 03/11/2026 (sesión 21):** temperatura y conductividad se guardan. Faltan los pasos 3 y 4. Detalle en `implementation_plan.md`, Fase 18.
 >
 > **Para qué existe.** Es la definición de qué manda el nodo sensor y de qué hace el sistema con lo que recibe. Hasta hoy el formato era "lo que manda el script de PowerShell", y esa falta de definición causó 16.52 (un `""` leído como humedad 0 %), 16.47 (sin hora de medición) y 16.48 (temperatura y conductividad descartadas). Se escribe **antes** de que exista el firmware, porque después cambiarlo obliga a actualizar cada placa instalada.
 
@@ -101,7 +101,9 @@ Las unidades son las que ya declara `tipos_metricas` en la base.
 
 ## 5 · Temperatura y conductividad: se guardan, no deciden
 
-Las dos están en el catálogo (`tipos_metricas` 2 y 7), el sensor 7 en 1 las mide, y hasta hoy el sistema las descartaba: **0 lecturas guardadas** al 13/10 (16.48).
+Las dos están en el catálogo (`tipos_metricas` 2 y 7), el sensor 7 en 1 las mide, y hasta el 03/11/2026 el sistema las descartaba: **0 lecturas guardadas** hasta esa fecha (16.48). **Desde el 03/11 se guardan** (paso 5 de la sección 9).
+
+**Un sensor que no mide alguna de las dos** la manda igual, en `null` (regla 1): se acepta, no se guarda esa fila y no produce ningún aviso, porque no decide. El campo no se omite: un campo ausente no distingue "este sensor no lo mide" de "el firmware se olvidó de mandarlo" (decisión del autor, 03/11).
 
 Con este contrato **se registran, pero no intervienen en el diagnóstico**: no tienen umbrales por etapa ni disparan alertas. Usarlas para decidir exige cargar umbrales con fuentes, como se hizo con humedad y NPK (Fase 17), y eso queda como trabajo futuro. Guardarlas desde ahora es lo que va a permitir analizarlas cuando llegue ese momento: lo que no se guarda hoy no se recupera después.
 
@@ -190,7 +192,7 @@ Este documento es el primer paso. Cada uno de los siguientes es una tarea propia
 2. **WF1 — revisión en la puerta.** Un nodo al principio, antes de `Resolver Cultivo`, que valide el contrato y responda `400` con los errores. Normaliza una sola vez, antes del primer nodo que decide (**cierra 16.52**). *Aplicado el 20/10: `Validar Contrato` + `Verificar Arranque` + respuestas `200`/`400` + registro del rechazo (Fase 18.2 del plan).*
 3. **WF1 — respuestas.** Hoy el webhook responde apenas recibe el pedido, sin decir si la lectura sirvió. Hay que responder con los códigos de la sección 4.
 4. **Base — hora y DNI de la lectura.** Guardar `ts`, la hora de recepción, `arranque_id` y `seq`, con una restricción de unicidad sobre `(arranque_id, seq)` que haga imposible el duplicado (**16.47**, y la pieza que necesita **B.20**).
-5. **Base y WF1 — temperatura y conductividad.** Que `fn_registrar_telemetria` las reciba y las guarde como métricas 2 y 7 (**16.48**).
+5. **Base y WF1 — temperatura y conductividad.** Que `fn_registrar_telemetria` las reciba y las guarde como métricas 2 y 7 (**16.48**). *Aplicado el 03/11: `SQL/sesion21_contrato_paso5_temp_cond.sql` y `Consolidar datos` de WF1, que las toma de la lectura de `Validar Contrato`.*
 6. **Simulador.** Actualizar los comandos de prueba del plan al formato nuevo. *Escrito el 19/10 en `SQL/sesion17_test_puerta_en_vivo.sql` (funciones `A`, `L` y `N` de PowerShell); falta pasarlo a la sección "Cómo probar" del plan cuando la puerta esté aplicada.*
 
 **Transición.** Mientras los pasos 1 a 5 no estén hechos, WF1 sigue aceptando el formato viejo. Cuando el paso 2 entre en vigencia, el formato viejo pasa a rechazarse: no hay dispositivos reales en campo que migrar, solo el simulador.

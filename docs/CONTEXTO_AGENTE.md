@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, y el 29/10 con el cierre de la 20: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v66**) ya registra las tres. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, y el 03/11 con su commit y la sesión 21 (en curso): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v67**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -8,9 +8,19 @@
 
 ---
 
-## ▶ Sesión 20 — CERRADA (26/10 → 29/10), anotada en el plan (v65 y v66)
+## ▶ Sesión 21 — EN CURSO (03/11): el contrato, un paso por vez
 
-**La simulación de defensa se expuso el 28/10:** 5 minutos (se redujo de 10 ese mismo día), **sin demo en vivo**. La página de la exposición es de claude.ai, privada y fuera del repo; Agustín la conserva por las dudas. **Descartados por él (29/10):** el guion de la demo (se borraron `docs/guion_demo.md` y `SQL/sesion18_demo.sql`) y el PDF de la simulación. No volver a proponerlos. Agregó a `docs/` la propuesta original de la tesis (`ANEXO II - Lago .docx`) y el logo de la facultad (`logo-facu.png`).
+**Paso 5 ✅ (16.48 cerrado, 03/11):** temperatura y conductividad **se guardan, no deciden**. `fn_registrar_telemetria` tiene 9 parámetros (`p_temperatura`, `p_conductividad`, `DEFAULT NULL`; script `SQL/sesion21_contrato_paso5_temp_cond.sql`, FALLÓ antes y OK 4 de 4 después). `Consolidar datos` (WF1) las toma de `$('Validar Contrato').first().json.lectura`: el Motor no las emite ni las lee. Export de WF1 comparado: idéntico. En vivo (17:21 de Argentina): lectura sana → 7 filas (520 a 526); con las dos en "sin dato" → 5 (527 a 531). **Decisión de Agustín:** siguen obligatorias con `null` permitido (un sensor que no las mide manda `null`). Detalle: changelog **v67** del plan.
+
+**Corrección de estado:** la foto de la prueba de 16.39 **ya está evaluada**: WF3 corrió solo el 01/11 a las 01:01 de Argentina (evaluación 16, `no_avanza`, 0,95). Datos de prueba nuevos, sin limpiar a propósito: arranque 10, lecturas 520 a 531 (497 a 519 es el hueco que dejó el test).
+
+**Lo que sigue:** paso 4 (16.47: `ts`, hora de recepción, `arranque_id` y `seq` por lectura, con unicidad) y paso 3 (responder según el procesamiento).
+
+---
+
+## ▶ Sesión 20 — CERRADA (26/10 → 29/10), anotada en el plan (v65 y v66) y commiteada (`c1066d1`, 03/11)
+
+**La simulación de defensa se expuso el 28/10:** 5 minutos (se redujo de 10 ese mismo día), **sin demo en vivo**. La página de la exposición es de claude.ai, privada y fuera del repo; Agustín la conserva por las dudas. **Descartados por él (29/10):** el guion de la demo (se borraron `docs/guion_demo.md` y `SQL/sesion18_demo.sql`) y el PDF de la simulación. No volver a proponerlos. La propuesta original de la tesis (`ANEXO II - Lago .docx`, con DNI, domicilio y teléfono de Agustín) y el logo de la facultad **quedaron fuera del repo**: él los sacó de `docs/` antes del commit (03/11).
 
 **Lo hecho: 16.51 ✅, la dosis entregada ✅, 16.39 ✅ y el Telegram de WF1 más prolijo ✅**, verificados en vivo. Detalle: changelog **v65**, **16.51** y **16.39** del plan.
 
@@ -27,6 +37,8 @@
 **Cómo se trabajó y conviene seguir (lo pidió Agustín: "que no se haga un snowball"):** cada paso se chequea antes de entregarlo (el código se corre en local con Node contra casos simulados, el nuevo contra el actual) y se verifica después en la base y **en el export, antes de probar**. Así se atrapó una condición pegada en el lugar equivocado en `Dispara WF5`. **Los `.txt` para un campo de expresión no llevan salto de línea al final** (n8n lo toma como parte del valor).
 
 **Lo que sigue:** a definir con Agustín. Candidatos: la limpieza única de los datos de prueba, WF6, los pasos 3 a 5 del contrato y 16.33. **WF6 quedó para después.** Para cuando se haga: **WF6** (13.13), primero `/pausar` y `/reanudar`. Antes hay que decidir cómo llega Telegram a un n8n en `localhost` (túnel o consulta periódica a `getUpdates`) y agregar que solo acepte el chat 5593622386 (el diseño escrito no lo verifica). `/calibrar` se puede armar, pero no probar de punta a punta sin placa (16.63).
+
+**Cuánto falta para terminar la tesis (estimación del 29/10, a ajustar con Agustín):** del cronograma del Anexo II (8 etapas), las 1 a 6 están hechas en lo sustancial (del contrato faltan los pasos 3 a 5). Faltan la **7** (despliegue en un servidor accesible y documentación técnica: hoy n8n corre en la laptop de Agustín) y la **8** (informe final y defensa), que es lo más grande; el plan y el changelog ya son buena parte del material. Al ritmo de las sesiones 11 a 20 (una cada ~5 días): **lo mínimo** (servidor + informe) entra en noviembre; **con todo el software** (pasos 3 a 5 del contrato, ~2 o 3 sesiones; WF6, ~2; la limpieza, media) llega a mediados de diciembre. **Falta que Agustín diga** el formato del informe que pide la facultad y la fecha de la defensa final.
 
 ---
 
@@ -254,7 +266,7 @@ Webhook → Validar Arranque → Pedido Valido? ─[no]→ Responder Pedido Inva
 
 **Vistas:** `vista_cultivos_activos` (la que consumen WF1/WF3/WF4; desde el 27/10 trae `riego_automatico_disponible`, y la base exige caudal y volumen > 0 si están cargados), `vista_conocimiento_experto` (umbrales por especie+etapa), `vista_promedios_recientes`, `vista_ultimo_arranque` (firmware vigente por placa, `security_invoker`), `vista_ultimo_riego`. Esta última, desde el 19/10, trae además `evento_id`, `comando_estado`, `absorcion_completa` (≥ 15 min), `recheck_vencido` (> 60 min) y `humedad_max_posterior`. **Los dos tiempos se definen solo ahí**: los leen WF5 y el Motor.
 
-**Funciones RPC:** `fn_registrar_telemetria`, `fn_registrar_riego` (con tope duro), `fn_registrar_recheck_riego` (solo cierra eventos `pendiente` del mismo cultivo), `fn_registrar_evaluacion_fenologica`, y desde el 20/10 `fn_registrar_arranque`, `fn_verificar_arranque` y `fn_registrar_rechazo` (las tres solo para `service_role`, sin `SECURITY DEFINER`; las tablas nuevas con RLS y sin permisos para `anon`/`authenticated`).
+**Funciones RPC:** `fn_registrar_telemetria` (desde el 03/11 también guarda temperatura y conductividad, métricas 2 y 7), `fn_registrar_riego` (con tope duro), `fn_registrar_recheck_riego` (solo cierra eventos `pendiente` del mismo cultivo), `fn_registrar_evaluacion_fenologica`, y desde el 20/10 `fn_registrar_arranque`, `fn_verificar_arranque` y `fn_registrar_rechazo` (las tres solo para `service_role`, sin `SECURITY DEFINER`; las tablas nuevas con RLS y sin permisos para `anon`/`authenticated`).
 
 > ⚠️ **`vista_conocimiento_experto` hace INNER JOIN contra `parametro_etapa`.** Una etapa sin umbrales no devuelve nulos: **no devuelve nada**. Es la raíz del hallazgo 16.37.
 
@@ -423,7 +435,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 - **WF4, no encenderlo:** `16.57` (pérdida de cardinalidad — es 16.16 otra vez), `16.58` (ruteo), `16.59` (el error del modelo guardado como dato — es 16.14 otra vez), `16.49`, `16.60`, `16.45` (el prompt le pide al modelo que invente la tendencia), `16.30` (quedó en `gemini-2.5-flash`).
 - **WF5, endurecer:** `16.53`, `16.54`, `16.56` (ya no tapa a 16.52), `16.62`.
 - **Seguridad y base:** `16.1` (secretos), `16.6` (mínimo privilegio), `16.13` (`anon`/`authenticated` con `ALL` sobre 18 tablas), `B.9` (`SECURITY DEFINER` ejecutable por `anon`), `B.23` (separación de credenciales).
-- **Contrato y datos:** `B.22` ✅ (contrato escrito el 13/10; pasos 1 y 2 vigentes desde el 20/10), `16.48` (temperatura y conductividad: **se guardan, no deciden**, definido en el contrato), `B.19` (cadencia: el contrato no la fija, sale del piloto), `B.20` (trazabilidad: el DNI de la lectura la habilita), `B.21` (retención).
+- **Contrato y datos:** `B.22` ✅ (contrato escrito el 13/10; pasos 1 y 2 vigentes desde el 20/10), ~~`16.48`~~ ✅ (temperatura y conductividad: **se guardan, no deciden**, aplicado el 03/11), `B.19` (cadencia: el contrato no la fija, sale del piloto), `B.20` (trazabilidad: el DNI de la lectura la habilita), `B.21` (retención).
 - **Observabilidad de la planta:** `16.65` (la ventana de evaluación es el 80 % de la duración: Fructificación deja **32 días ciegos**), `16.43` (una foto sin alerta no la mira nadie), `B.17` (falta la capa de tendencia). Los tres son lo mismo visto de costado: **el sistema solo observa cuando sospecha, y sospecha por un único criterio.**
 - **Resto:** `16.8` (a medias desde el 20/10: una MAC desconocida ya se rechaza y se registra; un dispositivo sin cultivo activo sigue mudo), `16.9`, `16.21`, `16.29`, `B.2`–`B.6`, `B.8`, `B.10`–`B.12`, `B.15`, `B.16`, `B.18`.
 
@@ -448,7 +460,7 @@ La lista de abajo es el orden general del proyecto, sin la fecha.
 
 `docs/revisiones/REVISION_04_hoja_de_ruta.md` organiza lo que queda en **tres carriles** —lo que bloquea la tesis, lo que bloquea la venta, y la deuda tolerable— y define un **mínimo viable para un primer cliente**. Ese mínimo descansa en tres defensas independientes contra el mismo riesgo (regar de más): el control del riego (13.7.2 ✅), el tope duro por ventana (16.46 ✅) y **la válvula local de 30 segundos en el firmware**, la única que sigue funcionando si n8n, la red o Supabase se caen. Son capas separadas a propósito.
 
-1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10). Faltan el 3 (responder según el procesamiento, que también resuelve el resto de 16.8), el 4 (`ts`/`arranque_id`/`seq` por lectura con unicidad, **16.47**) y el 5 (temperatura y conductividad, **16.48**).
+1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10), paso 5 ✅ (03/11, **16.48**). Faltan el 3 (responder según el procesamiento, que también resuelve el resto de 16.8) y el 4 (`ts`/`arranque_id`/`seq` por lectura con unicidad, **16.47**).
 2. **Entrega de órdenes a la placa** (16.63): el control y el tope ya están (13.7.2, 19/10). Falta quien consuma `comando_dispositivo`, y decidir antes cómo se autentica la placa (D-auth, B.23).
 3. ~~16.38~~ ✅ 20/10. Lo que queda del hueco de umbrales (etapa sin fila) se resuelve juntando las dos tablas: trabajo futuro.
 4. **Endurecer WF5**: ~~16.51~~ ✅ (27/10), 16.55, 16.53, 16.56 (16.52 se cerró en la puerta de WF1).
@@ -516,7 +528,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 2. **No toques tablas, columnas, políticas RLS ni datos** sin explicar antes qué y por qué, y esperar confirmación explícita. **Forma de trabajo vigente:** los cambios de esquema o destructivos se escriben como script versionado en `SQL/` (con estado previo, reverso y bloque de verificación), **los ejecuta Agustín en el SQL Editor**, y el agente verifica por MCP en modo lectura. En las sesiones 14 y 18 el control de permisos bloqueó la ejecución directa: **no intentes correr DDL vos**, aunque Agustín lo pida cansado; pasale los bloques listos para pegar, en orden, y verificá después por MCP. Si el script tiene un test que se deshace solo, que lo corra **también antes** del cambio: tiene que fallar.
 3. **Verificá el estado real antes de asumir.** El documento y los JSON pueden estar desactualizados respecto de lo que corre en vivo. Ya hubo varios casos de drift.
 4. **Verificá contra el estado persistido, no contra el output del nodo.**
-5. **No tiene navegador en n8n.** Proponé el cambio exacto —nodo, campo, expresión, código completo para pegar— y él lo aplica y reporta. **Explicale qué hace cada nodo antes de que lo aplique**, y si es un workflow nuevo, ofrecé que lo arme él, guiado.
+5. **No tiene navegador en n8n.** Proponé el cambio exacto —nodo, campo, expresión, código completo para pegar— y él lo aplica y reporta. El código va también en un `.txt` para copiarlo desde ahí. **Si son muchos cambios o es un workflow nuevo, pasale el JSON completo para importar** (chequeado antes, como todo). **Explicá cada nodo en una línea antes de que lo aplique; la explicación larga, solo si es algo nuevo** (le sirve para el informe y la defensa). Regla ajustada por Agustín el 03/11 para avanzar más rápido; las de git, base y verificación siguen igual.
 6. **Al terminar algo, actualizá `docs/implementation_plan.md`:** changelog, **Tablero**, **Hallazgos abiertos**, **Cierre de sesión**, y la sección numerada que corresponda. Lo diferido a propósito va al backlog. **Nada queda flotando en la conversación.**
 7. **Antes de proponer una tabla, nodo o credencial nueva**, revisá si el backlog ya registra un intento anterior descartado por el mismo motivo.
 8. **Decile cuando se equivoque.** Prefiere que discutas una decisión antes de implementarla.
@@ -531,7 +543,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 
 ## 12 · Mapa del plan, si hace falta profundizar
 
-`docs/implementation_plan.md` (v66, ~6.800 líneas). **Abrí solo la sección que necesites.**
+`docs/implementation_plan.md` (v67, ~6.800 líneas). **Abrí solo la sección que necesites.**
 
 | Buscás | Andá a |
 |---|---|
@@ -549,7 +561,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en las sesiones 19 y 20 | Changelog **v64**, **v65** y **v66**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
+| Lo hecho en las sesiones 19 a 21 | Changelog **v64**, **v65**, **v66** y **v67**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
 | El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10, pasos 1 y 2) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |
@@ -563,4 +575,4 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | `docs/revisiones/REVISION_03_workflows.md` | Los cinco workflows nodo por nodo. Su §1 acota la anomalía de WF3 a cuatro causas |
 | `docs/revisiones/REVISION_04_hoja_de_ruta.md` | Los tres carriles y el mínimo viable para un primer cliente |
 
-**Otros archivos del repo:** `SQL/` (esquema y scripts de prueba) · `test/` (fotos y escenarios de prueba) · `WORKFLOWS/` (los 6 JSON: WF1–WF5 y WF7) · `SQL/sesion18_16.38_restricciones_catalogo.sql` (16.38, aplicado) · `docs/logo-facu.png`. **`docs/ANEXO II - Lago .docx`** (la propuesta original de la tesis) tiene DNI, domicilio y teléfono de Agustín: subirlo o no es decisión de él (el repo es privado al 29/10, pero es un entregable de la tesis).
+**Otros archivos del repo:** `SQL/` (esquema y scripts de prueba) · `test/` (fotos y escenarios de prueba) · `WORKFLOWS/` (los 6 JSON: WF1–WF5 y WF7) · `SQL/sesion18_16.38_restricciones_catalogo.sql` (16.38, aplicado). La propuesta original de la tesis (Anexo II) y el logo de la facultad **no están en el repo** (el Anexo tiene datos personales de Agustín; los sacó él el 03/11).
