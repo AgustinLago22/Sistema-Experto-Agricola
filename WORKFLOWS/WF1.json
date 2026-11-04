@@ -12,10 +12,10 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -1936,
-        320
+        -4368,
+        544
       ],
-      "id": "1b61c376-9da6-42b1-8264-36ec038d2ad9",
+      "id": "dd4537f8-0f1a-478d-bb86-08c94dbf0108",
       "name": "Webhook",
       "webhookId": "7316c265-5e02-47e0-a3f0-56e80124155f",
       "credentials": {
@@ -43,10 +43,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -592,
-        160
+        -3024,
+        384
       ],
-      "id": "6bac75cd-94a9-45f7-802f-161cac5ec577",
+      "id": "b55e51ef-c553-4ede-bf42-428a16b5cbfa",
       "name": "Resolver Cultivo",
       "credentials": {
         "supabaseApi": {
@@ -62,10 +62,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        80,
-        160
+        -2352,
+        384
       ],
-      "id": "8fa7dc60-377f-4f48-a40d-8f0861ee5a62",
+      "id": "d502c071-b4b8-43e0-a48e-ef78bacc666a",
       "name": "Motor de Inferencia"
     },
     {
@@ -91,10 +91,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        528,
-        160
+        -1904,
+        384
       ],
-      "id": "1dfda3d6-818f-4a6c-af1d-37d12d7bcfe3",
+      "id": "d6f4d6ec-1d99-4406-834a-ef0039527291",
       "name": "fn_registrar_telemetria",
       "credentials": {
         "httpHeaderAuth": {
@@ -131,10 +131,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2096,
-        160
+        112,
+        384
       ],
-      "id": "45e00989-f2c7-4553-b133-b270aaac73e4",
+      "id": "b2035cdf-77f2-42ed-86c0-a79abdb24b80",
       "name": "Requiere Alerta?"
     },
     {
@@ -148,10 +148,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2320,
-        192
+        336,
+        416
       ],
-      "id": "4a1ac8c2-4ca2-44ad-9c55-afe9d7276719",
+      "id": "3a3ad0ba-d6de-4592-a1da-59b247b5d3b7",
       "name": "Alerta Telegram",
       "webhookId": "5a61ff2e-6736-451b-bd09-46076a782f2b",
       "credentials": {
@@ -189,10 +189,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -368,
-        160
+        -2800,
+        384
       ],
-      "id": "72e4e3a5-d813-4324-8da4-7ee4d76975fd",
+      "id": "1c5a4d67-395d-490a-80f6-8817ecf8e337",
       "name": "Conocimiento Experto",
       "alwaysOutputData": true,
       "credentials": {
@@ -219,16 +219,16 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($('Consolidar datos').item.json) }}",
+        "jsonBody": "={{ JSON.stringify({ ...$('Consolidar datos').item.json, path_foto_evento: $('Resultado de la foto').item.json.path_foto_guardada }) }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        2544,
-        -16
+        560,
+        208
       ],
-      "id": "55b90d0a-6b39-4427-8033-ec87256ac7fe",
+      "id": "9b96b233-44fc-4963-8a2c-f1ec8efcb171",
       "name": "Trigger a WF2",
       "retryOnFail": true,
       "credentials": {
@@ -266,10 +266,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        752,
-        160
+        -1680,
+        384
       ],
-      "id": "ec3bbb1a-85c7-4ba8-98df-ff588a306409",
+      "id": "b647dd27-0b41-459a-8ace-d0eab5b47cb2",
       "name": "Hay foto nueva?"
     },
     {
@@ -279,10 +279,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        976,
-        -48
+        -1456,
+        176
       ],
-      "id": "0b2242df-effb-4481-98c5-216ee0129b2d",
+      "id": "3c2092f4-2292-4094-b92a-8c0c0af862b2",
       "name": "Preparar Foto binaria"
     },
     {
@@ -299,17 +299,18 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1200,
-        -48
+        -1232,
+        176
       ],
-      "id": "06fc9df0-ef11-4dfc-b2c1-39ed190b4bdd",
+      "id": "1745ef2b-54c6-4bf2-8e22-1afdd2f87044",
       "name": "Subir Foto a Storage",
       "credentials": {
         "httpHeaderAuth": {
           "id": "gTOS54ckoPzBEe5K",
           "name": "Sup S"
         }
-      }
+      },
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -337,10 +338,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1424,
-        -48
+        -1008,
+        176
       ],
-      "id": "5bf21210-9f55-4ffa-9b79-fbc36ca0d11c",
+      "id": "b819ebf1-9ba4-4209-8270-3071dae13966",
       "name": "Actualizar Ultima Foto Cultivo",
       "credentials": {
         "supabaseApi": {
@@ -356,10 +357,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        304,
-        160
+        -2128,
+        384
       ],
-      "id": "edbda1c2-880b-426b-9fe4-0c9c85f4dc0f",
+      "id": "37ea1fcc-d83c-40d8-a734-b744412a6b8a",
       "name": "Consolidar datos"
     },
     {
@@ -381,10 +382,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -144,
-        160
+        -2576,
+        384
       ],
-      "id": "24a55cb3-c600-4bc1-83dc-0bfb535f10ed",
+      "id": "8ac893a7-46a3-49ce-89b6-70a2906c579a",
       "name": "Obtener Ultimo Riego",
       "alwaysOutputData": true,
       "credentials": {
@@ -422,10 +423,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        1872,
-        160
+        -112,
+        384
       ],
-      "id": "90a25c47-2e12-4eb4-995f-43f5a76aef36",
+      "id": "a984a992-6bbc-4457-ab65-40beb7a16228",
       "name": "Esta en mantenimiento"
     },
     {
@@ -466,10 +467,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2320,
-        -16
+        336,
+        208
       ],
-      "id": "c3a1bf16-88bb-4161-86ee-360f503eca77",
+      "id": "2defd6fa-07a1-43b4-ab50-dc575863740a",
       "name": "Dispara WF 2"
     },
     {
@@ -520,10 +521,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2320,
-        384
+        336,
+        608
       ],
-      "id": "c49dc9f1-dddd-45c3-bd35-f7ea23e02ba4",
+      "id": "9009c451-bcf9-4a05-a827-8dea0a719c0b",
       "name": "Dispara WF5"
     },
     {
@@ -540,10 +541,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        2544,
-        384
+        560,
+        608
       ],
-      "id": "81c36a8a-d2f3-466a-bb07-fdda2b753e87",
+      "id": "4085d574-7de4-48f0-b297-d789a469a303",
       "name": "Trigger WF5",
       "retryOnFail": true,
       "credentials": {
@@ -577,10 +578,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1648,
-        160
+        -336,
+        384
       ],
-      "id": "585b632e-c3f3-4352-84eb-a131081c1559",
+      "id": "51b5bd26-2630-47df-9158-b188a687ea72",
       "name": "Registrar Recheck de Riego",
       "retryOnFail": true,
       "credentials": {
@@ -594,13 +595,13 @@
       "parameters": {
         "jsCode": "// ============================================================\n// VALIDAR CONTRATO — WF1 · contrato de telemetría v1, paso 2\n// Escrito el 19/10/2026 (sesión 17). Cierra 16.52.\n// ------------------------------------------------------------\n// La puerta del sistema. Corre ANTES de `Resolver Cultivo`, o sea antes del\n// primer nodo que decide. Hace dos cosas, una sola vez:\n//   1. VALIDA el cuerpo contra docs/contrato_telemetria.md (secciones 2 y 3).\n//      Si algo no cumple, la lectura se rechaza ENTERA y se informa cada campo\n//      con problema: una lectura mal formada no puede disparar un riego.\n//   2. NORMALIZA: arma `lectura`, el único objeto que leen los nodos de abajo.\n//      Nadie aguas abajo vuelve a leer el cuerpo crudo del Webhook.\n//\n// 16.52: el Motor comparaba el valor crudo, y en JavaScript `\"\" < 60` es true\n// (la cadena vacía se convierte a 0): un sensor sin dato era SEQUÍA y regaba.\n// La normalización existía, pero vivía en `Consolidar datos`, DESPUÉS del\n// Motor. Normalizar en el borde quiere decir el borde del SISTEMA, no el de la\n// función que se estaba tocando.\n//\n// Lo que NO se valida acá: que el arranque_id sea de esta placa. Eso es un\n// dato de la base y lo verifica el nodo siguiente, `Verificar Arranque`.\n// ============================================================\nconst VERSION_CONTRATO = 1;\nconst MAC_RE = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/i;\n\n// Rango FÍSICO del sensor (contrato, regla 2): límites de lo POSIBLE, no de lo\n// sano (lo sano lo deciden los umbrales de la etapa). Un valor afuera tenía que\n// llegar como null; si llega el número, la placa no cumple el contrato.\nconst MEDICIONES = {\n  humedad:       [0, 100],\n  temperatura:   [-40, 80],\n  ph:            [0, 14],\n  conductividad: [0, 20],\n  n:             [0, 2000],\n  p:             [0, 2000],\n  k:             [0, 2000],\n};\nconst MOTIVOS = ['programada', 'recheck'];\n\nconst crudo = $('Webhook').first().json.body;\nconst esObjeto = crudo !== null && typeof crudo === 'object' && !Array.isArray(crudo);\nconst b = esObjeto ? crudo : {};\nconst errores = [];\nconst tiene = (k) => Object.prototype.hasOwnProperty.call(b, k);\nconst esEntero = (x) => typeof x === 'number' && Number.isSafeInteger(x);\nconst mostrar = (x) => JSON.stringify(x) ?? String(x);\n\nif (!esObjeto) {\n  errores.push('cuerpo: tiene que ser un objeto JSON');\n} else if (tiene('v') && b.v !== VERSION_CONTRATO) {\n  // Otra versión: el resto del cuerpo puede significar otra cosa. No se lo\n  // revisa campo por campo, porque esos errores serían ruido.\n  errores.push(`v: versión ${mostrar(b.v)} desconocida; este servidor entiende la ${VERSION_CONTRATO}`);\n} else {\n  if (!tiene('v')) errores.push('v: falta');\n\n  // dispositivo_mac — se normaliza a mayúsculas, como está en la base.\n  if (!tiene('dispositivo_mac')) errores.push('dispositivo_mac: falta');\n  else if (typeof b.dispositivo_mac !== 'string' || !MAC_RE.test(b.dispositivo_mac.trim()))\n    errores.push(`dispositivo_mac: ${mostrar(b.dispositivo_mac)} no tiene el formato AA:BB:CC:DD:EE:FF`);\n\n  // arranque_id y seq — el DNI de la lectura (contrato, regla 3).\n  if (!tiene('arranque_id')) errores.push('arranque_id: falta');\n  else if (!esEntero(b.arranque_id) || b.arranque_id < 1)\n    errores.push(`arranque_id: ${mostrar(b.arranque_id)} no es un entero positivo`);\n\n  if (!tiene('seq')) errores.push('seq: falta');\n  else if (!esEntero(b.seq) || b.seq < 0)\n    errores.push(`seq: ${mostrar(b.seq)} no es un entero mayor o igual a 0`);\n\n  // ts — obligatorio, pero puede ser null (la placa no tiene hora confiable).\n  if (!tiene('ts')) errores.push('ts: falta (si la placa no tiene hora, mandar null)');\n  else if (b.ts !== null && (!esEntero(b.ts) || b.ts < 0))\n    errores.push(`ts: ${mostrar(b.ts)} no es un entero (segundos Unix) ni null`);\n\n  if (!tiene('motivo')) errores.push('motivo: falta');\n  else if (!MOTIVOS.includes(b.motivo))\n    errores.push(`motivo: ${mostrar(b.motivo)} no es \"programada\" ni \"recheck\"`);\n\n  // Las 7 mediciones: siempre presentes; número dentro del rango físico, o null.\n  // La ausencia se declara en el origen, no se adivina acá (contrato, regla 1).\n  for (const [campo, [min, max]] of Object.entries(MEDICIONES)) {\n    if (!tiene(campo)) {\n      errores.push(`${campo}: falta (si el sensor no pudo medir, mandar null)`);\n    } else if (b[campo] === null) {\n      // válido: \"el sensor no pudo medir esta variable\"\n    } else if (typeof b[campo] !== 'number' || !Number.isFinite(b[campo])) {\n      errores.push(`${campo}: ${mostrar(b[campo])} no es un número ni null`);\n    } else if (b[campo] < min || b[campo] > max) {\n      errores.push(`${campo}: ${b[campo]} está fuera del rango físico del sensor (${min} a ${max}); un valor imposible se manda como null`);\n    }\n  }\n\n  // foto_base64 — opcional. Si no hay foto, el campo NO se manda.\n  if (tiene('foto_base64') && (typeof b.foto_base64 !== 'string' || b.foto_base64.trim() === ''))\n    errores.push('foto_base64: si se manda, tiene que ser texto no vacío (sin foto, no mandar el campo)');\n\n  // Campos que el contrato no conoce (p. ej. el viejo `planta`): se ignoran (regla 6).\n}\n\nconst contratoOk = errores.length === 0;\n\n// La lectura normalizada: solo los campos del contrato, con sus tipos.\nconst lectura = contratoOk ? {\n  dispositivo_mac: b.dispositivo_mac.trim().toUpperCase(),\n  arranque_id:     b.arranque_id,\n  seq:             b.seq,\n  ts:              b.ts,\n  motivo:          b.motivo,\n  humedad:         b.humedad,\n  temperatura:     b.temperatura,\n  ph:              b.ph,\n  conductividad:   b.conductividad,\n  n:               b.n,\n  p:               b.p,\n  k:               b.k,\n  ...(tiene('foto_base64') ? { foto_base64: b.foto_base64.trim() } : {}),\n} : null;\n\n// Lo que se guarda si se rechaza: el cuerpo SIN la foto, con un tope de tamaño.\nconst { foto_base64: _foto, ...sinFoto } = b;\nlet cuerpo = tiene('foto_base64') ? { ...sinFoto, foto_base64: '[omitida]' } : sinFoto;\nif (!esObjeto) cuerpo = { _no_es_objeto: mostrar(crudo).slice(0, 500) };\nif (JSON.stringify(cuerpo).length > 8000) cuerpo = { _truncado: true, claves: Object.keys(b).slice(0, 50) };\n\nreturn [{\n  json: {\n    contrato_ok: contratoOk,\n    errores,\n    lectura,\n    registro: {\n      mac:    typeof b.dispositivo_mac === 'string' ? b.dispositivo_mac.slice(0, 64) : null,\n      cuerpo,\n    },\n  },\n}];\n"
       },
-      "id": "37dc5bd5-4fab-482c-a079-b19854842c90",
+      "id": "d80ea8ba-2f18-416e-9725-b949fce75592",
       "name": "Validar Contrato",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1712,
-        320
+        -4144,
+        544
       ]
     },
     {
@@ -628,13 +629,13 @@
         },
         "options": {}
       },
-      "id": "2188294c-84c5-41dd-a51a-70a24d1ba91e",
+      "id": "6b6333a7-0d99-4ebf-b584-d1af80212347",
       "name": "Contrato Valido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -1488,
-        320
+        -3920,
+        544
       ]
     },
     {
@@ -657,13 +658,13 @@
         "jsonBody": "={{ JSON.stringify({ p_mac: $json.lectura.dispositivo_mac, p_arranque_id: $json.lectura.arranque_id }) }}",
         "options": {}
       },
-      "id": "9e0f0fda-500e-4136-a7f9-781bde6a2bd0",
+      "id": "b10795e2-9f93-4388-b252-3447d8581c4a",
       "name": "Verificar Arranque",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -1264,
-        240
+        -3696,
+        464
       ],
       "retryOnFail": true,
       "credentials": {
@@ -698,13 +699,13 @@
         },
         "options": {}
       },
-      "id": "e6fe1930-e56b-4adc-88f9-67830b4166fa",
+      "id": "1828ad94-6e33-49e8-b2f5-151280e50243",
       "name": "Arranque Valido?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -1040,
-        240
+        -3472,
+        464
       ]
     },
     {
@@ -713,13 +714,13 @@
         "responseBody": "={{ JSON.stringify({ estado: \"aceptada\" }) }}",
         "options": {}
       },
-      "id": "39dc50e6-7622-4c01-9fc2-e3781fd01f24",
+      "id": "d1e178e0-2347-41c8-b9f6-5a480796580a",
       "name": "Responder Aceptada",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        -816,
-        160
+        -3248,
+        384
       ]
     },
     {
@@ -730,13 +731,13 @@
           "responseCode": 400
         }
       },
-      "id": "d51f01ab-76b4-4c1d-96e0-08819e1b1e3d",
+      "id": "8903b708-d9f7-4089-8505-52408030b831",
       "name": "Responder Rechazo",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        -816,
-        416
+        -3248,
+        640
       ]
     },
     {
@@ -759,13 +760,13 @@
         "jsonBody": "={{ JSON.stringify({ p_mac: $('Validar Contrato').first().json.registro.mac, p_errores: $json.errores, p_cuerpo: $('Validar Contrato').first().json.registro.cuerpo }) }}",
         "options": {}
       },
-      "id": "808eece5-a9f2-4eb9-a318-c68ca26bd82e",
+      "id": "fc6846cd-d3ab-4ca0-8bf5-9003c3ce664c",
       "name": "Registrar Rechazo",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -592,
-        416
+        -3024,
+        640
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -773,6 +774,78 @@
           "name": "Sup S"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// RESULTADO DE LA FOTO — WF1\n// Escrito el 03/11/2026 (sesión 21). Aislamiento de fallos de Storage.\n// ------------------------------------------------------------\n// Hasta el 03/11, si `Subir Foto a Storage` fallaba, el workflow se detenía ahí:\n// la lectura ya estaba guardada, pero no salían el Telegram ni el riego. Por no\n// poder ARCHIVAR una foto, la planta se quedaba sin riego y nadie se enteraba.\n// Ahora ese nodo sale por su salida de error hasta acá, y el flujo sigue.\n//\n// A este nodo llegan los tres caminos:\n//   - la lectura no traía foto           → foto_guardada = null\n//   - la foto se subió y se marcó        → foto_guardada = true\n//   - Storage falló (salida de error)    → foto_guardada = false\n//\n// La IA no necesita Storage: WF2 recibe la foto dentro del pedido. Lo único que\n// se pierde es la copia (historial y WF3). Por eso a WF2 se le pasa la foto como\n// NO guardada (path null), para que su diagnóstico no apunte a un archivo que no\n// existe.\n//\n// Un fallo manejado tiene que seguir siendo contado: con foto_guardada = false,\n// `Foto no guardada?` manda un Telegram aparte, haya alerta o no.\n// ============================================================\nconst cons = $('Consolidar datos').item.json;\nconst lecturaId = $('fn_registrar_telemetria').item.json.lectura_id ?? null;\n\nlet fotoGuardada = null;\nlet fotoError = null;\n\nif (cons.tiene_foto === true) {\n  if ($json.error !== undefined) {\n    // Salida de error de `Subir Foto a Storage`.\n    fotoGuardada = false;\n    const e = $json.error;\n    fotoError = String(typeof e === 'string' ? e : (e?.message ?? JSON.stringify(e))).slice(0, 300);\n  } else if ($json.ultima_foto_path === cons.path_foto_evento) {\n    // Validación positiva: `Actualizar Ultima Foto Cultivo` devolvió el cultivo\n    // con ESTE path. No alcanza con \"no hubo error\".\n    fotoGuardada = true;\n  } else {\n    fotoGuardada = false;\n    fotoError = 'Actualizar Ultima Foto Cultivo no devolvió el path de esta foto ' +\n      `(esperado \"${cons.path_foto_evento}\", recibido \"${$json.ultima_foto_path ?? 'nada'}\")`;\n  }\n}\n\nreturn [{\n  json: {\n    lectura_id: lecturaId,\n    foto_guardada: fotoGuardada,\n    aviso_foto: fotoGuardada === false,   // siempre booleano: lo lee un IF estricto\n    foto_error: fotoError,\n    path_foto_guardada: fotoGuardada === true ? cons.path_foto_evento : null\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        384
+      ],
+      "id": "914f55f1-3f41-4e69-837a-a05d9542a2a6",
+      "name": "Resultado de la foto"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "591549ad-4dc8-4f05-bb11-d9175e6bb123",
+              "leftValue": "={{ $json.aviso_foto }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -560,
+        96
+      ],
+      "id": "fc7bcb72-9123-4843-a906-c733354ff2e7",
+      "name": "Foto no guardada?"
+    },
+    {
+      "parameters": {
+        "chatId": "5593622386",
+        "text": "=⚠️ FOTO NO GUARDADA — SISTEMA EXPERTO AGRÍCOLA\n  📍 Cultivo: {{ $('Motor de Inferencia').item.json.planta }}\n  📡 Dispositivo: {{ $('Motor de Inferencia').item.json.mac_address }}\n  ━━━━━━━━━━━━━━━━━━━\n  La lectura {{ $('Resultado de la foto').item.json.lectura_id }} se guardó y se evaluó, pero la foto no se pudo subir a Storage.\n  El aviso y el riego siguen igual. La foto no queda en el historial y WF3 no la va a evaluar.\n  ❌ Error: {{ $('Resultado de la foto').item.json.foto_error }}\n  🕐 {{ DateTime.fromISO($('Motor de Inferencia').item.json.timestamp).setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy HH:mm') }} (hora de Argentina)",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -336,
+        96
+      ],
+      "id": "96d7df08-d84d-4b5b-bb0d-6f3f3fbead09",
+      "name": "Aviso Foto no Guardada",
+      "webhookId": "3cfd7497-71a2-4bd6-a567-234b55625b96",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {},
@@ -864,7 +937,7 @@
         ],
         [
           {
-            "node": "Registrar Recheck de Riego",
+            "node": "Resultado de la foto",
             "type": "main",
             "index": 0
           }
@@ -890,6 +963,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Resultado de la foto",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -897,7 +977,7 @@
       "main": [
         [
           {
-            "node": "Registrar Recheck de Riego",
+            "node": "Resultado de la foto",
             "type": "main",
             "index": 0
           }
@@ -1050,6 +1130,33 @@
           }
         ]
       ]
+    },
+    "Resultado de la foto": {
+      "main": [
+        [
+          {
+            "node": "Registrar Recheck de Riego",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Foto no guardada?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Foto no guardada?": {
+      "main": [
+        [
+          {
+            "node": "Aviso Foto no Guardada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -1057,7 +1164,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "fb4a793a-ebd7-4016-a96e-331baeac756a",
+  "versionId": "db387608-1dfd-4196-99ff-fa2abce72653",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

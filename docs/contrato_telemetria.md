@@ -97,6 +97,8 @@ Las unidades son las que ya declara `tipos_metricas` en la base.
 
 **Sobre la hora (`ts`).** El sistema guarda dos horas: la de **medición** (`ts`) y la de **recepción** (la del servidor). Si `ts` es `null`, o está más de 5 minutos en el futuro respecto del servidor, la lectura **se acepta** igual, pero se marca como "hora no confiable" y para decidir se usa la de recepción. No se rechaza por eso: el dato medido sigue siendo válido aunque el reloj no lo sea.
 
+**Sobre la foto.** La foto se guarda **después** de la lectura, y no poder guardarla no frena nada: si Storage falla, la lectura se evalúa igual, salen la alerta y el riego, y la IA diagnostica con la foto que llegó en el pedido. Lo único que se pierde es la copia (el historial y la evaluación de etapa de WF3), y el sistema avisa por Telegram ("FOTO NO GUARDADA"). La respuesta a la placa no cambia: la lectura se recibió bien, y reintentarla no arreglaría Storage. *(Desde el 04/11/2026, sesión 21.)*
+
 ---
 
 ## 5 · Temperatura y conductividad: se guardan, no deciden

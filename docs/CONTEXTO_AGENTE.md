@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, y el 03/11 con su commit y la sesión 21 (en curso): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v67**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, y el 03/11 con su commit y la sesión 21 (en curso): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v69**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -8,21 +8,25 @@
 
 ---
 
-## ▶ Sesión 21 — EN CURSO (03/11): el contrato, un paso por vez
+## ▶ Sesión 21 — EN CURSO (03/11 → 04/11): el contrato, un paso por vez
 
 **Paso 5 ✅ (16.48 cerrado, 03/11):** temperatura y conductividad **se guardan, no deciden**. `fn_registrar_telemetria` recibe `p_temperatura` y `p_conductividad` (`DEFAULT NULL`; script `SQL/sesion21_contrato_paso5_temp_cond.sql`, FALLÓ antes y OK 4 de 4 después). `Consolidar datos` (WF1) las toma de `$('Validar Contrato').first().json.lectura`: el Motor no las emite ni las lee. Export de WF1 comparado: idéntico. En vivo (17:21 de Argentina): lectura sana → 7 filas (520 a 526); con las dos en "sin dato" → 5 (527 a 531). **Decisión de Agustín:** siguen obligatorias con `null` permitido (un sensor que no las mide manda `null`). Detalle: changelog **v67** del plan.
 
 **Corrección de estado:** la foto de la prueba de 16.39 **ya está evaluada**: WF3 corrió solo el 01/11 a las 01:01 de Argentina (evaluación 16, `no_avanza`, 0,95). Datos de prueba nuevos, sin limpiar a propósito: arranque 10, lecturas 520 a 531 (497 a 519 es el hueco que dejó el test).
 
-**Hallazgo nuevo, SIN número (ejercido el 03/11): una falla de Storage se llevaba la lectura entera.** URL de `Subir Foto a Storage` rota a propósito + sequía 55 % con foto → la página recibió `200 "aceptada"`, la ejecución murió en ese nodo (*On Error* por defecto) y no quedó nada: ni lectura, ni Telegram, ni riego. Una placa real no la reintentaría. **El paso 4 lo arregla en parte** (la lectura ya se guarda antes de la foto); **sigue abierto** que el workflow se detiene ahí y no llegan el Telegram ni el riego.
+**Hallazgo nuevo, SIN número (ejercido el 03/11): una falla de Storage se llevaba la lectura entera.** URL de `Subir Foto a Storage` rota a propósito + sequía 55 % con foto → la página recibió `200 "aceptada"`, la ejecución murió en ese nodo (*On Error* por defecto) y no quedó nada: ni lectura, ni Telegram, ni riego. Una placa real no la reintentaría. **El paso 4 lo arregla en parte** (la lectura ya se guarda antes de la foto); **el 04/11 se resolvió el resto** (ver abajo).
 
 **Paso 4 ✅ (16.47 cerrado, 03/11):** cada lectura con su DNI y su hora. **Tabla nueva `lectura`** (una fila por lectura: `arranque_id`, `seq`, `ts_dispositivo` en segundos Unix tal como llega, `fecha_recepcion`, `motivo`; `unique (arranque_id, seq)`; FK `(arranque_id, dispositivo_id)` → `arranque_dispositivo`: el arranque tiene que ser de esa placa; RLS, solo `service_role`). `lectura_sensores.lectura_id` apunta a ella (las 359 filas viejas en `null`; una regla `NOT VALID` lo exige en las nuevas; una medición por métrica por lectura). `fn_registrar_telemetria` (13 parámetros) crea lectura + mediciones en una transacción y devuelve `lectura_id`; sin DNI corta; un DNI repetido corta con "Lectura duplicada" (23505 → la API responde 409). **Ya no es `SECURITY DEFINER` y solo la ejecuta `service_role`** (la credencial "Sup S" de n8n lo es). Script: `SQL/sesion21_contrato_paso4_dni_lectura.sql` (FALLÓ antes, OK 7 de 7 después). **WF1 con orden nuevo (JSON importado):** Motor → `Consolidar datos` (agrega el DNI y decide el nombre de la foto) → `fn_registrar_telemetria` → `Hay foto nueva?` (lee `tiene_foto` del Motor) → `Preparar Foto binaria` (lee de `Consolidar datos`) → Storage → `Actualizar Ultima Foto Cultivo` → `Registrar Recheck de Riego` → lo demás. Al pegar, n8n cambió los `id` internos de los nodos (no importa: se referencian por nombre). En vivo: lecturas 5 y 6 (arranque 15, `seq` 0 y 1) con 7 mediciones cada una; el reintento de `seq` 0 → WF1 en rojo en `fn_registrar_telemetria` con "Lectura duplicada… (lectura 5)", sin mediciones, foto, Telegram ni riego. Detalle: changelog **v68**.
 
 **Limpiezas, desde el paso 4:** sin cascadas, a propósito. Orden: `lectura_sensores` → `lectura` → `arranque_dispositivo`. Los scripts de limpieza viejos (sesiones 16 y 17) no conocen `lectura`: revisarlos antes de usarlos.
 
-**Datos de prueba nuevos, sin limpiar a propósito:** arranques 10 y 15, lecturas 5 y 6, mediciones 520 a 531 y 545 a 559 (los huecos son de los tests).
+**Storage caído ya no frena el resto ✅ (04/11):** `Subir Foto a Storage` tiene *On Error* "Continue (using error output)". `Resultado de la foto` (Code, nuevo) junta los tres caminos (sin foto / guardada / error) y devuelve `foto_guardada` (`null`/`true`/`false`), `aviso_foto` (siempre booleano), `foto_error` y `path_foto_guardada`; cuenta como guardada solo si `Actualizar Ultima Foto Cultivo` devolvió **esa** ruta. Sigue a `Registrar Recheck de Riego` y a `Foto no guardada?` → `Aviso Foto no Guardada` (Telegram aparte, para que avise también con una lectura sana). `Trigger a WF2` manda la ruta solo si se guardó (si no, `null`); la foto le llega igual en el pedido, así que la IA diagnostica. Export idéntico (29 nodos). En vivo: Storage roto → lectura 9 con alerta, aviso "FOTO NO GUARDADA" ("Bucket not found"), riego 27 y seguimiento de WF2 con `path_foto` en `null` (llega ~1 min después si responde el respaldo); Storage sano → lectura 10, foto guardada, ningún Telegram. **Queda fuera a propósito:** si falla `Preparar Foto binaria` (error de programa, 16.39) o `Actualizar Ultima Foto Cultivo` (la base), el workflow se sigue deteniendo. Detalle: changelog **v69**.
 
-**Lo que sigue:** (1) que una falla de Storage no frene el Telegram ni el riego, y avise; (2) el paso 3 del contrato: responder `"duplicada"` (200) sin error y según el procesamiento.
+**Para probar Storage caído:** cambiar la URL de `Subir Foto a Storage` al bucket `fotos-cultivos-NOEXISTE`, publicar, probar, y reponer `fotos-cultivos`.
+
+**Datos de prueba nuevos, sin limpiar a propósito:** arranques 10 y 15, lecturas 5, 6, 9 y 10, mediciones 520 a 531 y 545 en adelante, el riego 27 (comando 27) y el seguimiento sin foto del 04/11 (los huecos son de los tests: un intento rechazado por duplicado también gasta un número de `lectura`).
+
+**Lo que sigue:** el paso 3 del contrato: responder `"duplicada"` (200) sin error y según el procesamiento.
 
 ---
 
@@ -132,6 +136,7 @@ ESP32 (o PowerShell)       Header Auth en las dos: X-Device-Key (credencial `ESP
    │                                       └──► WF5 (si hay sequía)
    │
    └─ si vino foto: la sube a Storage y actualiza cultivo.ultima_foto_path
+      (si Storage falla, sigue igual y avisa por Telegram)
 
  WF3 (cada 8 h, solo)  ──► mira la última foto ──► Gemini ──► ¿avanzó de etapa?
  WF4 (apagado)         ──► análisis preventivo de rutina
@@ -141,7 +146,7 @@ ESP32 (o PowerShell)       Header Auth en las dos: X-Device-Key (credencial `ESP
 
 ## 3 · Los 6 workflows
 
-### WF1 — `Orquestacion - Tesis` · 26 nodos · **activo**
+### WF1 — `Orquestacion - Tesis` · 29 nodos · **activo**
 
 Webhook `/telemetria`, con *Respond: Using 'Respond to Webhook' Node*. Es el único que mueve datos en cada lectura.
 
@@ -152,12 +157,14 @@ Webhook → Validar Contrato → Contrato Valido? ─[no]───────�
                                           Responder Rechazo (400) ◄─────────────┘ → Registrar Rechazo
 Responder Aceptada → Resolver Cultivo → Conocimiento Experto → Obtener Ultimo Riego → Motor de Inferencia
    → Consolidar datos → fn_registrar_telemetria (la lectura con su DNI; un duplicado corta acá)
-   → Hay foto nueva?  ─[sí]→ Preparar Foto binaria → Subir Foto a Storage → Actualizar Ultima Foto Cultivo ─┐
-                      └[no]────────────────────────────────────────────────────────────────────────────────┤
-   → Registrar Recheck de Riego → Esta en mantenimiento ─[no]→ Requiere Alerta?
+   → Hay foto nueva?  ─[sí]→ Preparar Foto binaria → Subir Foto a Storage ─[ok]→ Actualizar Ultima Foto Cultivo ─┐
+                      │                                                   └[error]───────────────────────────────┤
+                      └[no]──────────────────────────────────────────────────────────────────────────────────────┤
+   → Resultado de la foto ─┬→ Foto no guardada? ─[sí]→ Aviso Foto no Guardada (Telegram aparte)
+                           └→ Registrar Recheck de Riego → Esta en mantenimiento ─[no]→ Requiere Alerta?
         → [3 ramas PARALELAS e INDEPENDIENTES]  Dispara WF 2 · Alerta Telegram · Dispara WF5
 
-(Orden desde el 03/11, paso 4 del contrato: la lectura se registra ANTES de la foto.)
+(Orden desde el 03/11, paso 4 del contrato: la lectura se registra ANTES de la foto. Desde el 04/11 una falla de Storage no frena el resto: avisa.)
 ```
 
 **La puerta (contrato v1, paso 2, desde el 20/10).** `Validar Contrato` revisa el cuerpo contra `docs/contrato_telemetria.md`: campos presentes, las 7 mediciones como número dentro del rango **físico** o `null`, `v` = 1, MAC con formato. Arma `lectura`, el **único** objeto que leen los nodos de abajo (la MAC va en mayúsculas). `Verificar Arranque` (`fn_verificar_arranque`, siempre devuelve una fila, con reintento) comprueba que el `arranque_id` se le dio a esa placa. Si algo falla: `400` con la lista de errores y una fila en `lectura_rechazada` (el cuerpo sin la foto). Si pasa: `200 {"estado":"aceptada"}` **antes de procesar**, y el flujo sigue como siempre (el nodo Respond deja pasar los ítems). `Resolver Cultivo` toma la MAC de `$('Validar Contrato').first().json.lectura`, porque su entrada ya no trae el `body`. **El formato viejo (`planta`, sin `v`) se rechaza.**
@@ -362,7 +369,7 @@ Consultado contra Supabase, no asumido.
 | n8n | `n8nio/n8n:2.19.5`, clave de cifrado en `.env` (fuera de git), respaldo en `D:\respaldos_n8n` con simulacro de restauración ✅ |
 | Contrato de telemetría | **Vigente desde el 20/10:** pasos 1 (arranque, WF7) y 2 (puerta de WF1) aplicados y verificados en vivo. Faltan los pasos 3 a 5 |
 
-**Workflows:** WF1 ✅ (26 nodos, re-exportado 20/10) · WF2 ✅ (8 nodos, con respaldo) · WF3 ✅ (18 nodos, con respaldo, ejercido con `gemini-3.8-flash` el 26/10) — los dos re-exportados el 26/10 · WF4 ⬜ (a propósito) · WF5 ✅ (9 nodos, re-exportado 19/10) · WF7 ✅ (8 nodos, re-exportado 20/10)
+**Workflows:** WF1 ✅ (29 nodos, re-exportado 04/11) · WF2 ✅ (8 nodos, con respaldo) · WF3 ✅ (18 nodos, con respaldo, ejercido con `gemini-3.8-flash` el 26/10) — los dos re-exportados el 26/10 · WF4 ⬜ (a propósito) · WF5 ✅ (9 nodos, re-exportado 19/10) · WF7 ✅ (8 nodos, re-exportado 20/10)
 
 **Gemini:** principal `gemini-3.8-flash`, respaldo `gemini-3.5-flash-lite`, en WF2 y WF3. **Cupo gratis: 20 pedidos por día por modelo** (el respaldo tiene el suyo). El 26/10, 3 de 4 llamadas al 3.8 en WF2 dieron `503` ("high demand"): la saturación es la condición normal, no la excepción. WF4 sigue en `gemini-2.5-flash`, sin respaldo.
 
@@ -574,7 +581,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en las sesiones 19 a 21 | Changelog **v64**, **v65**, **v66** y **v67**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
+| Lo hecho en las sesiones 19 a 21 | Changelog **v64** a **v69**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
 | El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10, pasos 1 y 2) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |
