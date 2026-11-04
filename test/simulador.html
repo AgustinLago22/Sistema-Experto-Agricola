@@ -468,7 +468,7 @@ details pre {
       <ol class="lista" id="registro" reversed>
         <li class="vacio" id="registroVacio">
           <b>Todavía no mandaste nada.</b>
-          <span>Escribí la clave, encendé la placa y mandá una lectura. Acá aparece cada pedido con lo que contestó n8n: <code>200 aceptada</code> quiere decir que pasó la puerta de WF1; el diagnóstico llega por Telegram.</span>
+          <span>Escribí la clave, encendé la placa y mandá una lectura. Acá aparece cada pedido con lo que contestó n8n: <code>200 aceptada</code> quiere decir que la lectura ya se guardó; el diagnóstico llega por Telegram.</span>
         </li>
       </ol>
     </section>
@@ -849,7 +849,9 @@ function veredicto(ruta, res) {
     if (s === 404) return { clase: "warn", pill: "404", texto: "Esa MAC no corresponde a ninguna placa registrada." };
     if (s === 400) return { clase: "warn", pill: "400", texto: "Pedido de arranque inválido." };
   } else {
-    if (s === 200 && j.estado === "aceptada") return { clase: "ok", pill: "200 aceptada", texto: "Pasó la puerta de WF1 y se guardó. Si el Motor encuentra algo para avisar, llega por Telegram; si está sana, no llega nada." };
+    if (s === 200 && j.estado === "aceptada") return { clase: "ok", pill: "200 aceptada", texto: "Ya está guardada en la base. Si el Motor encuentra algo para avisar, llega por Telegram; si está sana, no llega nada." };
+    if (s === 200 && j.estado === "duplicada") return { clase: "ok", pill: "200 duplicada", texto: "Esa lectura ya estaba guardada (mismo arranque y seq). No se guardó de nuevo, ni avisó, ni regó." };
+    if (s === 200 && !j.estado) return { clase: "crit", pill: "200 sin estado", texto: "WF1 falló antes de contestar: la lectura no cuenta como entregada y la placa la reintentaría. Mirá la ejecución de WF1 en n8n." };
     if (s === 400) return { clase: "warn", pill: "400 rechazada", texto: "WF1 la rechazó y la anotó en lectura_rechazada. No llegó al Motor." };
     if (s === 404) return { clase: "warn", pill: "404", texto: "No existe ese webhook. ¿WF1 está activo y publicado?" };
   }

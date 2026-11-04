@@ -1,6 +1,6 @@
 # Contrato de telemetría — versión 1
 
-> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** **Pasos 5 y 4 aplicados y verificados en vivo el 03/11/2026 (sesión 21):** temperatura y conductividad se guardan, y cada lectura se guarda con su DNI y su hora (un reintento no se guarda dos veces). Falta el paso 3: hasta entonces, un reintento recibe `"aceptada"` en vez de `"duplicada"`. Detalle en `implementation_plan.md`, Fase 18.
+> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** **Pasos 5 y 4 aplicados y verificados en vivo el 03/11/2026 (sesión 21):** temperatura y conductividad se guardan, y cada lectura se guarda con su DNI y su hora (un reintento no se guarda dos veces). **Paso 3 aplicado y verificado en vivo el 04/11/2026 (sesión 21):** WF1 responde después de guardar, y un reintento recibe `"duplicada"`. Detalle en `implementation_plan.md`, Fase 18.
 >
 > **Para qué existe.** Es la definición de qué manda el nodo sensor y de qué hace el sistema con lo que recibe. Hasta hoy el formato era "lo que manda el script de PowerShell", y esa falta de definición causó 16.52 (un `""` leído como humedad 0 %), 16.47 (sin hora de medición) y 16.48 (temperatura y conductividad descartadas). Se escribe **antes** de que exista el firmware, porque después cambiarlo obliga a actualizar cada placa instalada.
 
@@ -80,6 +80,7 @@ Las unidades son las que ya declara `tipos_metricas` en la base.
 4. **Una lectura reintentada se manda idéntica**: mismo `arranque_id`, mismo `seq`, mismo `ts`, mismos valores.
 5. **No se manda `planta`** ni ningún dato del cultivo. El dispositivo informa lo que mide; qué planta es lo sabe el sistema por la MAC. *(La definición vive en un solo lugar.)*
 6. **Campos que el contrato no conoce se ignoran.** No producen error. Esto permite que un firmware más nuevo conviva con un servidor más viejo.
+7. **La placa mira la palabra, no el número.** Da una lectura por entregada, y borra su copia, **solo** si la respuesta es `200` con `estado` `"aceptada"` o `"duplicada"`. Si es `400`, tampoco la reintenta, porque reintentar no arregla un rechazo. **Cualquier otra cosa (un `5xx`, un `200` sin `estado`, ninguna respuesta) significa "no se guardó"**: la conserva y la reintenta más tarde, idéntica (regla 4). *(Agregada el 04/11/2026: ver "Sobre las fallas" en la sección 4. No sube `v` porque todavía no hay placas.)*
 
 ---
 
@@ -87,15 +88,20 @@ Las unidades son las que ya declara `tipos_metricas` en la base.
 
 | Caso | Respuesta | Qué pasa |
 |---|---|---|
-| Cumple el contrato | `200` · `{"estado":"aceptada"}` | Se procesa como hoy: se guarda y se evalúa contra los umbrales de la etapa. |
+| Cumple el contrato | `200` · `{"estado":"aceptada"}` | **Ya está guardada** cuando la placa recibe la respuesta. Después se evalúa contra los umbrales de la etapa. |
 | DNI ya recibido | `200` · `{"estado":"duplicada"}` | Es un reintento. No se guarda de nuevo ni se evalúa. Responde 200 para que el dispositivo **deje de reintentar**. |
 | `arranque_id` que no se le dio a esa MAC | `400` · con `errores` | Se rechaza: el número no es de esa placa. También si la MAC no está registrada. |
+| Placa registrada sin cultivo activo | `400` · con `errores` | Se rechaza: no hay a qué planta asignarle la lectura, y reintentar no lo arregla. Queda en `lectura_rechazada`. |
 | Versión `v` desconocida | `400` | Se rechaza: el sistema no sabe leer ese formato. |
 | No cumple el contrato | `400` · `{"estado":"rechazada","errores":[...]}` | **Se rechaza entera** y se informa cada campo con problema. No se procesa a medias: una lectura mal formada no puede disparar un riego. El rechazo queda registrado en la tabla `lectura_rechazada` (el cuerpo, sin la foto). |
 | Clave incorrecta | `403` | No se procesa. *(La versión original decía `401`; `403` es lo que responde n8n con Header Auth, verificado en su código el 19/10. Se corrige el documento, no la placa: no hay placas en campo.)* |
-| Falla del servidor | `5xx` o sin respuesta | El dispositivo guarda la lectura y **reintenta más tarde, idéntica** (regla 4). |
+| Falla antes de guardar | `5xx`, `200` sin `estado`, o sin respuesta | El dispositivo guarda la lectura y **reintenta más tarde, idéntica** (regla 4). |
 
 **Sobre la hora (`ts`).** El sistema guarda dos horas: la de **medición** (`ts`) y la de **recepción** (la del servidor). Si `ts` es `null`, o está más de 5 minutos en el futuro respecto del servidor, la lectura **se acepta** igual, pero se marca como "hora no confiable" y para decidir se usa la de recepción. No se rechaza por eso: el dato medido sigue siendo válido aunque el reloj no lo sea.
+
+**Sobre las fallas.** Una falla antes de guardar **puede llegar como `200` con el cuerpo vacío**: n8n 2.19.5 contesta así cuando la ejecución termina en error sin haber pasado por un nodo de respuesta (ejercido en vivo el 04/11/2026, con el error en `fn_registrar_telemetria`). Por eso existe la regla 7: el número solo no alcanza. Si la lectura sí había quedado guardada y la respuesta se perdió, el reintento recibe `"duplicada"` y no se evalúa de nuevo.
+
+**Sobre el tiempo de respuesta.** Como se responde después de guardar, la respuesta tarda unos segundos (2 a 5 s medidos en las pruebas del 04/11/2026). El firmware tiene que esperar bastante más que eso antes de darla por perdida.
 
 **Sobre la foto.** La foto se guarda **después** de la lectura, y no poder guardarla no frena nada: si Storage falla, la lectura se evalúa igual, salen la alerta y el riego, y la IA diagnostica con la foto que llegó en el pedido. Lo único que se pierde es la copia (el historial y la evaluación de etapa de WF3), y el sistema avisa por Telegram ("FOTO NO GUARDADA"). La respuesta a la placa no cambia: la lectura se recibió bien, y reintentarla no arreglaría Storage. *(Desde el 04/11/2026, sesión 21.)*
 
@@ -192,8 +198,8 @@ Este documento es el primer paso. Cada uno de los siguientes es una tarea propia
 
 1. **Base y n8n — el arranque.** Una tabla de arranques (con un número que solo sube, la placa, la fecha y el firmware), una función que la registre y devuelva el número, y el webhook `/arranque` que la llame. *Aplicado el 20/10: `SQL/sesion17_contrato_pasos_1_y_2.sql` y `WORKFLOWS/WF7.json`. El firmware vigente se deriva del último arranque (ver sección 1).*
 2. **WF1 — revisión en la puerta.** Un nodo al principio, antes de `Resolver Cultivo`, que valide el contrato y responda `400` con los errores. Normaliza una sola vez, antes del primer nodo que decide (**cierra 16.52**). *Aplicado el 20/10: `Validar Contrato` + `Verificar Arranque` + respuestas `200`/`400` + registro del rechazo (Fase 18.2 del plan).*
-3. **WF1 — respuestas.** Hoy el webhook responde apenas recibe el pedido, sin decir si la lectura sirvió. Hay que responder con los códigos de la sección 4.
-4. **Base — hora y DNI de la lectura.** Guardar `ts`, la hora de recepción, `arranque_id` y `seq`, con una restricción de unicidad sobre `(arranque_id, seq)` que haga imposible el duplicado (**16.47**, y la pieza que necesita **B.20**). *Aplicado el 03/11: `SQL/sesion21_contrato_paso4_dni_lectura.sql` (tabla `lectura`; las mediciones apuntan a ella con `lectura_id`) y WF1, que registra la lectura antes de subir la foto. Un DNI repetido lo rechaza la base y WF1 se detiene sin avisar ni regar. "Hora no confiable" no se guarda: se deriva de `ts` y de la hora de recepción.*
+3. **WF1 — respuestas.** Responder con los códigos de la sección 4. *Aplicado el 04/11: `SQL/sesion21_contrato_paso3_respuestas.sql` (`fn_registrar_telemetria` devuelve `duplicada` en vez de cortar; `fn_verificar_arranque` rechaza una placa sin cultivo activo) y WF1, que responde después de guardar (`Lectura Duplicada?` → `Responder Duplicada` o `Responder Aceptada`).*
+4. **Base — hora y DNI de la lectura.** Guardar `ts`, la hora de recepción, `arranque_id` y `seq`, con una restricción de unicidad sobre `(arranque_id, seq)` que haga imposible el duplicado (**16.47**, y la pieza que necesita **B.20**). *Aplicado el 03/11: `SQL/sesion21_contrato_paso4_dni_lectura.sql` (tabla `lectura`; las mediciones apuntan a ella con `lectura_id`) y WF1, que registra la lectura antes de subir la foto. Un DNI repetido no se guarda ni se evalúa (desde el paso 3, sin error). "Hora no confiable" no se guarda: se deriva de `ts` y de la hora de recepción.*
 5. **Base y WF1 — temperatura y conductividad.** Que `fn_registrar_telemetria` las reciba y las guarde como métricas 2 y 7 (**16.48**). *Aplicado el 03/11: `SQL/sesion21_contrato_paso5_temp_cond.sql` y `Consolidar datos` de WF1, que las toma de la lectura de `Validar Contrato`.*
 6. **Simulador.** Actualizar los comandos de prueba del plan al formato nuevo. *Escrito el 19/10 en `SQL/sesion17_test_puerta_en_vivo.sql` (funciones `A`, `L` y `N` de PowerShell); falta pasarlo a la sección "Cómo probar" del plan cuando la puerta esté aplicada.*
 

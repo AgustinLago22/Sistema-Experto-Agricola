@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, y el 03/11 con su commit y la sesión 21 (en curso): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v69**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, y el 03/11 con su commit y la sesión 21 (en curso): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v70**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -26,7 +26,13 @@
 
 **Datos de prueba nuevos, sin limpiar a propósito:** arranques 10 y 15, lecturas 5, 6, 9 y 10, mediciones 520 a 531 y 545 en adelante, el riego 27 (comando 27) y el seguimiento sin foto del 04/11 (los huecos son de los tests: un intento rechazado por duplicado también gasta un número de `lectura`).
 
-**Lo que sigue:** el paso 3 del contrato: responder `"duplicada"` (200) sin error y según el procesamiento.
+**Paso 3 ✅ (04/11):** primero guardar, después contestar. **Base** (`SQL/sesion21_contrato_paso3_respuestas.sql`; FALLÓ 6 de 10 antes, OK 10 de 10 después): `fn_registrar_telemetria` devuelve `lectura_id` y `duplicada` (un DNI repetido ya no es error, no guarda nada y devuelve la lectura existente; los otros errores siguen cortando); `fn_verificar_arranque` rechaza una placa sin cultivo activo (mira `vista_cultivos_activos`, igual que `Resolver Cultivo`). **WF1** (31 nodos, JSON importado, export idéntico): `fn_registrar_telemetria` → `Lectura Duplicada?` → `Responder Duplicada` (termina) o `Responder Aceptada` → `Hay foto nueva?`. **Orden de aplicación:** WF1 primero, porque el WF1 viejo con la función nueva volvería a avisar y a regar en un reintento. **En vivo:** arranque 21, `seq` 0, 1 y 2 (sana, sequía, sana con foto), cada una repetida: los reintentos terminan en `Responder Duplicada`, en verde; el de sequía sin Telegram ni riego, el de la foto sin subir otra. `L 68 999999` sigue dando 400. **La placa sin cultivo solo se probó en el test de la base**, no en vivo.
+
+**Decisión de Agustín (04/11), la opción A:** una falla antes de guardar llega como **`200` vacío**, no como `500` (ver la regla 12 de la semántica de n8n). No se agregó una salida de error por nodo: en los nodos Supabase de n8n, un error sin descripción sale por la salida normal, y en `Obtener Ultimo Riego` eso se confundiría con "no hay riego anterior" y saltearía el freno. En cambio, el contrato ganó la **regla 7: la placa da una lectura por entregada solo si dice `aceptada` o `duplicada`** (con `400` tampoco reintenta). **Límite aceptado:** si algo falla después de `aceptada`, un reintento recibe `duplicada` y no se evalúa de nuevo. Detalle: changelog **v70**.
+
+**Datos de prueba del paso 3, sin limpiar a propósito:** arranques 18 y 21 (16, 17, 19 y 20 son huecos de los tests), lecturas 13, 20, 22 y 24 (cada reintento gasta un número), mediciones 574 en adelante, riego 28 (comando 28), rechazo 10 y la foto `…/1793833455650.jpg`, sin evaluar: WF3 la evalúa en su próximo turno (1 pedido a Gemini).
+
+**Lo que sigue:** a definir con Agustín.
 
 ---
 
@@ -128,10 +134,12 @@ ESP32 (o PowerShell)       Header Auth en las dos: X-Device-Key (credencial `ESP
    │  al encender:   POST /webhook/arranque   ──► WF7 ──► la base le asigna un arranque_id
    │  cada lectura:  POST /webhook/telemetria (contrato v1)
    ▼
- WF1 ──► puerta: ¿cumple el contrato? ──[no]──► 400 + fila en lectura_rechazada
-   │          └[sí]──► 200 "aceptada"
+ WF1 ──► puerta: ¿cumple el contrato? ¿el arranque es suyo? ¿tiene cultivo? ──[no]──► 400 + fila en lectura_rechazada
    ▼
- guarda telemetría ──► ¿requiere alerta? ──┬──► Telegram
+ guarda telemetría ──[ya estaba]──► 200 "duplicada" (termina)
+   │ [nueva]
+   ▼
+ 200 "aceptada" ──► ¿requiere alerta? ──┬──► Telegram
    │                                       ├──► WF2 (si hay foto)
    │                                       └──► WF5 (si hay sequía)
    │
@@ -146,17 +154,19 @@ ESP32 (o PowerShell)       Header Auth en las dos: X-Device-Key (credencial `ESP
 
 ## 3 · Los 6 workflows
 
-### WF1 — `Orquestacion - Tesis` · 29 nodos · **activo**
+### WF1 — `Orquestacion - Tesis` · 31 nodos · **activo**
 
 Webhook `/telemetria`, con *Respond: Using 'Respond to Webhook' Node*. Es el único que mueve datos en cada lectura.
 
 ```
 Webhook → Validar Contrato → Contrato Valido? ─[no]─────────────────────────────┐
                                └[sí]→ Verificar Arranque → Arranque Valido? ─[no]─┤
-                                                            └[sí]→ Responder Aceptada (200)
+                                                            └[sí]→ Resolver Cultivo
                                           Responder Rechazo (400) ◄─────────────┘ → Registrar Rechazo
-Responder Aceptada → Resolver Cultivo → Conocimiento Experto → Obtener Ultimo Riego → Motor de Inferencia
-   → Consolidar datos → fn_registrar_telemetria (la lectura con su DNI; un duplicado corta acá)
+Resolver Cultivo → Conocimiento Experto → Obtener Ultimo Riego → Motor de Inferencia
+   → Consolidar datos → fn_registrar_telemetria (la lectura con su DNI)
+   → Lectura Duplicada? ─[sí]→ Responder Duplicada (200, termina)
+                        └[no]→ Responder Aceptada (200)
    → Hay foto nueva?  ─[sí]→ Preparar Foto binaria → Subir Foto a Storage ─[ok]→ Actualizar Ultima Foto Cultivo ─┐
                       │                                                   └[error]───────────────────────────────┤
                       └[no]──────────────────────────────────────────────────────────────────────────────────────┤
@@ -164,10 +174,10 @@ Responder Aceptada → Resolver Cultivo → Conocimiento Experto → Obtener Ult
                            └→ Registrar Recheck de Riego → Esta en mantenimiento ─[no]→ Requiere Alerta?
         → [3 ramas PARALELAS e INDEPENDIENTES]  Dispara WF 2 · Alerta Telegram · Dispara WF5
 
-(Orden desde el 03/11, paso 4 del contrato: la lectura se registra ANTES de la foto. Desde el 04/11 una falla de Storage no frena el resto: avisa.)
+(Orden desde el 03/11, paso 4 del contrato: la lectura se registra ANTES de la foto. Desde el 04/11 una falla de Storage no frena el resto: avisa. Desde el 04/11, paso 3: se responde DESPUÉS de guardar.)
 ```
 
-**La puerta (contrato v1, paso 2, desde el 20/10).** `Validar Contrato` revisa el cuerpo contra `docs/contrato_telemetria.md`: campos presentes, las 7 mediciones como número dentro del rango **físico** o `null`, `v` = 1, MAC con formato. Arma `lectura`, el **único** objeto que leen los nodos de abajo (la MAC va en mayúsculas). `Verificar Arranque` (`fn_verificar_arranque`, siempre devuelve una fila, con reintento) comprueba que el `arranque_id` se le dio a esa placa. Si algo falla: `400` con la lista de errores y una fila en `lectura_rechazada` (el cuerpo sin la foto). Si pasa: `200 {"estado":"aceptada"}` **antes de procesar**, y el flujo sigue como siempre (el nodo Respond deja pasar los ítems). `Resolver Cultivo` toma la MAC de `$('Validar Contrato').first().json.lectura`, porque su entrada ya no trae el `body`. **El formato viejo (`planta`, sin `v`) se rechaza.**
+**La puerta (contrato v1, paso 2, desde el 20/10).** `Validar Contrato` revisa el cuerpo contra `docs/contrato_telemetria.md`: campos presentes, las 7 mediciones como número dentro del rango **físico** o `null`, `v` = 1, MAC con formato. Arma `lectura`, el **único** objeto que leen los nodos de abajo (la MAC va en mayúsculas). `Verificar Arranque` (`fn_verificar_arranque`, siempre devuelve una fila, con reintento) comprueba que el `arranque_id` se le dio a esa placa. Si algo falla: `400` con la lista de errores y una fila en `lectura_rechazada` (el cuerpo sin la foto). Desde el 04/11 (paso 3) rechaza también una placa sin cultivo activo. Si pasa, sigue; `Responder Aceptada` contesta **después de guardar** y el flujo continúa (el nodo Respond deja pasar los ítems). `Resolver Cultivo` toma la MAC de `$('Validar Contrato').first().json.lectura`, porque su entrada no trae el `body`. **El formato viejo (`planta`, sin `v`) se rechaza.**
 
 **`Motor de Inferencia`** (Code, ~350 líneas) es el cerebro. Lee `$('Validar Contrato').first().json.lectura`, nunca el cuerpo crudo del Webhook (eso cerró 16.52). Devuelve **tres ramas** con contrato de salida uniforme (~36 campos):
 
@@ -312,7 +322,7 @@ Esto es lo más valioso del paquete. Cada línea costó al menos una sesión de 
 
 4. **`$('NodeName')` resuelve por coincidencia literal de string.** Renombrar un nodo rompe referencias sin ningún aviso y no hay refactor seguro. Por eso conviven `Obtener Ultimo Riego` (sin tilde), `Preparar Foto binaria` (b minúscula) y `Persistir Diagnotico` (sin s): son los nombres **reales**.
 
-5. **`typeValidation: strict` en los IF es un detector, no un obstáculo.** Activar "convert types" o agregar `.toBoolean()` para silenciar un error casi siempre esconde una expresión que no está evaluando.
+5. **`typeValidation: strict` en los IF es un detector, no un obstáculo.** Activar "convert types" o agregar `.toBoolean()` para silenciar un error casi siempre esconde una expresión que no está evaluando. **Ojo: `undefined` o `null` no son un error de tipo:** pasan sin aviso, y *is true* da falso (ejercido el 04/11).
 
 6. **`retryOnFail` se habilita según la idempotencia de la operación, no según su importancia.** Reintentar un diagnóstico es seguro; reintentar un INSERT de riego crea un segundo riego real.
 
@@ -326,7 +336,9 @@ Esto es lo más valioso del paquete. Cada línea costó al menos una sesión de 
 
 11. **Cuidado con la coerción:** `Number(null) === 0` y `Number('') === 0`. Un sensor ausente convertido a 0 no es "falta el dato": es 0 % de humedad, o sea **sequía**, que dispara riego real. La ausencia se decide **antes** de convertir. Y en comparaciones, `"" < 60` es `true` (16.52, confirmado en vivo).
 
-12. **`Respond to Webhook`:** con el Webhook en *Using 'Respond to Webhook' Node*, responde ese nodo, y **deja pasar los ítems**: el flujo sigue después de responder. Si el Webhook queda en *Immediately* con nodos Respond conectados, n8n corta con `500 "Unused Respond to Webhook node found in the workflow"` **antes de ejecutar ningún nodo**. Header Auth con clave incorrecta responde **403** (no 401).
+12. **`Respond to Webhook`:** con el Webhook en *Using 'Respond to Webhook' Node*, responde ese nodo, y **deja pasar los ítems**: el flujo sigue después de responder. Si el Webhook queda en *Immediately* con nodos Respond conectados, n8n corta con `500 "Unused Respond to Webhook node found in the workflow"` **antes de ejecutar ningún nodo**. Header Auth con clave incorrecta responde **403** (no 401). **Con el Webhook en ese modo, si la ejecución termina en error sin haber pasado por un nodo Respond, la respuesta es `200` con el cuerpo vacío, no `500`** (ejercido el 04/11: ejecución 422). El código de n8n 2.19.5 tiene una rama que manda `500`, pero antes cierra el pedido con una respuesta vacía. Por el código, lo mismo pasaría si la rama se corta con cero ítems (sin ejercer).
+
+13. **Una salida de error no sirve igual en todos los nodos.** Con *Continue (using error output)*, los nodos Supabase devuelven `{error: error.description}`; si la descripción viene vacía, n8n no lo reconoce como error y lo manda por la salida **normal** (leído en el código de 2.19.5, sin ejercer). Antes de ponerle una salida de error a un nodo Supabase, preguntá qué haría el resto con ese ítem vacío.
 
 ---
 
@@ -367,9 +379,9 @@ Consultado contra Supabase, no asumido.
 | Etapas sin umbrales | **0** |
 | Claves JWT heredadas de Supabase | **deshabilitadas** (16.40 cerrado) |
 | n8n | `n8nio/n8n:2.19.5`, clave de cifrado en `.env` (fuera de git), respaldo en `D:\respaldos_n8n` con simulacro de restauración ✅ |
-| Contrato de telemetría | **Vigente desde el 20/10:** pasos 1 (arranque, WF7) y 2 (puerta de WF1) aplicados y verificados en vivo. Faltan los pasos 3 a 5 |
+| Contrato de telemetría | **Vigente desde el 20/10.** Pasos 1 a 5 aplicados y verificados en vivo (el último, el 3, el 04/11) |
 
-**Workflows:** WF1 ✅ (29 nodos, re-exportado 04/11) · WF2 ✅ (8 nodos, con respaldo) · WF3 ✅ (18 nodos, con respaldo, ejercido con `gemini-3.8-flash` el 26/10) — los dos re-exportados el 26/10 · WF4 ⬜ (a propósito) · WF5 ✅ (9 nodos, re-exportado 19/10) · WF7 ✅ (8 nodos, re-exportado 20/10)
+**Workflows:** WF1 ✅ (31 nodos, re-exportado 04/11) · WF2 ✅ (8 nodos, con respaldo) · WF3 ✅ (18 nodos, con respaldo, ejercido con `gemini-3.8-flash` el 26/10) — los dos re-exportados el 26/10 · WF4 ⬜ (a propósito) · WF5 ✅ (9 nodos, re-exportado 19/10) · WF7 ✅ (8 nodos, re-exportado 20/10)
 
 **Gemini:** principal `gemini-3.8-flash`, respaldo `gemini-3.5-flash-lite`, en WF2 y WF3. **Cupo gratis: 20 pedidos por día por modelo** (el respaldo tiene el suyo). El 26/10, 3 de 4 llamadas al 3.8 en WF2 dieron `503` ("high demand"): la saturación es la condición normal, no la excepción. WF4 sigue en `gemini-2.5-flash`, sin respaldo.
 
@@ -457,7 +469,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 - **Seguridad y base:** `16.1` (secretos), `16.6` (mínimo privilegio), `16.13` (`anon`/`authenticated` con `ALL` sobre 18 tablas), `B.9` (`SECURITY DEFINER` ejecutable por `anon`), `B.23` (separación de credenciales).
 - **Contrato y datos:** `B.22` ✅ (contrato escrito el 13/10; pasos 1 y 2 vigentes desde el 20/10), ~~`16.48`~~ ✅ (temperatura y conductividad: **se guardan, no deciden**, aplicado el 03/11), `B.19` (cadencia: el contrato no la fija, sale del piloto), `B.20` (trazabilidad: el DNI de la lectura la habilita), `B.21` (retención).
 - **Observabilidad de la planta:** `16.65` (la ventana de evaluación es el 80 % de la duración: Fructificación deja **32 días ciegos**), `16.43` (una foto sin alerta no la mira nadie), `B.17` (falta la capa de tendencia). Los tres son lo mismo visto de costado: **el sistema solo observa cuando sospecha, y sospecha por un único criterio.**
-- **Resto:** `16.8` (a medias desde el 20/10: una MAC desconocida ya se rechaza y se registra; un dispositivo sin cultivo activo sigue mudo), `16.9`, `16.21`, `16.29`, `B.2`–`B.6`, `B.8`, `B.10`–`B.12`, `B.15`, `B.16`, `B.18`.
+- **Resto:** ~~`16.8`~~ ✅ (04/11, paso 3: una MAC desconocida y una placa sin cultivo activo se rechazan y se registran), `16.9`, `16.21`, `16.29`, `B.2`–`B.6`, `B.8`, `B.10`–`B.12`, `B.15`, `B.16`, `B.18`.
 
 ### Reglas que salieron de las últimas rondas
 
@@ -480,7 +492,7 @@ La lista de abajo es el orden general del proyecto, sin la fecha.
 
 `docs/revisiones/REVISION_04_hoja_de_ruta.md` organiza lo que queda en **tres carriles** —lo que bloquea la tesis, lo que bloquea la venta, y la deuda tolerable— y define un **mínimo viable para un primer cliente**. Ese mínimo descansa en tres defensas independientes contra el mismo riesgo (regar de más): el control del riego (13.7.2 ✅), el tope duro por ventana (16.46 ✅) y **la válvula local de 30 segundos en el firmware**, la única que sigue funcionando si n8n, la red o Supabase se caen. Son capas separadas a propósito.
 
-1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10), pasos 5 y 4 ✅ (03/11, **16.48** y **16.47**). Falta el 3 (responder según el procesamiento, incluido `"duplicada"`, que también resuelve el resto de 16.8).
+1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10), pasos 5 y 4 ✅ (03/11, **16.48** y **16.47**), paso 3 ✅ (04/11, cierra **16.8**).
 2. **Entrega de órdenes a la placa** (16.63): el control y el tope ya están (13.7.2, 19/10). Falta quien consuma `comando_dispositivo`, y decidir antes cómo se autentica la placa (D-auth, B.23).
 3. ~~16.38~~ ✅ 20/10. Lo que queda del hueco de umbrales (etapa sin fila) se resuelve juntando las dos tablas: trabajo futuro.
 4. **Endurecer WF5**: ~~16.51~~ ✅ (27/10), 16.55, 16.53, 16.56 (16.52 se cerró en la puerta de WF1).
@@ -581,9 +593,9 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en las sesiones 19 a 21 | Changelog **v64** a **v69**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
+| Lo hecho en las sesiones 19 a 21 | Changelog **v64** a **v70**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
-| El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10, pasos 1 y 2) |
+| El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10; pasos 1 a 5 aplicados el 04/11) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |
 
 **Las cuatro revisiones externas** (setiembre 2026, hechas por un agente que leyó este archivo y los workflows pero **no** el plan). Sus conclusiones ya están integradas al plan; los archivos quedan porque tienen el razonamiento completo:

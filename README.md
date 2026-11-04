@@ -12,11 +12,11 @@ Proyecto de tesis de grado.
 Nodo sensor ──POST /arranque──► WF7 ──► la base asigna el número de arranque
      │
      └─────POST /telemetria──► WF1 ──► ¿cumple el contrato? ──[no]──► 400 + registro del rechazo
-                                │               └[sí]──► 200 "aceptada"
                                 ▼
                         Motor de inferencia (umbrales de la etapa actual)
                                 │
-                                ├──► guarda la lectura (y la foto, si vino)
+                                ├──► guarda la lectura ──► 200 "aceptada" (o "duplicada" si ya estaba, y termina)
+                                ├──► guarda la foto, si vino
                                 ├──► Telegram (si hay desvío)
                                 ├──► WF2: diagnóstico por imagen (si hay desvío y foto)
                                 └──► WF5: orden de riego (si hay déficit hídrico)
@@ -105,7 +105,6 @@ El sistema está construido sobre un conjunto de principios que el documento de 
 ## Estado
 
 - **Implementado y verificado en vivo** contra la base: la recepción con el contrato (arranque, validación y registro de rechazos), el diagnóstico por umbrales, el aviso de mediciones faltantes, el diagnóstico por imagen con modelo de respaldo, la validación fenológica y el lazo de riego del lado del sistema.
-- **Pendiente del contrato:** guardar la identidad y la hora de cada lectura (para descartar reintentos duplicados) y responder según el resultado del procesamiento.
 - **Pendiente del lazo de riego:** que la placa lea sus órdenes. Requiere decidir antes cómo se autentica sin la clave maestra.
 - **El nodo sensor todavía no existe.** Se simula con el formato del contrato, y nada del sistema depende de él.
 - **El orquestador corre en una computadora personal.** Un servidor accesible es el paso siguiente del despliegue.
