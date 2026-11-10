@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v70)
+# Sistema Experto Agrícola — Plan de Implementación (v71)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -46,18 +46,19 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 |---|---|---|---|---|
 | **WF1** — Pipeline Telemetría | ✅ `true` | 04/11 | ~~16.8~~ ✅ (04/11) · ~~16.39~~ ✅ (27/10) · ~~16.48~~ ✅ · ~~16.47~~ ✅ (03/11) · ~~sin número~~ ✅ (04/11, Storage caído ya no frena Telegram ni riego) · 16.33 🟠 · 16.37 🟡 (sin ejercitar) · ~~16.52~~ ✅ (20/10) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. **20/10: la puerta del contrato aplicada y verificada en vivo** (Fase 18.2), 26 nodos. Cierra 16.52. **20/10 (sesión 18): una medición que decide, en `null`, ya avisa** ("Lectura Incompleta - Revisar Sensor", solo en el Motor), y el Telegram muestra "sin dato". **27/10 (sesión 20, 16.51):** `Dispara WF5` lee `riego_automatico_disponible` (de la vista) en vez de `tiene_actuador_riego`, y el Motor avisa si hay sequía, bomba y falta un dato. **27/10 (sesión 20, 16.39):** las dos guardas del Motor pasan la foto y `Preparar Foto binaria` corta con nombre si le llega sin foto. **27/10 (Telegram):** pH con un decimal como mínimo y hora de Argentina. **03/11 (sesión 21, 16.48):** `Consolidar datos` manda temperatura y conductividad a `fn_registrar_telemetria` (se guardan, no deciden). **03/11 (sesión 21, 16.47):** la lectura se registra con su DNI **antes** de la foto (orden nuevo: Motor → `Consolidar datos` → `fn_registrar_telemetria` → foto → recheck); un reintento lo rechaza la base y WF1 se detiene ahí. **04/11 (sesión 21, Storage):** `Subir Foto a Storage` sale por su salida de error; `Resultado de la foto` (nuevo) junta los tres caminos y decide si la foto se guardó; `Foto no guardada?` → `Aviso Foto no Guardada` (Telegram aparte); `Trigger a WF2` manda la ruta solo si la foto se guardó. **04/11 (sesión 21, paso 3):** responde después de guardar; `Lectura Duplicada?` → `Responder Duplicada` o `Responder Aceptada`. 31 nodos |
 | **WF7** — Registro de arranque | ✅ `true` | 20/10 | — | **20/10: importado, activado y probado** (Fase 18.1): `/webhook/arranque`, 8 nodos. *(WF6 está reservado para 13.13)* |
+| **WF8** — Entrega de Ordenes | ✅ `true` | 10/11 | — | **10/11 (sesión 22, 16.63): importado, activado y probado en vivo.** Dos webhooks con la clave de la placa (`ESP32 Telemetra Key`): `/webhook/ordenes` (`Validar Pedido` → `fn_tomar_ordenes`) y `/webhook/orden-acuse` (`Validar Acuse` → `fn_acusar_orden`), las dos con `Sup S`. 14 nodos. Diseño en 13.6 |
 | **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 26/10 | 16.15 🟠 (aplicado acá, falta en WF3) · ~~`undefined%`~~ ✅ (26/10) · **sin número** 🟢 (el respaldo lite es menos preciso) | **26/10 (sesión 19): respaldo de Gemini** — `IA Vision Gemini` (`gemini-3.8-flash`) sale por la salida de error a `IA Vision Gemini Respaldo` (`gemini-3.5-flash-lite`); tope de 60 s en los dos; 8 nodos. Probado forzado (`404`) y con `503` real. El prompt dice "sin dato" en vez de `undefined%` y lleva los **rangos de la etapa** |
 | **WF3** — Validación Fenológica | ✅ `true` | 26/10 | 16.31 🟠 (**confirmado en producción**) · ~~16.42~~ ✅ (01/10) · 16.21 🟡 (a medias) · **sin número** 🟢 (`duplicado` miente) · **sin número** 🟢 (respaldo con 2 o más cultivos mezclados corta la corrida) | **26/10 (sesión 19): ejercido con `gemini-3.8-flash`** (evaluación 14, `no_avanza`, a mano: el 25/10 n8n estaba apagado) y **respaldo de Gemini** igual que WF2 (`IA Vision Fenologica Respaldo`, lee de `Foto Descargada`), 18 nodos; probado forzado (evaluación 15, `no_avanza`, por el lite). Tiene foto nueva sin evaluar. **23/09: primer `avanza` de punta a punta** (evaluación id 12) |
 | **WF4** — Análisis Preventivo | ⬜ `false` **a propósito** | parcial (16.3/16.4, 05/08) | 16.30 🟢 | Sin ESP32 no hay telemetría fresca. Es una decisión, no un pendiente |
 | **WF5** — Control de Riego | ✅ `true` | 19/09 (primera auditoría) · 19/10 (13.7.2) · 27/10 (16.51) | ~~16.51~~ ✅ · 16.55 🟠 · 16.53 · 16.56 · 16.62 🟡 · ~~dosis entregada~~ ✅ | **19/10: tope duro en la base + `Riego Registrado?` + `Aviso Tope de Riego`**, 9 nodos. **27/10 (sesión 20):** `Calcular Dosis` ya no inventa volumen ni caudal (corta con error) y `dosis_ml` es la entregada. Endurecer: 16.55 |
 
-**Verificado en los exports (WF1 y WF5 del 27/10, sesión 20; WF2 y WF3 del 26/10, al cierre de la sesión 19; WF7 del 20/10; WF4 del 24/08):** WF1 26 nodos · WF2 8 · WF3 18 · WF4 10 · WF5 9 · WF7 8. Gemini: `gemini-3.8-flash` con respaldo `gemini-3.5-flash-lite` en WF2 y WF3 desde el 26/10; **WF4 quedó en `2.5`, sin respaldo** (16.30).
+**Verificado en los exports (WF1 y WF5 del 27/10, sesión 20; WF2 y WF3 del 26/10, al cierre de la sesión 19; WF7 del 20/10; WF4 del 24/08):** WF1 26 nodos · WF2 8 · WF3 18 · WF4 10 · WF5 9 · WF7 8. **WF8 (export del 10/11, sesión 22): 14 nodos**, idéntico al JSON importado (parámetros y conexiones comparados). Gemini: `gemini-3.8-flash` con respaldo `gemini-3.5-flash-lite` en WF2 y WF3 desde el 26/10; **WF4 quedó en `2.5`, sin respaldo** (16.30).
 
 | Fase | Estado |
 |---|---|
 | **Fase 11** — Testing integral | ✅ Cerrada (05/08). Los 3 escenarios de WF4 validados de punta a punta |
 | **Fase 12** — Migración a producción | 🟡 12.1 ✅ · 12.2 ✅ · 12.3 ✅ · 12.5 ✅ · **12.4 pendiente**, bloqueado por el ESP32 físico · 12.6 diferido |
-| **Fase 13** — Riego Automático | 🟢 **Lazo cerrado del lado del sistema (19/10, v60):** recheck, freno con rearme y tope duro, verificados en vivo (13.7.2). Falta el consumidor de `comando_dispositivo` (16.63) y WF6 (13.13) |
+| **Fase 13** — Riego Automático | 🟢 **Lazo cerrado del lado del sistema (19/10, v60):** recheck, freno con rearme y tope duro, verificados en vivo (13.7.2). **Entrega de órdenes (10/11, v71, 16.63):** la placa pide sus órdenes y avisa cómo terminaron por WF8, sin la Secret key; verificado en vivo con el simulador. Falta WF6 (13.13) y el firmware |
 | **Fase 14** — Anticipación de Etapa (NPK/pH) | 🆕 Diseñada, sin implementar |
 | **Fase 15** — Recomendación de Fertirriego | 🆕 Rediseñada (06/08, ver 15.1.1), sin implementar |
 | **Fase 16** — Registro de Hallazgos | 🟡 38 hallazgos · 18 resueltos · 1 descartado · **19 abiertos** (ver **Hallazgos abiertos**) |
@@ -87,7 +88,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **B.18** | 🟢 | Hardware | Sin temperatura, humedad ambiente ni luz | Diferido, bloqueado por hardware |
 | ~~**16.46**~~ | ✅ | WF5·WF1 | Riegos consecutivos sin tope; el circuit breaker era inalcanzable | **Cerrado 19/10 (13.7.2, v60):** tope en `fn_registrar_riego` + recheck en el Motor, verificados en vivo |
 | ~~**16.51**~~ | ✅ | WF5·WF1·BD | Volumen y caudal inventados; el tope de 30 s hereda el invento | **Cerrado 27/10 (sesión 20, v65):** ejercido antes (riego de 13 s con el caudal en `null`), `riego_automatico_disponible` en la vista, WF1 no llama a WF5 sin los datos y avisa, WF5 corta en vez de inventar. Verificado en vivo. Queda: el tope sigue en tiempo, así que hereda un caudal **mal medido** (lo resuelve medirlo: `/calibrar`, 13.13) |
-| **16.63** | 🔴 | Lazo de riego | Abierto en dos lugares: entrega y recheck | **Recheck cerrado 19/10 (13.7.2).** Sigue abierta la entrega: nadie consume `comando_dispositivo` |
+| ~~**16.63**~~ | ✅ | Lazo de riego | Abierto en dos lugares: entrega y recheck | **Recheck cerrado 19/10 (13.7.2). Entrega cerrada 10/11 (sesión 22, v71):** WF8 + `fn_tomar_ordenes` y `fn_acusar_orden`; cada orden una sola vez, vence a los 10 min, el acuse se puede repetir. Verificado en vivo con el simulador (13.6). Queda: la clave es la misma para todas las placas (B.23) y el firmware |
 | ~~**sin número**~~ | ✅ | WF5 · BD | `dosis_ml` es la dosis calculada, no la entregada después del tope de 30 s | **Resuelto 27/10 (sesión 20, v65):** `dosis_ml` = pulso × caudal. Verificado en vivo: humedad 40 → 30 s y 1200 ml (antes registraba 1375) |
 | ~~**sin número**~~ | ✅ | WF5 | Con la humedad en `null` en el cuerpo, `Calcular Dosis` regaba 30 s: el `null` se volvía 0 %, el déficit máximo | **Resuelto 27/10 (sesión 20, v65)**, encontrado al probar 16.51 en local. Solo alcanzable llamando a WF5 directo (desde WF1 no hay sequía sin humedad). Ahora corta con error. Es de la familia de 16.55 |
 | ~~**16.47**~~ | ✅ | Contrato·BD | Sin tiempo de dispositivo ni secuencia | **Cerrado 03/11 (sesión 21, v68):** paso 4 del contrato. Tabla `lectura` con DNI único `(arranque_id, seq)`, hora de la placa y de recepción; un reintento lo rechaza la base. Verificado en vivo |
@@ -117,7 +118,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.21** | 🟡 | WF3 | Re-análisis de la misma foto | Aplicado a medias (opción 2). Camino de fallo cubierto por 16.27.1 |
 | **sin número** | 🟢 | WF3 · BD | En el camino `duplicado`, `fn_registrar_evaluacion_fenologica` devuelve `foto_marcada: true` **sin marcar la foto** | Solo alcanzable a mano. **Fix descartado (v56)** por agregar código para defender una redundancia; solución de fondo: derivar la marca. Regla: para reevaluar, foto nueva; la marca no se toca a mano |
 | **16.65** | 🟡 | WF3 | La ventana de evaluación escala con la etapa: Fructificación deja 32 días ciegos | **Visto en vivo:** el cultivo entró a Fructificación el 23/09 y la primera evaluación posible fue el 25/10; se hizo el 26/10 (`no_avanza`) |
-| **B.9** | 🟡 | BD | `fn_registrar_telemetria` es `SECURITY DEFINER` ejecutable por `anon` | Diferido |
+| ~~**B.9**~~ | ✅ | BD | `fn_registrar_telemetria` es `SECURITY DEFINER` ejecutable por `anon` | **Resuelto 03/11 (sesión 21, paso 4 del contrato) y no anotado:** se recreó sin `SECURITY DEFINER` y solo para `service_role`. Verificado en `pg_proc` el 10/11. Ver **Contradicciones**, fila h |
 | **B.10** | 🟡 | WF3 | La foto que no se descarga sigue sin deduplicar | Diferido hasta tener el camino de fallo de 16.27 probado |
 | ~~**16.8**~~ | ✅ | WF1 | Sin registro ante dispositivo desconocido | **Cerrado 04/11 (sesión 21, v70):** una MAC desconocida y una placa sin cultivo activo reciben 400 y quedan en `lectura_rechazada`. La placa sin cultivo, verificada en el test de la base, no en vivo |
 | **16.9** | 🟢 | WF1 · WF4 | Limpieza cosmética | Resto en B.4 |
@@ -125,7 +126,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | **16.30** | 🟢 | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | Aplicar al reactivar WF4 |
 | **B.2 · B.3 · B.4 · B.5 · B.6 · B.8 · B.11 · B.12** | 🟢 | varios | Ver Backlog | Diferidos a propósito |
 
-**Bloqueantes reales, en orden:** ~~`13.7.2` + `16.46`~~ ✅ 19/10 → `16.63` (la entrega: que alguien consuma `comando_dispositivo`) → `16.33` (que la base impida dos cultivos por dispositivo). ~~`16.38`~~ ✅ 20/10.
+**Bloqueantes reales, en orden:** ~~`13.7.2` + `16.46`~~ ✅ 19/10 → ~~`16.63`~~ ✅ 10/11 (la entrega, por WF8) → `16.33` (que la base impida dos cultivos por dispositivo). ~~`16.38`~~ ✅ 20/10.
 
 > **Cerrados el 23/09:** `B.1` (Fructificación cargada) y `16.41` (Cosecha con umbrales). **`16.38` se cerró el 20/10** (sesión 18), cuando ya no quedaban etapas sin umbrales (la especie 4 se dio de baja el 01/10).
 
@@ -133,7 +134,21 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 
 ### Cierre de sesión y próximos pasos
 > [!IMPORTANT]
-> **Sesión 21 (03/11 → 04/11), en curso: el contrato.** El autor eligió seguir con el contrato (pasos 3 a 5), uno por vez. **Pasos 5, 4 y 3 cerrados, y Storage caído ya no frena el resto.**
+> **Sesión 22 (09/11 → 10/11), cerrada: la placa recibe sus órdenes (16.63 ✅).** El autor eligió la entrega de órdenes; el informe (Anexo III) quedó en pausa, sin tocar. Detalle en el changelog **v71** y en **13.6**.
+>
+> - **Decisiones del autor (09/11):** la placa pide sus órdenes **a n8n** (WF8, misma `X-Device-Key`; la Secret key no sale de n8n); cada orden se entrega **una sola vez** (se prefiere perder un riego a regar dos veces la misma orden); una orden **vence a los 10 minutos**.
+> - **Por qué el vencimiento:** había 10 órdenes en `pendiente` (8 de agosto, de 30 s, y las 27 y 28). Un consumidor ingenuo habría regado 10 veces apenas se conectara. El vencimiento se deriva de `creado_en`: no hay estado nuevo ni se tocó ninguna fila vieja.
+> - **Base** (`SQL/sesion22_16.63_entrega_ordenes.sql`): `fn_tomar_ordenes` y `fn_acusar_orden`, sin `SECURITY DEFINER` y solo para `service_role` (el `REVOKE` es explícito porque Supabase da `EXECUTE` a `anon` y `authenticated` por defecto). Test: FALLÓ (1 bien) antes, OK 10 de 10 después. Probado antes en un Postgres local (PGlite) con 4 defectos metidos a propósito: el test detectó los 4. Verificado por MCP: permisos, y las 10 órdenes viejas intactas.
+> - **WF8** importado, activado y exportado (`WORKFLOWS/WF8.json`, 14 nodos, idéntico al importado).
+> - **En vivo (10/11, `SQL/sesion22_test_ordenes_en_vivo.sql`, arranque 22):** antes de aplicar, `/webhook/ordenes` daba 404. Después: las 10 viejas no se entregaron. La orden 37 venció en vivo (se pidió a los 45 min y volvió vacío). La orden 38 llegó una vez y el segundo pedido volvió vacío; `E 38` → `aceptado`, otra vez → `duplicado` (sin mover la hora de ejecución), `E 38 "error"` → `400`. **Las dos ramas del diagnóstico de 13.7.2, en vivo:** el riego 29 (orden 37 sin entregar) → "Revisar primero la conexión de la placa"; el riego 30 (orden 38 ejecutada) → "¿hay agua en el tanque?, ¿la bomba funciona?…". Hasta hoy esas ramas se habían probado con un `UPDATE`.
+> - **Página del simulador:** paso 3 nuevo, "Recibir órdenes" (pedir, regar, avisar error, reintentar el aviso). **Probada contra un servidor de prueba local, no en vivo.**
+> - **Contradicciones nuevas (filas h e i):** B.9 ya estaba resuelto desde el 03/11 sin anotar; B.23 dice que telemetría y riego comparten clave, y no es así desde que WF5 usa `n8n interno`.
+> - **Límites conocidos, no resueltos:** la clave es la misma para todas las placas (una placa podría pedir con la MAC de otra si la conoce: B.23); la placa tiene que pedir más seguido que cada 10 minutos (cadencia, B.19); el control del riego cuenta los 15 minutos desde que se creó la orden, no desde que se ejecutó; una orden vencida queda en `pendiente` para siempre (no hay estado "vencida": se deriva de la hora).
+> - **Datos de prueba, sin limpiar a propósito:** arranque 22, lecturas 26 a 30, riegos 29 y 30 (los dos `fallo_sistema`), órdenes 37 (`pendiente`, vencida) y 38 (`ejecutado`). Los números 29 a 36 de `comando_dispositivo` son huecos de los tests. **El freno quedó puesto** (riego 30 en falla): la próxima sequía no riega hasta que una lectura muestre humedad ≥ 60.
+> - **Lo que sigue:** a definir con el autor. Candidatos: probar el paso 3 de la página en vivo; 16.33; una clave por placa (B.23); WF6 (13.13).
+>
+> [!IMPORTANT]
+> **Sesión 21 (03/11 → 04/11), cerrada: el contrato.** El autor eligió seguir con el contrato (pasos 3 a 5), uno por vez. **Pasos 5, 4 y 3 cerrados, y Storage caído ya no frena el resto.**
 >
 > - **Paso 5 ✅ (16.48 cerrado):** temperatura y conductividad se guardan, no deciden. Base (`SQL/sesion21_contrato_paso5_temp_cond.sql`: FALLÓ antes, OK 4 de 4 después) → `Consolidar datos` de WF1 → export idéntico → en vivo: 7 filas con las dos, 5 con las dos en `null`. Detalle en el changelog **v67**.
 > - **Decisión del autor:** los dos campos siguen obligatorios con `null` permitido, para un sensor que no los mide.
@@ -238,7 +253,7 @@ Fase 15 (fertirriego) ya quedó rediseñada y documentada (ver v18 y 15.1.1) —
 
 ### Contradicciones
 
-Al reordenar el documento se cruzaron sus afirmaciones de estado contra los artefactos reales (`WORKFLOWS/*.json` del 24/08). **Siete no coinciden.** Se listan acá en vez de corregirse en silencio dentro de cada sección: cambiar un `**Estado:**` es afirmar algo sobre el sistema, y eso se confirma, no se asume (reglas 3 y 4).
+Al reordenar el documento se cruzaron sus afirmaciones de estado contra los artefactos reales (`WORKFLOWS/*.json` del 24/08). **Siete no coinciden** (a–g; h e i se agregaron el 10/11). Se listan acá en vez de corregirse en silencio dentro de cada sección: cambiar un `**Estado:**` es afirmar algo sobre el sistema, y eso se confirma, no se asume (reglas 3 y 4).
 
 Las cuatro primeras están **verificadas contra el export** y el documento es el que está atrasado. Las tres últimas son contradicciones **internas** del documento, que solo se pueden cerrar mirando n8n o la base.
 
@@ -251,6 +266,8 @@ Las cuatro primeras están **verificadas contra el export** y el documento es el
 | **e** | 16.19 🟡: "identificado, **sin aplicar**" | **16.28** afirma: *"RESUELTO (23/08), **y con ello también 16.19**"* — `fn_registrar_evaluacion_fenologica` recibe el objeto `jsonb` completo | ⚠️ **Contradicción interna.** Verificar contra la base qué forma tiene hoy `diagnostico_ia` escrita por cada workflow, y cerrar 16.19 o reabrir 16.28 |
 | **f** | 16.1: el subtítulo `#### ⏳ Gemini — pendiente` sigue abierto | La tabla "Estado Actual" afirmaba *"Gemini rotada y confirmada en los 3 workflows ✅"*, y v14 lo da por hecho | ⚠️ **Contradicción interna.** Mirar las credenciales en n8n y cerrar el subtítulo, o corregir el tablero |
 | **g** | 16.5 conserva 🔴 y "**bug activo**" en su título | Su diseño definitivo se trasladó a 12.2, que figura ✅ aplicado en los tres workflows | ⚠️ **Título desactualizado.** Si 12.2 está cerrado, 16.5 lo está |
+| **h** | B.9 🟡: `fn_registrar_telemetria` es `SECURITY DEFINER` y la ejecuta `anon`, "diferido" | `pg_proc` (10/11): `prosecdef = false`, `EXECUTE` solo `postgres` y `service_role`. Se recreó así en el paso 4 del contrato (03/11, `SQL/sesion21_contrato_paso4_dni_lectura.sql`) | 📄 **Pendiente ya ejecutado** y no anotado. B.9 cerrado el 10/11 |
+| **i** | B.23: "los tres webhooks autentican con la misma credencial": quien manda una lectura puede ordenar un riego | Exports del 10/11: WF1, WF7 y WF8 usan `ESP32 Telemetra Key`; **WF5 (`/control-riego`) usa `n8n interno`**, la misma que usa WF1 para llamarlo | 📄 **Documento atrasado.** Con la clave de la placa no se ordena un riego. Lo que sigue valiendo de B.23: la clave es una sola para todas las placas |
 
 > **Nota de método, para el marco teórico.** Las cuatro primeras filas tienen la misma forma: **el documento registró bien el hallazgo y bien la decisión, pero no el cierre**. Un sistema de trazabilidad escrito a mano tiene un sesgo estructural hacia el falso positivo — abrir un ítem cuesta una línea en el momento en que duele, cerrarlo cuesta acordarse cuando ya no duele. El efecto acumulado es un backlog que sobreestima el trabajo pendiente, y eso no es inocuo: hace que el próximo lector priorice contra un mapa equivocado. Es el mismo argumento por el que 16.25 prefirió un `CHECK` en la base antes que un `IF` en el flujo — **el estado conviene derivarlo del artefacto, no repetirlo a mano en un segundo lugar**. La contramedida barata, ya adoptada en el protocolo de arranque, es cruzar los `**Estado:**` contra los JSON en cada auditoría, no solo los hallazgos nuevos.
 
@@ -797,6 +814,7 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v71 | 10/11 | **Sesión 22: la placa recibe sus órdenes (cierra 16.63).** **(1) Qué cambia:** la placa pide sus órdenes a WF8 (`/webhook/ordenes`) y avisa cómo terminó cada una (`/webhook/orden-acuse`), con la misma `X-Device-Key` de las lecturas. La Secret key no sale de n8n. Decisiones del autor (09/11): por n8n, cada orden una sola vez, vencimiento de 10 minutos. **(2) Base** (`SQL/sesion22_16.63_entrega_ordenes.sql`): `fn_tomar_ordenes` pasa a `entregado` y devuelve, en un solo `UPDATE`, las órdenes `pendiente` de esa placa de menos de 10 minutos (dos pedidos simultáneos no se llevan la misma); `fn_acusar_orden` solo pasa de `entregado` a `ejecutado` o `error`, un acuse repetido da `duplicado` y uno contradictorio se rechaza. Las dos validan MAC y arranque, sin `SECURITY DEFINER`, solo `service_role`. Ninguna tabla cambia. Test: FALLÓ (1 bien) antes, OK 10 de 10 después; antes, en PGlite, detectó 4 defectos metidos a propósito. **(3) WF8**, 14 nodos, export idéntico al importado. **(4) En vivo (10/11):** las 10 órdenes viejas no se entregan; la 37 venció; la 38 llega una vez, `aceptado`, `duplicado`, `400`. El control del riego dijo "revisar la conexión" (riego 29, orden sin entregar) y "tanque, bomba, fuga o sensor" (riego 30, orden ejecutada): las dos ramas de 13.7.2, por primera vez sin un `UPDATE` a mano. **(5) Página del simulador:** paso 3, "Recibir órdenes", probado contra un servidor de prueba, no en vivo. **(6) Contrato:** sección 10 y reglas 8 a 11, sin subir `v`. **(7) 13.6 reescrito:** el simulador con la Secret key queda descartado. **(8) Contradicciones h e i:** B.9 ya estaba resuelto (03/11) y B.23 estaba mal descrito (WF5 usa `n8n interno`). **Límites:** una clave para todas las placas; pedir más seguido que cada 10 min; las vencidas quedan en `pendiente` |
 | v70 | 04/11 | **Sesión 21: contrato, paso 3 (cierra 16.8).** **(1) Qué cambia:** WF1 responde **después de guardar**, así `aceptada` quiere decir "ya está en la base". Reintento → `200 duplicada`, sin error, Telegram ni riego. Placa registrada sin cultivo activo → `400` y fila en `lectura_rechazada`. **(2) Base** (`SQL/sesion21_contrato_paso3_respuestas.sql`): `fn_registrar_telemetria` devuelve `lectura_id` y `duplicada` (`on conflict` solo sobre el DNI: las otras reglas siguen cortando); `fn_verificar_arranque` mira `vista_cultivos_activos`, la misma de `Resolver Cultivo`. Test: FALLÓ 6 de 10 antes, OK 10 de 10 después. Antes de entregarlo se corrió en un Postgres local con una réplica mínima: 6 defectos inyectados, los 6 detectados; dos reintentos simultáneos guardan uno; el reverso funciona. **(3) WF1** (31 nodos, JSON importado, export idéntico, 33 conexiones): `fn_registrar_telemetria` → `Lectura Duplicada?` → `Responder Duplicada` (termina) o `Responder Aceptada` → `Hay foto nueva?`. **(4) Orden:** WF1 antes que el SQL, porque el WF1 viejo con la función nueva no mira `duplicada` y un reintento volvería a avisar y a regar. **(5) La predicción que falló:** con el WF1 nuevo y la función vieja, el reintento debía dar `500` según una lectura parcial del código de n8n; **dio `200` vacío** (ejecución 422, en error en `fn_registrar_telemetria`; nada guardado). Antes de la rama del `500`, n8n cierra el pedido con una respuesta vacía. Una placa que mirara solo el número borraría una lectura no guardada. **(6) Decisión del autor (opción A):** regla 7 del contrato, la placa da una lectura por entregada solo si dice `aceptada` o `duplicada` (con `400` tampoco reintenta). Se descartó la salida de error por nodo: suma 8 nodos con salida de error y 2 nuevos, deja casos sin cubrir (un IF que falla) y, en los nodos Supabase, un error sin descripción sale por la salida normal: en `Obtener Ultimo Riego` se confundiría con "no hay riego anterior" y saltearía el freno (leído en el código, sin ejercer). **(7) En vivo (04/11, 20:03 de Argentina), arranque 21:** `seq` 0 sana → lectura 20; repetida → `Responder Duplicada`. `seq` 1 con 55 → lectura 22, alerta y riego 28; repetida → `Responder Duplicada`, sin alerta ni riego. `seq` 2 sana con foto → lectura 24, foto subida; repetida → `Responder Duplicada`, ninguna foto más. Arranque ajeno → rechazo 10. Verificado en la base y en los nodos que corrió cada ejecución (424 a 431). **La placa sin cultivo no se probó en vivo** (pediría crear una placa en la base): solo en el test. **(8) Simulador:** `200 duplicada` en verde, `200 sin estado` en rojo. **(9) Límites aceptados:** si algo falla después de `aceptada`, la lectura queda guardada sin evaluar y un reintento recibe `duplicada`; un `seq` repetido con valores distintos (un error de firmware) también sale `duplicada`, sin aviso; la respuesta tarda unos segundos (2 a 5 s medidos). **Datos de prueba, sin limpiar a propósito:** arranques 18 y 21, lecturas 13, 20, 22 y 24, mediciones 574 en adelante, riego 28 (comando 28), rechazo 10 y la foto `…/1793833455650.jpg`, sin evaluar. |
 | v69 | 04/11 | **Sesión 21: Storage caído ya no frena el Telegram ni el riego (hallazgo sin número, abierto en v68, resuelto).** **(1) Por qué:** archivar la foto es secundario; no poder hacerlo no puede dejar a la planta sin riego ni al agricultor sin aviso. La IA no necesita Storage: WF2 recibe la foto dentro del pedido. Lo que se pierde es la copia (historial y WF3), y eso se avisa. **(2) WF1, JSON importado (26 → 29 nodos):** `Subir Foto a Storage` con *On Error* "Continue (using error output)"; `Resultado de la foto` (Code, nuevo) recibe los tres caminos (sin foto, foto guardada, error de Storage) y devuelve `foto_guardada` (`null` / `true` / `false`), `aviso_foto` (siempre booleano, lo lee un IF estricto), `foto_error` y `path_foto_guardada`. Cuenta como guardada solo si `Actualizar Ultima Foto Cultivo` devolvió el cultivo con **esa** ruta (validación positiva, no "no hubo error"). Sigue a `Registrar Recheck de Riego` y a `Foto no guardada?` → `Aviso Foto no Guardada` (Telegram aparte, con el número de lectura y el error; aparte para que avise también con una lectura sana). `Trigger a WF2` manda `path_foto_evento` = la ruta solo si se guardó, si no `null`. Probado en local, 5 casos (sin foto, guardada, error como objeto y como texto, ruta distinta). Export comparado: idéntico (29 nodos, 31 conexiones). **(3) En vivo, Storage roto** (URL con el bucket `fotos-cultivos-NOEXISTE`), sequía 55 % + foto, lectura 9: Telegram "FOTO NO GUARDADA" con el error real ("Bucket not found"), alerta de sequía, riego 27 (640 ml, 16 s) y diagnóstico de WF2 por el respaldo de Gemini, guardado con `path_foto` en `null`; `ultima_foto_path` sin cambios. **En vivo, Storage sano**, humedad 65 + foto, lectura 10: foto en `fotos-cultivos` (67 KB), `ultima_foto_path` actualizada, ningún Telegram, sin riego ni WF2 (confirma que el nodo de Supabase devuelve la fila actualizada, lo único que no se podía probar en local). La URL se repuso. **Queda fuera, a propósito:** `Preparar Foto binaria` sigue cortando si le llega una foto vacía (es un error de programa, 16.39, no de infraestructura) y si falla `Actualizar Ultima Foto Cultivo` el workflow se sigue deteniendo (la base caída también frena `fn_registrar_telemetria`, antes). |
 | v68 | 03/11 | **Sesión 21: contrato v1, paso 4 ✅ — 16.47 cerrado: cada lectura con su DNI y su hora.** **(1) Ejercido antes, hallazgo nuevo sin número:** con la URL de `Subir Foto a Storage` rota a propósito, sequía 55 % + foto → `200 "aceptada"`, la ejecución murió en ese nodo y no quedó nada (ni lectura, ni Telegram, ni riego); la lectura se guardaba después de la foto. **(2) Base** (`SQL/sesion21_contrato_paso4_dni_lectura.sql`, corrido por el autor): tabla `lectura` (DNI `unique (arranque_id, seq)`, `ts_dispositivo` en segundos Unix tal como llega, `fecha_recepcion`, `motivo`; FK `(arranque_id, dispositivo_id)` → `arranque_dispositivo`, que suma un `unique (id, dispositivo_id)`; RLS, solo `service_role`); `lectura_sensores.lectura_id` con `unique (lectura_id, metrica_id)` y un `check (lectura_id is not null) NOT VALID` (las 359 filas viejas quedan en `null`); `fn_registrar_telemetria` crea lectura + mediciones en una transacción, devuelve `lectura_id`, corta si falta el DNI y con "Lectura duplicada" (23505) ante un reintento. **Permisos:** la función deja de ser `SECURITY DEFINER` y pasa a ser solo de `service_role` (si no, anon podía escribir en la tabla cerrada a través de ella; parte de B.9). Test que se deshace solo: FALLÓ antes del cambio, **TEST OK 7 de 7** después. **(3) WF1, JSON importado:** la lectura se registra **antes** de la foto (Motor → `Consolidar datos` → `fn_registrar_telemetria` → `Hay foto nueva?` → foto → `Registrar Recheck de Riego`); `Consolidar datos` agrega el DNI y decide el nombre de la foto; `Hay foto nueva?` lee `tiene_foto` del Motor; `Preparar Foto binaria` lee de `Consolidar datos`. Probado en local, nuevo contra actual, 6 casos. Export comparado: mismos parámetros, configuración y conexiones (al pegar, n8n cambió los `id` internos de los nodos; el `webhookId` no). **(4) En vivo:** lecturas 5 y 6 (arranque 15, `seq` 0 y 1) con sus horas, motivo y 7 mediciones; la foto se subió después de guardar; el reintento de `seq` 0 desde la página → "Lectura duplicada: el arranque 15 ya tiene la seq 0 (lectura 5)", WF1 en rojo en `fn_registrar_telemetria`, sin mediciones, foto, Telegram ni riego (el contador de `lectura` avanzó a 7: la base recibió el intento y lo descartó). **Queda:** el reintento todavía responde `"aceptada"` (paso 3), y con Storage caído el workflow se sigue deteniendo antes del Telegram y del riego (la lectura ya no se pierde). |
@@ -3538,45 +3556,54 @@ La fila roja es la que justifica el cambio: es **un riego que ocurre sin memoria
 > [!IMPORTANT]
 > **Estado real del proyecto:** el ESP32 físico todavía no está armado — lo que se está construyendo ahora es la **orquestación digital** (Supabase + n8n + Telegram). Por diseño, esa orquestación no depende de que el hardware exista: habla con el mundo exterior únicamente a través de HTTP contra la REST API de Supabase, nunca en el otro sentido. Eso es intencional — es lo que permite programar cada lado por separado y recién unirlos cuando el ESP32 esté listo.
 
-**El contrato es este (cualquier dispositivo que lo cumpla sirve, sea el ESP32 real o un script de prueba):**
+> [!NOTE]
+> **Reescrito el 10/11/2026 (sesión 22, v71).** La versión original (20/07) hacía que la placa leyera y escribiera `comando_dispositivo` directo en Supabase, con la **Secret key** (`service_role`): acceso total a la base, en un aparato que cualquiera puede abrir. Ese simulador nunca se corrió (16.63) y queda **descartado**; el texto original está en la historia de git. Lo reemplaza WF8.
 
-1. El dispositivo manda telemetría: `POST /webhook/telemetria` (ya lo hacés hoy con cURL/PowerShell — Fase 5).
-2. El dispositivo pregunta si tiene comandos pendientes: `GET /rest/v1/comando_dispositivo?dispositivo_id=eq.<ID>&estado=eq.pendiente`.
-3. Si hay un comando `ACTIVAR_RIEGO`: lo marca `entregado` (PATCH), "ejecuta" (activa el relé/bomba — o, mientras no hay hardware, simplemente espera), y al terminar lo marca `ejecutado` (PATCH con `ejecutado_en`).
-4. Después de ejecutar el riego, programa una lectura extra a los 15 minutos (en vez de esperar el próximo intervalo regular) para cerrar el loop del recheck (13.7).
+**El contrato es este (cualquier dispositivo que lo cumpla sirve, sea el ESP32 real o un simulador).** El detalle de cada pedido, con sus respuestas, está en `docs/contrato_telemetria.md`, secciones 1, 2 y 10.
 
-**Cuando el ESP32 físico esté armado**, el firmware solo tiene que implementar estos 4 pasos — nada del lado de n8n/Supabase cambia. Dos detalles a tener en cuenta para ese momento:
+1. Al encender, pide su número de arranque: `POST /webhook/arranque` (WF7).
+2. Manda telemetría: `POST /webhook/telemetria` (WF1).
+3. Pide sus órdenes: `POST /webhook/ordenes` (WF8), con su MAC y su arranque. Recibe las órdenes `pendiente` de menos de 10 minutos; en ese mismo momento pasan a `entregado`.
+4. Ejecuta cada `ACTIVAR_RIEGO` (relé y bomba; mientras no hay hardware, el simulador espera) y avisa cómo terminó: `POST /webhook/orden-acuse` con `"ejecutado"` o `"error"`.
+5. Después de regar, programa una lectura extra a los 15 minutos (en vez de esperar el intervalo regular) para cerrar el lazo del recheck (13.7).
 
-- **Válvula de seguridad local:** el firmware debería tener su propio tope de duración máxima hardcodeado (ej. 30s), independiente de lo que diga el comando — así, aunque n8n o la base de datos fallen y manden un valor corrupto, el ESP32 nunca riega indefinidamente.
-- El polling (paso 2) puede ir en el mismo ciclo en el que ya manda telemetría — no hace falta un ciclo separado.
+Los cuatro pedidos usan la **misma clave** (`X-Device-Key`, credencial `ESP32 Telemetra Key`). La placa no tiene ninguna clave de Supabase: la Secret key vive solo en n8n (`Sup S`).
 
-**Cómo probar todo esto ahora, sin el ESP32 (simulador en PowerShell):**
+#### Cómo funciona la entrega (WF8)
 
-Este script cumple el contrato de los pasos 2-3 en lugar del hardware. Corrélo manualmente después de que WF5 inserte un comando (13.5), para simular que "el ESP32" lo levanta y lo ejecuta:
+| Nodo | Qué hace |
+|---|---|
+| `Webhook Ordenes` | Recibe el pedido en `/webhook/ordenes`, con la clave de la placa |
+| `Validar Pedido` | Revisa el formato: `v` = 1, la MAC y el `arranque_id` |
+| `Pedido Valido?` | Si el formato está mal, responde `400` |
+| `Tomar Ordenes` | Llama a `fn_tomar_ordenes` con `Sup S` |
+| `Ordenes Tomadas?` | Si la base rechazó la MAC o el arranque, responde `400` |
+| `Responder Ordenes` | `200` · `{"estado":"ok","ordenes":[...]}` |
+| `Responder Pedido Rechazado` | `400` · con los errores (lo comparten las dos ramas falsas) |
+| `Webhook Acuse` | Recibe el aviso en `/webhook/orden-acuse` |
+| `Validar Acuse` | Revisa el formato: además, `comando_id` y `resultado` (`ejecutado` o `error`) |
+| `Acuse Valido?` | Si el formato está mal, responde `400` |
+| `Registrar Acuse` | Llama a `fn_acusar_orden` con `Sup S` (con reintento: repetir el acuse es seguro) |
+| `Acuse Registrado?` | Si la base lo rechazó, responde `400` |
+| `Responder Acuse` | `200` · `{"estado":"aceptado" o "duplicado","comando_id":…,"estado_orden":…}` |
+| `Responder Acuse Rechazado` | `400` · con el motivo |
 
-```powershell
-# Simulador de ESP32 — cumple el contrato sin hardware real
-$dispositivoId = "TU-DISPOSITIVO-ID-UUID"
-$baseUrl = "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1"
-$headers = @{
-  apikey        = "TU_SERVICE_ROLE_KEY"
-  Authorization = "Bearer TU_SERVICE_ROLE_KEY"
-  "Content-Type" = "application/json"
-  Prefer        = "return=minimal"
-}
+**Las tres reglas, y por qué.**
 
-$comandos = Invoke-RestMethod -Uri "$baseUrl/comando_dispositivo?dispositivo_id=eq.$dispositivoId&estado=eq.pendiente" -Headers $headers -Method GET
+- **Cada orden se entrega una sola vez.** `fn_tomar_ordenes` hace un solo `UPDATE … WHERE estado = 'pendiente'`: Postgres vuelve a evaluar la condición sobre la fila bloqueada, así que dos pedidos simultáneos no se llevan la misma orden. Si la respuesta se pierde, ese riego no ocurre, y el recheck lo detecta ("la orden figura pendiente o entregado: revisar la conexión"). **Alternativa descartada: entregar hasta que la placa confirme.** Garantiza que el riego llegue, pero si la confirmación se pierde la placa riega dos veces la misma orden. Con agua, regar de más es peor que perder un riego que el sistema ya sabe detectar (decisión del autor, 09/11).
+- **Una orden vence a los 10 minutos.** Sin esto, las 10 órdenes que había en `pendiente` (8 de agosto, de 30 s) se habrían regado todas apenas se conectara la placa. El vencimiento **se deriva de `creado_en`**: no se agregó un estado "vencida" ni se tocó ninguna fila. Una orden vencida queda en `pendiente`, que es la verdad: nunca se entregó. El número vive solo en `fn_tomar_ordenes` y no tiene procedencia (lo fija el piloto, como los tiempos de 13.7.2). Obliga a la placa a pedir más seguido que cada 10 minutos (B.19).
+- **Avisar es seguro de repetir.** `fn_acusar_orden` bloquea la fila, y solo pasa de `entregado` a `ejecutado` o `error`. El mismo aviso otra vez devuelve `duplicado` sin cambiar nada; uno que contradice al anterior, o el de una orden que nunca se entregó o que es de otra placa, se rechaza con el motivo.
 
-foreach ($c in $comandos) {
-  Write-Host "[SIM ESP32] Ejecutando $($c.tipo_comando) por $($c.duracion_segundos)s..."
-  Invoke-RestMethod -Uri "$baseUrl/comando_dispositivo?id=eq.$($c.id)" -Headers $headers -Method PATCH -Body (@{ estado = "entregado" } | ConvertTo-Json)
-  Start-Sleep -Seconds $c.duracion_segundos
-  Invoke-RestMethod -Uri "$baseUrl/comando_dispositivo?id=eq.$($c.id)" -Headers $headers -Method PATCH -Body (@{ estado = "ejecutado"; ejecutado_en = (Get-Date).ToString("o") } | ConvertTo-Json)
-  Write-Host "[SIM ESP32] Listo."
-}
-```
+**Permisos.** Las dos funciones van sin `SECURITY DEFINER` y solo para `service_role`, como `fn_registrar_riego`. Supabase da `EXECUTE` a `anon` y `authenticated` por defecto a cada función nueva (`pg_default_acl`, verificado el 09/11): por eso el `REVOKE` es explícito.
 
-Con esto podés desarrollar y testear **toda la Fase 13 de punta a punta** (SQL, WF1, WF5, cooldown, recheck) antes de tener una sola placa soldada. El día que el ESP32 exista, estos mismos 4 pasos del contrato se portan a C++/Arduino y listo — nada del lado de n8n/Supabase se toca.
+**Límites conocidos.** La clave es la misma para todas las placas: una placa que conozca la MAC y el arranque de otra podría pedir sus órdenes (B.23). El recheck cuenta los 15 minutos desde que se creó la orden, no desde que se ejecutó.
+
+**Cuando el ESP32 físico esté armado**, el firmware solo tiene que implementar estos 5 pasos: nada del lado de n8n o Supabase cambia. Dos detalles para ese momento:
+
+- **Válvula de seguridad local:** el firmware tiene que tener su propio tope de duración máxima (ej. 30 s), independiente de lo que diga la orden. Aunque n8n o la base fallen y manden un valor corrupto, el ESP32 nunca riega indefinidamente.
+- Pedir las órdenes (paso 3) puede ir en el mismo ciclo de la telemetría, si ese ciclo es más corto que 10 minutos.
+
+**Cómo probar, sin el ESP32.** En PowerShell, las funciones `A`, `L`, `O` (pedir órdenes) y `E` (avisar) de `SQL/sesion22_test_ordenes_en_vivo.sql`; o la página `test/simulador.html`, paso 3, "Recibir órdenes". **Verificado en vivo el 10/11/2026** con PowerShell: ver el cierre de la sesión 22 y el changelog v71.
 
 ### 13.7 — Cómo se Cierra el Loop (Recheck)
 
@@ -3584,7 +3611,7 @@ Con esto podés desarrollar y testear **toda la Fase 13 de punta a punta** (SQL,
 > **Lo que sigue describe el diseño, no lo implementado.** Auditoría del 11/08: los pasos 3 y 4 le atribuyen a `Motor de Inferencia` un PATCH sobre `evento_riego` que ese nodo **no hace** — ver **13.7.1**, que documenta el hueco, sus consecuencias (el circuit breaker nunca abre) y el diseño propuesto para cerrarlo.
 
 1. WF5 dispara el riego y queda un `evento_riego` con `resultado='pendiente'`.
-2. ~15 minutos después, llega la lectura extra del ESP32 (13.6.4) → dispara WF1 normalmente.
+2. ~15 minutos después, llega la lectura extra del ESP32 (13.6, paso 5) → dispara WF1 normalmente.
 3. En el Motor de Inferencia (13.3), si `humedad` ya está dentro del rango ideal → PATCH a `evento_riego` seteando `resultado='exitoso'`, `humedad_recheck`, `fecha_recheck`. El `estadoGlobal` vuelve a `OK`.
 4. Si `humedad` sigue baja → PATCH `resultado='insuficiente'`. Como no pasó el cooldown, WF1 dispara WF5 de nuevo, que vuelve a regar (reintento normal).
 5. Si esto se repite y ya hay un `evento_riego` reciente con `resultado='insuficiente'`, el Motor de Inferencia lo detecta (13.3) y **no reintenta indefinidamente**: escala a `'Falla de Riego - Revisar Sistema'`, que es un estado que el IF de WF1 ya trata como alerta (Telegram), pero que la condición de 13.4 excluye explícitamente de volver a disparar WF5.
@@ -3657,7 +3684,7 @@ Además, `resultado` no es un caché: es la **conclusión que sacó el sistema c
 - **La orden quedó en `pendiente` o `entregado`:** la placa no confirmó que la ejecutó. Hay que revisar la conexión.
 - **La orden figura `ejecutado` y la humedad no subió:** hay que revisar el tanque, la bomba, una fuga o el sensor.
 
-Son las dos causas con acciones opuestas que separó REVISION_04. **La otra mitad de 16.63 sigue abierta:** nadie consume `comando_dispositivo` (el simulador de 13.6 sigue sin correr). En el test se simula con un `UPDATE`.
+Son las dos causas con acciones opuestas que separó REVISION_04. **La otra mitad de 16.63, la entrega, se cerró el 10/11 (sesión 22, WF8, 13.6).** En el test de 13.7.2 se simuló con un `UPDATE`; el 10/11 las dos ramas se vieron en vivo, con órdenes entregadas y acusadas por el simulador.
 
 **Tope duro dentro de `fn_registrar_riego`** (16.46): no más de **4 riegos automáticos por cultivo en 6 h**, contados sin mirar su `resultado`. La función bloquea la fila del cultivo (`FOR UPDATE`), así que dos ejecuciones simultáneas de WF5 no pueden pasar las dos el conteo. Si se llega al tope, **no crea ni el comando ni el evento** y devuelve `registrado = false, motivo = 'tope_alcanzado'`. WF5 lo rutea con un IF nuevo y avisa por Telegram con los números que devuelve la base, no con números escritos en el mensaje.
 
@@ -3713,7 +3740,7 @@ Se mandaron lecturas con `T <humedad>` desde PowerShell, en el formato viejo: la
 
 **Inconsistencia menor, conocida:** cuando el tope ya está lleno, la alerta de WF1 igual dice "puede volver a regar, dentro del tope". WF1 no sabe que el tope se alcanzó: eso lo responde la base cuando WF5 la llama. El segundo mensaje, el de WF5, lo aclara.
 
-**Estado:** ✅ **aplicado y verificado en vivo el 19/10.** Queda abierta la otra mitad de **16.63**: nadie consume `comando_dispositivo`, y en el test lo simuló un `UPDATE`.
+**Estado:** ✅ **aplicado y verificado en vivo el 19/10.** La otra mitad de **16.63**, la entrega, se cerró el 10/11 (sesión 22, WF8): ver 13.6.
 
 ### 13.8 — Recomendación de Maceta según Cultivo
 
@@ -3837,8 +3864,8 @@ ALTER TABLE public.comando_dispositivo ADD CONSTRAINT comando_dispositivo_tipo_c
 - [x] WF5 creado (**7 nodos**, 13.5 + settings de 13.5.1 y 13.5.2) — ✅ construido, activado y **verificado en vivo 12/08**: `evento_riego` 3 ↔ `comando_dispositivo` 3, 30s / 1625 ml, sin huérfanos, y el cooldown bloqueó una segunda telemetría disparada 6 segundos después
 - [x] **16.14:** 5 fixes (validación positiva de la respuesta de Gemini, `Retry On Fail`, IF que no persiste diagnósticos fallidos, `fotoPlausible`, y `Hay foto nueva?` leyendo `tiene_foto`) — ✅ aplicados y verificados en vivo 12/08
 - [ ] **16.14 (pendiente menor):** test de inyección de fallos (modelo inexistente en la URL de Gemini) para ejercer la rama de error, + borrar la fila basura del 12/08 16:03:43
-- [x] **13.7.2:** aplicado (SQL → WF5 → WF1) + test en vivo (`SQL/sesion16_test_lazo_riego_en_vivo.sql`) — ✅ 19/10. Para conectar un actuador físico falta 16.63 (entrega) y 16.51
-- [ ] Contrato ESP32 definido y testeado con el simulador PowerShell (13.6) — firmware real queda pendiente hasta tener la placa
+- [x] **13.7.2:** aplicado (SQL → WF5 → WF1) + test en vivo (`SQL/sesion16_test_lazo_riego_en_vivo.sql`) — ✅ 19/10. Para conectar un actuador físico faltaba 16.63 (entrega, ✅ 10/11) y 16.51 (✅ 27/10)
+- [x] Contrato ESP32 definido y testeado con el simulador PowerShell (13.6) — ✅ 10/11 (sesión 22): arranque, telemetría, órdenes y acuse, en vivo. El firmware real queda pendiente hasta tener la placa
 - [ ] SQL 13.8 (vista_recomendacion_maceta)
 - [ ] Test 13.10 ✅
 - [x] SQL 13.12 (`cultivo.mantenimiento_hasta`) — ✅ aplicado y verificado 06/08/2026
@@ -4259,7 +4286,7 @@ Un hallazgo entra acá cuando fue **verificado contra el artefacto** (el JSON ex
 | 16.60 | 🟢 | WF1 y WF4 no coinciden en qué es una desviación | 🟢 **Abierto** |
 | 16.61 | 🟡 | `duracion_estimada_dias` nulo abre la ventana el día cero | 🟡 **Abierto** |
 | 16.62 | 🟡 | Nada distingue "no tocaba" de "no corrió" en los planificadores | 🟡 **Abierto** |
-| 16.63 | 🔴 | El lazo de riego está abierto en dos lugares, no en uno | 🔴 **Abierto** |
+| 16.63 | ✅ | El lazo de riego está abierto en dos lugares, no en uno | ✅ **Cerrado** el 10/11 (sesión 22): el recheck el 19/10, la entrega por WF8 |
 | 16.64 | 🟠 | El orquestador apagado es monitoreo apagado, y no deja señal | 🟠 **Abierto** |
 | 16.65 | 🟡 | La ventana de evaluación escala con la etapa: 32 días ciegos en Fructificación | 🟡 **Abierto** |
 | 16.39 | ✅ | Una lectura de sensor desconectado que trae foto se pierde entera y en silencio | ✅ **Cerrado** el 27/10 (sesión 20) — fix de 2 capas, verificado en vivo |
@@ -6006,7 +6033,7 @@ Es la versión "del planificador" de 16.44, que es la versión "del dispositivo"
 
 ---
 
-### 16.63 — 🔴 El lazo de riego está abierto en dos lugares, no en uno
+### 16.63 — ✅ El lazo de riego está abierto en dos lugares, no en uno
 
 **Origen:** hoja de ruta externa (19/09/2026), sección 1. Verificado contra la base.
 
@@ -6016,7 +6043,7 @@ Es la versión "del planificador" de 16.44, que es la versión "del dispositivo"
 
 **Alternativa descartada: tratarlo como parte de 13.7.1.** Descartada porque se cierran con cosas distintas. 13.7.1 se cierra con un nodo en WF1 y una señal de humedad; éste se cierra con un consumidor de `comando_dispositivo` y un acuse. Fusionarlos haría que cerrar uno diera por cerrado el otro.
 
-**Estado:** **la mitad del recheck, ✅ cerrada el 19/10 (13.7.2):** el freno lee `comando_estado` y distingue "la placa no tomó la orden" de "la ejecutó y la humedad no subió", verificado en vivo (B2 y B4). **Sigue abierto:** nadie consume `comando_dispositivo`. Para la defensa queda como trabajo futuro con diseño: falta decidir cómo lee la placa sus órdenes sin la clave maestra (D-auth, B.23).
+**Estado:** **la mitad del recheck, ✅ cerrada el 19/10 (13.7.2):** el freno lee `comando_estado` y distingue "la placa no tomó la orden" de "la ejecutó y la humedad no subió", verificado en vivo (B2 y B4). ~~**Sigue abierto:** nadie consume `comando_dispositivo`.~~ **La mitad de la entrega, ✅ cerrada el 10/11 (sesión 22, v71):** la placa pide sus órdenes a WF8 con su clave, sin la Secret key; cada orden se entrega una sola vez y vence a los 10 minutos; el acuse se puede repetir sin riesgo. Diseño y fundamentación en 13.6. Verificado en vivo con el simulador: las órdenes viejas no se entregaron, una venció en vivo, otra llegó una vez y se acusó, y el recheck mostró las dos causas ("revisar la conexión" y "tanque, bomba, fuga o sensor"). **Queda, fuera de este hallazgo:** una clave por placa (B.23) y el firmware.
 
 ---
 
@@ -6535,7 +6562,7 @@ Ante una sequía, el agricultor recibe hoy dos o tres mensajes independientes �
 
 ---
 
-### B.9 — 🟡 `fn_registrar_telemetria` es `SECURITY DEFINER` y ejecutable por `anon`
+### B.9 — ✅ `fn_registrar_telemetria` era `SECURITY DEFINER` y ejecutable por `anon`
 
 **Origen:** verificado el 11/08 en `pg_proc` al crear `fn_registrar_riego` con el criterio opuesto (ver 13.5.2). Ya había aparecido antes como hallazgo del advisor de seguridad de Supabase (v19), sin acción.
 
@@ -6544,6 +6571,8 @@ La función combina las dos cosas que no deberían ir juntas: se ejecuta con los
 **Impacto actual: bajo.** El riego no se dispara desde la tabla sino desde el webhook de WF1, así que una lectura falsa contamina el histórico y podría ensuciar los promedios de WF4, pero no acciona la bomba. **Impacto futuro: alto**, si en algún momento algo pasa a reaccionar a inserciones en `lectura_sensores` (un trigger, un Realtime, o WF4 tomando decisiones de actuación).
 
 **Fix propuesto:** `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` y `GRANT` solo a `service_role`, igual que `fn_registrar_riego`. Requiere confirmar antes que ningún nodo la llame con la Publishable key — del relevamiento del 11/08, `fn_registrar_telemetria` en WF1 usa la credencial `Sup S` (Secret), así que el cambio no debería romper nada. **Diferido** por ser un cambio de permisos en producción a horas de una demo; se aplica junto con el paquete de 16.13.
+
+**Estado: ✅ resuelto el 03/11 (sesión 21) y anotado recién el 10/11** (Contradicciones, fila h). Al rehacer `fn_registrar_telemetria` en el paso 4 del contrato (`SQL/sesion21_contrato_paso4_dni_lectura.sql`) se la creó sin `SECURITY DEFINER` y solo para `service_role`. Verificado en `pg_proc` el 10/11. El resto de 16.13 (permisos sobre las tablas) sigue abierto.
 
 ---
 
@@ -6797,6 +6826,10 @@ No existe ningún documento ni esquema que diga qué manda el dispositivo: tipos
 Los tres webhooks autentican con la misma credencial y se publican en el mismo puerto. Quien pueda mandar una lectura puede **ordenar un riego**, y son dos operaciones de riesgo muy distinto: una escribe un dato, la otra mueve agua.
 
 La rotación pendiente de la clave (16.40) no cambia esto: cambia el secreto, no la separación. Compone con 16.55, que además no valida los parámetros recibidos.
+
+**Corrección (10/11, Contradicciones fila i):** no son tres webhooks con la misma credencial. WF1 (`/telemetria`), WF7 (`/arranque`) y WF8 (`/ordenes` y `/orden-acuse`) usan `ESP32 Telemetra Key`; **WF5 (`/control-riego`) usa `n8n interno`**, la credencial con la que WF1 lo llama. Con la clave de la placa no se puede ordenar un riego. Las órdenes que la placa lee (WF8) son las que ya creó el sistema: pedirlas no crea ninguna.
+
+**Lo que sigue valiendo:** la clave es **una sola para todas las placas**. Una placa que conozca la MAC y el arranque de otra puede mandar lecturas a su nombre y pedir sus órdenes (y así hacérselas perder, porque cada orden se entrega una sola vez). Con una sola placa no pasa; con un producto de varias, sí. El arreglo es una clave por placa, guardada en `dispositivo` y verificada por la base.
 
 **Estado:** identificado, **diferido** hasta decidir dónde corre el orquestador.
 

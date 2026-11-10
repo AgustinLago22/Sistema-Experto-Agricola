@@ -6,7 +6,8 @@
 <title>Simulador de placa</title>
 <!--
   Simulador de placa · contrato de telemetría v1 (docs/contrato_telemetria.md)
-  Hace lo mismo que las funciones A, L, M, N y F de PowerShell, desde el navegador.
+  Hace lo mismo que las funciones A, L, M, N, F, O y E de PowerShell, desde el navegador.
+  Desde el 09/11/2026 (16.63) también pide las órdenes de riego a WF8 y avisa cómo terminaron.
   Se abre como archivo (doble clic). La clave se escribe al abrir la página y vive
   solo en la memoria de esta pestaña: no se guarda en este archivo ni en el navegador.
   CORS verificado el 21/10/2026: n8n contesta la consulta previa con 204 y permite
@@ -280,6 +281,18 @@ code { font: 500 0.92em var(--mono); }
 .enviar .meta { font: 400 13px/1.4 var(--mono); color: var(--muted); padding-top: 12px; }
 .enviar .btn { margin-top: 12px; }
 @media (max-width: 520px) { .enviar .btn { width: 100%; } }
+
+/* Órdenes recibidas (paso 3) */
+.ordenes { display: grid; gap: 8px; }
+.ordenes:empty { display: none; }
+.orden { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: var(--r); background: var(--sunken); border-left: 3px solid var(--line); }
+.orden.regando { border-left-color: var(--info); }
+.orden.ejecutado { border-left-color: var(--ok); }
+.orden.error { border-left-color: var(--crit); }
+.orden .que { flex: 1 1 200px; min-width: 0; display: grid; gap: 2px; }
+.orden .que b { font: 600 14px/1.3 var(--mono); }
+.orden .que span { font-size: 13px; color: var(--muted); }
+.orden .acciones { display: flex; flex-wrap: wrap; gap: 6px; }
 kbd { font: 500 11.5px/1 var(--mono); padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
 
 /* Registro */
@@ -457,6 +470,19 @@ details pre {
           <button class="btn primario grande" id="btnEnviar" type="button">Mandar lectura</button>
         </div>
         <p class="nota"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> también manda la lectura. Las bandas son los umbrales de Fructificación, como referencia: el que decide es el Motor de WF1.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="t-ordenes">
+        <header>
+          <h2 id="t-ordenes"><span class="paso">3</span>Recibir órdenes</h2>
+          <span class="nota">Cada orden se entrega una sola vez y vence a los 10 minutos</span>
+        </header>
+        <div class="ordenes" id="ordenes" aria-live="polite"></div>
+        <div class="enviar">
+          <span class="meta" id="metaOrdenes">la placa no tiene órdenes</span>
+          <button class="btn primario" id="btnOrdenes" type="button">Pedir órdenes</button>
+        </div>
+        <p class="nota">Después de una lectura con sequía, WF5 deja la orden en pocos segundos. «Regar» cuenta los segundos de la orden, como haría la bomba, y al terminar avisa <code>ejecutado</code>. «Falló la bomba» avisa <code>error</code>. «Repetir acuse» manda el mismo aviso otra vez, como si la respuesta se hubiera perdido: tiene que volver <code>duplicado</code>.</p>
       </section>
     </div>
 
@@ -838,6 +864,80 @@ async function enviar() {
   refrescar();
 }
 
+// ---------- Órdenes (paso 3, 16.63) ----------
+// La placa pide sus órdenes a WF8 con la misma X-Device-Key; nunca ve la Secret key.
+// Cada orden llega una sola vez: si esta página se recarga, las que tenía se pierden,
+// igual que en una placa que se reinicia antes de regar.
+estado.ordenes = [];
+estado.pidiendo = false;
+
+function cuerpoPlaca() {
+  return { v: 1, dispositivo_mac: $("mac").value.trim(), arranque_id: entero($("arranqueId").value) };
+}
+
+async function pedirOrdenes() {
+  if (estado.pidiendo) return;
+  const cuerpo = cuerpoPlaca();
+  estado.pidiendo = true; dibujarOrdenes();
+  const res = await pedir("ordenes", cuerpo);
+  estado.pidiendo = false;
+  if (res.status === 200 && res.json && res.json.estado === "ok" && Array.isArray(res.json.ordenes)) {
+    for (const o of res.json.ordenes) estado.ordenes.push({ ...o, fase: "recibida", restante: o.duracion_segundos, acuse: null });
+  }
+  anotar("ordenes", cuerpo, res);
+  dibujarOrdenes();
+}
+
+async function acusar(orden, resultado) {
+  orden.fase = "acusando"; dibujarOrdenes();
+  const cuerpo = { ...cuerpoPlaca(), comando_id: orden.comando_id, resultado };
+  const res = await pedir("orden-acuse", cuerpo);
+  orden.acuse = resultado;
+  orden.respuesta = res.json && res.json.estado ? `${res.status} ${res.json.estado}` : `${res.status} sin estado`;
+  // Como la placa: el acuse cuenta solo si la base lo registró (aceptado o duplicado).
+  orden.registrado = res.status === 200 && res.json && ["aceptado", "duplicado"].includes(res.json.estado);
+  orden.fase = "acusada";
+  anotar("orden-acuse", cuerpo, res);
+  dibujarOrdenes();
+}
+
+function regar(orden) {
+  orden.fase = "regando"; orden.restante = orden.duracion_segundos; dibujarOrdenes();
+  const reloj = setInterval(() => {
+    orden.restante -= 1;
+    if (orden.restante <= 0) { clearInterval(reloj); acusar(orden, "ejecutado"); }
+    else dibujarOrdenes();
+  }, 1000);
+}
+
+function dibujarOrdenes() {
+  const btn = $("btnOrdenes");
+  btn.disabled = estado.pidiendo;
+  btn.textContent = estado.pidiendo ? "Pidiendo…" : "Pedir órdenes";
+  const n = estado.ordenes.length;
+  $("metaOrdenes").textContent = n ? `${n} ${n === 1 ? "orden recibida" : "órdenes recibidas"} en esta pestaña` : "la placa no tiene órdenes";
+  $("ordenes").innerHTML = estado.ordenes.map((o, i) => {
+    const que = `<div class="que"><b>#${o.comando_id} · ${esc(String(o.tipo))} · ${o.duracion_segundos} s</b>`;
+    let pie, acciones = "";
+    if (o.fase === "recibida") {
+      pie = "Recibida. La base ya la marcó entregada.";
+      acciones = `<button class="btn btn-chico primario" data-i="${i}" data-accion="regar" type="button">Regar ${o.duracion_segundos} s</button>
+                  <button class="btn btn-chico" data-i="${i}" data-accion="error" type="button">Falló la bomba</button>`;
+    } else if (o.fase === "regando") {
+      pie = `Regando… faltan ${o.restante} s`;
+    } else if (o.fase === "acusando") {
+      pie = "Avisando a WF8…";
+    } else {
+      pie = o.registrado
+        ? `Avisó «${o.acuse}» · WF8 respondió ${esc(o.respuesta)}`
+        : `El aviso «${o.acuse}» no quedó registrado (${esc(o.respuesta)}). La placa lo reintentaría.`;
+      acciones = `<button class="btn btn-chico" data-i="${i}" data-accion="repetir" type="button">${o.registrado ? "Repetir acuse" : "Reintentar acuse"}</button>`;
+    }
+    const clase = o.fase === "acusada" ? (o.registrado ? o.acuse : "error") : o.fase;
+    return `<div class="orden ${clase}">${que}<span>${pie}</span></div><div class="acciones">${acciones}</div></div>`;
+  }).join("");
+}
+
 // ---------- Registro ----------
 function veredicto(ruta, res) {
   const s = res.status, j = res.json || {};
@@ -848,6 +948,22 @@ function veredicto(ruta, res) {
     if (s === 200 && j.arranque_id) return { clase: "ok", pill: "200", texto: `Placa encendida. La base le asignó el arranque ${j.arranque_id}; seq vuelve a 0.` };
     if (s === 404) return { clase: "warn", pill: "404", texto: "Esa MAC no corresponde a ninguna placa registrada." };
     if (s === 400) return { clase: "warn", pill: "400", texto: "Pedido de arranque inválido." };
+  } else if (ruta === "ordenes") {
+    if (s === 200 && j.estado === "ok" && Array.isArray(j.ordenes)) {
+      const n = j.ordenes.length;
+      return n
+        ? { clase: "ok", pill: `200 · ${n} ${n === 1 ? "orden" : "órdenes"}`, texto: "Ya figuran «entregado» en la base: no se vuelven a entregar, aunque esta respuesta se pierda." }
+        : { clase: "ok", pill: "200 · ninguna", texto: "No hay órdenes para esta placa. Una orden que pasó 10 minutos sin pedirse ya no se entrega." };
+    }
+    if (s === 200 && !j.estado) return { clase: "crit", pill: "200 sin estado", texto: "WF8 falló antes de contestar. Mirá la ejecución de WF8 en n8n." };
+    if (s === 400) return { clase: "warn", pill: "400 rechazado", texto: "WF8 rechazó el pedido. No se entregó ninguna orden." };
+    if (s === 404) return { clase: "warn", pill: "404", texto: "No existe ese webhook. ¿WF8 está activo y publicado?" };
+  } else if (ruta === "orden-acuse") {
+    if (s === 200 && j.estado === "aceptado") return { clase: "ok", pill: "200 aceptado", texto: `La base registró el resultado: la orden ${j.comando_id} figura «${j.estado_orden}».` };
+    if (s === 200 && j.estado === "duplicado") return { clase: "ok", pill: "200 duplicado", texto: `Ese aviso ya estaba registrado: la orden ${j.comando_id} sigue «${j.estado_orden}» y no cambió nada.` };
+    if (s === 200 && !j.estado) return { clase: "crit", pill: "200 sin estado", texto: "WF8 falló antes de contestar: el aviso no cuenta como registrado y la placa lo reintentaría (repetirlo es seguro)." };
+    if (s === 400) return { clase: "warn", pill: "400 rechazado", texto: "WF8 rechazó el aviso. La orden no cambió." };
+    if (s === 404) return { clase: "warn", pill: "404", texto: "No existe ese webhook. ¿WF8 está activo y publicado?" };
   } else {
     if (s === 200 && j.estado === "aceptada") return { clase: "ok", pill: "200 aceptada", texto: "Ya está guardada en la base. Si el Motor encuentra algo para avisar, llega por Telegram; si está sana, no llega nada." };
     if (s === 200 && j.estado === "duplicada") return { clase: "ok", pill: "200 duplicada", texto: "Esa lectura ya estaba guardada (mismo arranque y seq). No se guardó de nuevo, ni avisó, ni regó." };
@@ -915,6 +1031,15 @@ $("verClave").addEventListener("click", () => {
 });
 $("btnArranque").addEventListener("click", encender);
 $("btnEnviar").addEventListener("click", enviar);
+$("btnOrdenes").addEventListener("click", pedirOrdenes);
+$("ordenes").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-accion]");
+  if (!b) return;
+  const orden = estado.ordenes[Number(b.dataset.i)];
+  if (b.dataset.accion === "regar") regar(orden);
+  else if (b.dataset.accion === "error") acusar(orden, "error");
+  else if (b.dataset.accion === "repetir") acusar(orden, orden.acuse);
+});
 $("archivoFoto").addEventListener("change", (e) => cargarArchivo(e.target.files[0]));
 $("quitarFoto").addEventListener("click", quitarFoto);
 $("limpiarRegistro").addEventListener("click", () => {

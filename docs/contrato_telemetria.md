@@ -1,10 +1,10 @@
 # Contrato de telemetría — versión 1
 
-> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** **Pasos 5 y 4 aplicados y verificados en vivo el 03/11/2026 (sesión 21):** temperatura y conductividad se guardan, y cada lectura se guarda con su DNI y su hora (un reintento no se guarda dos veces). **Paso 3 aplicado y verificado en vivo el 04/11/2026 (sesión 21):** WF1 responde después de guardar, y un reintento recibe `"duplicada"`. Detalle en `implementation_plan.md`, Fase 18.
+> **Estado:** escrito el 13/10/2026 (B.22). **Pasos 1 y 2 de la sección 9 aplicados y verificados en vivo el 20/10/2026 (sesión 17):** el arranque lo da WF7 y la puerta de WF1 hace cumplir este contrato. **Desde el 20/10, el formato anterior se rechaza con `400`.** **Pasos 5 y 4 aplicados y verificados en vivo el 03/11/2026 (sesión 21):** temperatura y conductividad se guardan, y cada lectura se guarda con su DNI y su hora (un reintento no se guarda dos veces). **Paso 3 aplicado y verificado en vivo el 04/11/2026 (sesión 21):** WF1 responde después de guardar, y un reintento recibe `"duplicada"`. Detalle en `implementation_plan.md`, Fase 18. **Órdenes de riego (sección 10) aplicadas y verificadas en vivo el 10/11/2026 (sesión 22, 16.63):** la placa pide sus órdenes y avisa cómo terminaron, por WF8, con la misma clave.
 >
 > **Para qué existe.** Es la definición de qué manda el nodo sensor y de qué hace el sistema con lo que recibe. Hasta hoy el formato era "lo que manda el script de PowerShell", y esa falta de definición causó 16.52 (un `""` leído como humedad 0 %), 16.47 (sin hora de medición) y 16.48 (temperatura y conductividad descartadas). Se escribe **antes** de que exista el firmware, porque después cambiarlo obliga a actualizar cada placa instalada.
 
-El contrato tiene **dos pedidos**: uno al arrancar la placa, y uno por cada lectura.
+El contrato tiene **cuatro pedidos**: uno al arrancar la placa, uno por cada lectura, y dos para las órdenes de riego (sección 10): pedirlas y avisar cómo terminó cada una. Los cuatro usan la misma clave (`X-Device-Key`) y el mismo `v`.
 
 ---
 
@@ -124,7 +124,8 @@ Con este contrato **se registran, pero no intervienen en el diagnóstico**: no t
 El contrato **no fija** cada cuánto se mide (B.19): ese número sale de un piloto, midiendo la velocidad de secado real y el ruido del sensor. Sí fija dos cosas:
 
 - las lecturas `"programada"` tienen un intervalo **regular** y conocido;
-- después de un riego, el dispositivo manda una lectura extra con `motivo: "recheck"` a los 15 minutos (13.6, paso 4).
+- después de un riego, el dispositivo manda una lectura extra con `motivo: "recheck"` a los 15 minutos (13.6, paso 5);
+- **las órdenes se piden más seguido que cada 10 minutos** (sección 10): una orden que no se entregó en 10 minutos ya no se entrega. Lo natural es pedirlas en el mismo ciclo de cada lectura, si las lecturas son más frecuentes que eso; si no, en un ciclo propio.
 
 ---
 
@@ -204,3 +205,53 @@ Este documento es el primer paso. Cada uno de los siguientes es una tarea propia
 6. **Simulador.** Actualizar los comandos de prueba del plan al formato nuevo. *Escrito el 19/10 en `SQL/sesion17_test_puerta_en_vivo.sql` (funciones `A`, `L` y `N` de PowerShell); falta pasarlo a la sección "Cómo probar" del plan cuando la puerta esté aplicada.*
 
 **Transición.** Mientras los pasos 1 a 5 no estén hechos, WF1 sigue aceptando el formato viejo. Cuando el paso 2 entre en vigencia, el formato viejo pasa a rechazarse: no hay dispositivos reales en campo que migrar, solo el simulador.
+
+---
+
+## 10 · Las órdenes de riego
+
+> **Desde el 10/11/2026 (sesión 22, 16.63).** Antes, la única forma de leer `comando_dispositivo` era con la Secret key de Supabase, que es acceso total a la base y no puede ir en una placa. Ahora la placa le pide sus órdenes a n8n (WF8) con la misma clave de las lecturas, y la Secret key no sale de n8n. **No sube `v`:** son dos pedidos nuevos, y los dos que ya existían no cambian (sección 8).
+
+### Pedir las órdenes
+
+```
+POST http://<orquestador>:5678/webhook/ordenes
+Content-Type: application/json
+X-Device-Key: <clave del dispositivo>
+
+{ "v": 1, "dispositivo_mac": "24:0A:C4:A1:B2:C3", "arranque_id": 1234 }
+```
+
+Respuesta: `200` · `{ "estado": "ok", "ordenes": [ { "comando_id": 38, "tipo": "ACTIVAR_RIEGO", "duracion_segundos": 16 } ] }`, o `"ordenes": []` si no hay ninguna.
+
+### Avisar cómo terminó una orden
+
+```
+POST http://<orquestador>:5678/webhook/orden-acuse
+Content-Type: application/json
+X-Device-Key: <clave del dispositivo>
+
+{ "v": 1, "dispositivo_mac": "24:0A:C4:A1:B2:C3", "arranque_id": 1234, "comando_id": 38, "resultado": "ejecutado" }
+```
+
+`resultado` es `"ejecutado"` (regó) o `"error"` (no pudo). Respuesta: `200` · `{ "estado": "aceptado", "comando_id": 38, "estado_orden": "ejecutado" }`.
+
+### Las reglas de las órdenes
+
+8. **Cada orden se entrega una sola vez.** Al pedirlas, las que se devuelven pasan a `entregado` en la misma operación, así que dos pedidos simultáneos no pueden llevarse la misma. Si la respuesta se pierde en el camino, ese riego no ocurre: el control del riego lo detecta ("la orden figura pendiente o entregado: revisar la conexión"). **Se eligió perder un riego antes que regar dos veces la misma orden** (decisión del autor, 09/11).
+9. **Una orden que no se entregó en 10 minutos ya no se entrega.** Queda en `pendiente` para siempre, que es la verdad: nunca llegó. Evita que una placa que vuelve después de horas desconectada riegue con órdenes viejas, de una humedad que ya no es la de ahora. Los 10 minutos viven en un solo lugar (`fn_tomar_ordenes`) y no tienen procedencia: los fija el piloto.
+10. **La placa ejecuta la orden con su propio tope.** La válvula local de 30 s del firmware (13.6) se aplica aunque la orden diga otra cosa.
+11. **Avisar es seguro de repetir.** Mandar el mismo aviso dos veces devuelve `"duplicado"` y no cambia nada (ni la hora de ejecución). Un aviso que contradice al anterior (`"error"` sobre una orden ya `"ejecutado"`) se rechaza. Igual que la regla 7: la placa da el aviso por entregado **solo** si la respuesta es `200` con `estado` `"aceptado"` o `"duplicado"`; con cualquier otra cosa, salvo `400`, lo reintenta idéntico.
+
+| Caso | Respuesta |
+|---|---|
+| Pedido válido | `200` · `{"estado":"ok","ordenes":[...]}` (la lista puede venir vacía) |
+| MAC no registrada, o `arranque_id` que no es de esa placa | `400` · `{"estado":"rechazado","errores":[...]}` |
+| Aviso válido | `200` · `"aceptado"`, o `"duplicado"` si ya se había avisado lo mismo |
+| Aviso de una orden ajena, de una que nunca se entregó, o que contradice al anterior | `400` · con el motivo |
+| Clave incorrecta | `403` |
+| Falla antes de responder | `5xx`, `200` sin `estado`, o sin respuesta: reintentar (pedir de nuevo es seguro; una orden ya entregada no vuelve a llegar) |
+
+**Ejercido en vivo el 10/11/2026:** las 10 órdenes viejas no se entregaron; una orden de 45 minutos tampoco (venció); la orden 38 llegó una vez y el segundo pedido volvió vacío; el aviso dio `aceptado`, el repetido `duplicado` y el contradictorio `400`. El control del riego dijo "revisar la conexión" con la orden sin entregar, y "tanque, bomba, fuga o sensor" con la orden ejecutada.
+
+**Simulador en PowerShell:** las funciones `O` (pedir) y `E` (avisar) de `SQL/sesion22_test_ordenes_en_vivo.sql`. En la página `test/simulador.html`, el paso 3, "Recibir órdenes".

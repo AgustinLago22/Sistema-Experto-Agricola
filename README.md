@@ -11,6 +11,9 @@ Proyecto de tesis de grado.
 ```
 Nodo sensor ──POST /arranque──► WF7 ──► la base asigna el número de arranque
      │
+     ├─────POST /ordenes─────► WF8 ──► las órdenes de riego pendientes, una sola vez
+     ├─────POST /orden-acuse─► WF8 ──► la placa avisa si regó
+     │
      └─────POST /telemetria──► WF1 ──► ¿cumple el contrato? ──[no]──► 400 + registro del rechazo
                                 ▼
                         Motor de inferencia (umbrales de la etapa actual)
@@ -27,7 +30,7 @@ WF3 (cada 8 h) ──► última foto ──► visión artificial ──► ¿a
 | Componente | Implementación |
 |---|---|
 | Orquestación | n8n autoalojado en Docker, versión fijada (`2.19.5`) |
-| Persistencia | PostgreSQL gestionado (Supabase): 17 tablas, 5 vistas y 7 funciones transaccionales; Storage para las fotos |
+| Persistencia | PostgreSQL gestionado (Supabase): 17 tablas, 5 vistas y 9 funciones transaccionales; Storage para las fotos |
 | Inferencia de umbrales | Determinística, en código, contra la base de conocimiento (`parametro_etapa`) |
 | Visión artificial | Google Gemini, con un modelo de respaldo cuando el principal falla; acotada a diagnóstico y clasificación fenológica |
 | Notificación | Bot de Telegram |
@@ -43,6 +46,7 @@ WF3 (cada 8 h) ──► última foto ──► visión artificial ──► ¿a
 | WF4 | Análisis preventivo | Programado, cada 6 h | Informe periódico de tendencia. **Inactivo por decisión** hasta contar con telemetría real |
 | WF5 | Control de riego | Llamado por WF1 | Calcula la dosis con el volumen de la maceta y el caudal de la bomba, y registra la orden |
 | WF7 | Registro de arranque | Webhook `/arranque` | Asigna a cada encendido de la placa un número que no se repite |
+| WF8 | Entrega de órdenes | Webhooks `/ordenes` y `/orden-acuse` | Entrega a la placa sus órdenes de riego, cada una una sola vez y con vencimiento, y registra cómo terminó |
 
 WF6 está reservado para los comandos por Telegram (pausar, reanudar, calibrar), todavía sin construir.
 
@@ -55,13 +59,14 @@ Lo que manda el nodo sensor y lo que responde el sistema está definido en `docs
 - **Al encender**, la placa pide un número de arranque. Lo asigna la base, no la placa: así no puede repetirse.
 - **Cada lectura** lleva las siete mediciones, el número de arranque, un número de secuencia y la hora de medición. Una medición que el sensor no pudo tomar se manda como `null`, nunca vacía ni omitida.
 - **Una lectura que no cumple el contrato se rechaza entera** (`400`, con la lista de errores) y queda registrada. Una lectura mal formada no puede disparar un riego.
+- **La placa pide sus órdenes de riego** con la misma clave que usa para las lecturas: nunca tiene una clave de la base. Cada orden se entrega una sola vez y vence a los 10 minutos, para que una placa que estuvo desconectada no riegue con órdenes viejas. Al terminar, la placa avisa si regó.
 - **Temperatura y conductividad se guardan, pero no deciden.** Usarlas para diagnosticar requiere umbrales por etapa con fuentes, y queda como trabajo futuro.
 
 ## El lazo de riego
 
 El riego tiene tres defensas independientes contra el exceso de agua:
 
-1. **Confirmación por evidencia.** La primera lectura después de que se absorbió el riego lo evalúa: exitoso, insuficiente o falla del sistema. Una falla activa un freno, que se libera cuando una lectura posterior muestra la maceta húmeda.
+1. **Confirmación por evidencia.** La primera lectura después de que se absorbió el riego lo evalúa: exitoso, insuficiente o falla del sistema. Una falla activa un freno, que se libera cuando una lectura posterior muestra la maceta húmeda. El aviso de falla distingue la causa por el estado de la orden: si la placa no confirmó que regó, hay que revisar la conexión; si confirmó y la humedad no subió, el tanque, la bomba, una fuga o el sensor.
 2. **Tope duro en la base.** No más de cuatro riegos automáticos por cultivo en seis horas, aplicado dentro de la transacción que registra la orden.
 3. **Válvula local en el firmware** (30 s como máximo), la única que funciona aunque fallen la red, el orquestador o la base. Diseñada; depende del hardware.
 
@@ -77,7 +82,7 @@ El sistema no riega solo si falta el volumen de la maceta o el caudal de la bomb
 | `docs/revisiones/` | Auditorías técnicas: cobertura del ciclo, instrumentación, workflows y hoja de ruta |
 | `SQL/` | Scripts de cambios en la base, cada uno con su estado previo, su verificación, su reverso y un test que se deshace solo; y guiones de prueba en vivo |
 | `WORKFLOWS/` | Definiciones de los workflows (JSON de n8n) |
-| `test/simulador.html` | Página local que simula la placa: encendido, lecturas sanas y con problemas, foto y rechazos |
+| `test/simulador.html` | Página local que simula la placa: encendido, lecturas sanas y con problemas, foto, rechazos y la recepción de órdenes de riego |
 | `test/` | Además, escenarios de prueba y la foto de demostración |
 | `docker-compose.yaml` | Despliegue del orquestador |
 
@@ -86,7 +91,7 @@ El sistema no riega solo si falta el volumen de la maceta o el caudal de la bomb
 1. Crear un archivo `.env` junto a `docker-compose.yaml` con `N8N_ENCRYPTION_KEY`, la clave que cifra las credenciales de n8n. Está fuera del repositorio, y sin ella el contenedor no arranca.
 2. Levantar el orquestador: `docker compose up -d`. Queda en `http://localhost:5678`.
 3. Importar los JSON de `WORKFLOWS/` y crear las credenciales que referencian por nombre: la clave del dispositivo (Header Auth, cabecera `X-Device-Key`), el acceso a Supabase, la clave interna con la que WF1 llama a WF2 y WF5, Telegram y Gemini. Ningún secreto está en el repositorio.
-4. Activar WF1, WF2, WF3, WF5 y WF7. WF4 queda apagado.
+4. Activar WF1, WF2, WF3, WF5, WF7 y WF8. WF4 queda apagado.
 
 Para probar sin hardware, abrir `test/simulador.html` en el navegador, escribir la clave del dispositivo y empezar por "Encender placa".
 
@@ -104,8 +109,8 @@ El sistema está construido sobre un conjunto de principios que el documento de 
 
 ## Estado
 
-- **Implementado y verificado en vivo** contra la base: la recepción con el contrato (arranque, validación y registro de rechazos), el diagnóstico por umbrales, el aviso de mediciones faltantes, el diagnóstico por imagen con modelo de respaldo, la validación fenológica y el lazo de riego del lado del sistema.
-- **Pendiente del lazo de riego:** que la placa lea sus órdenes. Requiere decidir antes cómo se autentica sin la clave maestra.
+- **Implementado y verificado en vivo** contra la base: la recepción con el contrato (arranque, validación y registro de rechazos), el diagnóstico por umbrales, el aviso de mediciones faltantes, el diagnóstico por imagen con modelo de respaldo, la validación fenológica y el lazo de riego completo con el nodo sensor simulado: la orden, su entrega a la placa, el aviso de que regó y la confirmación por la humedad.
+- **Pendiente:** una clave distinta para cada placa (hoy todas comparten la misma).
 - **El nodo sensor todavía no existe.** Se simula con el formato del contrato, y nada del sistema depende de él.
 - **El orquestador corre en una computadora personal.** Un servidor accesible es el paso siguiente del despliegue.
 

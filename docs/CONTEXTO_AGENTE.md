@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, y el 03/11 con su commit y la sesión 21 (en curso): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v70**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, y el 10/11 con la sesión 22 (16.63, la entrega de órdenes): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v71**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -8,7 +8,27 @@
 
 ---
 
-## ▶ Sesión 21 — EN CURSO (03/11 → 04/11): el contrato, un paso por vez
+## ▶ Sesión 22 — CERRADA (09/11 → 10/11): la placa recibe sus órdenes (16.63 ✅)
+
+**Qué se hizo.** La placa pide sus órdenes a **WF8** y avisa cómo terminó cada una, con la misma `X-Device-Key` de las lecturas. La Secret key no sale de n8n. **Decisiones de Agustín (09/11):** por n8n; cada orden se entrega **una sola vez** (se prefiere perder un riego a regar dos veces la misma orden); una orden **vence a los 10 minutos**. El informe (Anexo III) quedó en pausa, sin tocar.
+
+**Base** (`SQL/sesion22_16.63_entrega_ordenes.sql`; FALLÓ 1 bien antes, OK 10 de 10 después): `fn_tomar_ordenes(p_mac, p_arranque_id)` valida MAC y arranque, y en un solo `UPDATE … WHERE estado = 'pendiente'` pasa a `entregado` y devuelve las órdenes de esa placa de menos de 10 minutos. `fn_acusar_orden(p_mac, p_arranque_id, p_comando_id, p_resultado)` solo pasa de `entregado` a `ejecutado` (con `ejecutado_en`) o `error`; el mismo acuse otra vez da `duplicado`; uno contradictorio, de una orden ajena o nunca entregada, se rechaza. Las dos sin `SECURITY DEFINER` y solo `service_role` (el `REVOKE` es explícito: Supabase da `EXECUTE` a `anon` y `authenticated` por defecto). **Ninguna tabla cambió:** el vencimiento se deriva de `creado_en` y una orden vencida queda en `pendiente`.
+
+**En vivo (10/11, `SQL/sesion22_test_ordenes_en_vivo.sql`, arranque 22):** las 10 órdenes viejas no se entregaron; la 37 venció (pedida a los 45 min); la 38 llegó una vez, el segundo pedido volvió vacío, `E 38` → `aceptado`, otra vez → `duplicado`, `E 38 "error"` → `400`. **Las dos ramas del diagnóstico de 13.7.2, en vivo por primera vez:** riego 29 (orden sin entregar) → "Revisar primero la conexión de la placa"; riego 30 (orden ejecutada) → "¿hay agua en el tanque?, ¿la bomba funciona?…".
+
+**Página del simulador:** paso 3 nuevo, "Recibir órdenes". **Probada contra un servidor de prueba local, no en vivo.**
+
+**Contradicciones nuevas (filas h e i del plan):** B.9 ya estaba resuelto desde el 03/11 (`fn_registrar_telemetria` sin `SECURITY DEFINER`, solo `service_role`); B.23 decía que telemetría y riego comparten clave, pero WF5 usa `n8n interno`. Lo que sigue valiendo de B.23: **una sola clave para todas las placas**.
+
+**Límites conocidos:** una placa que conozca la MAC y el arranque de otra puede pedir sus órdenes (B.23); la placa tiene que pedir más seguido que cada 10 min (B.19); el recheck cuenta los 15 min desde que se creó la orden.
+
+**Datos de prueba, sin limpiar a propósito:** arranque 22, lecturas 26 a 30, riegos 29 y 30 (`fallo_sistema`), órdenes 37 (`pendiente`, vencida) y 38 (`ejecutado`); 29 a 36 son huecos de los tests. **El freno quedó puesto:** la próxima sequía no riega hasta que una lectura muestre humedad ≥ 60 (`L 68`).
+
+**Lo que sigue:** a definir con Agustín. Detalle: changelog **v71** del plan y **13.6**.
+
+---
+
+## ▶ Sesión 21 — CERRADA (03/11 → 04/11), anotada en el plan (v67 a v70) y commiteada: el contrato, un paso por vez
 
 **Paso 5 ✅ (16.48 cerrado, 03/11):** temperatura y conductividad **se guardan, no deciden**. `fn_registrar_telemetria` recibe `p_temperatura` y `p_conductividad` (`DEFAULT NULL`; script `SQL/sesion21_contrato_paso5_temp_cond.sql`, FALLÓ antes y OK 4 de 4 después). `Consolidar datos` (WF1) las toma de `$('Validar Contrato').first().json.lectura`: el Motor no las emite ni las lee. Export de WF1 comparado: idéntico. En vivo (17:21 de Argentina): lectura sana → 7 filas (520 a 526); con las dos en "sin dato" → 5 (527 a 531). **Decisión de Agustín:** siguen obligatorias con `null` permitido (un sensor que no las mide manda `null`). Detalle: changelog **v67** del plan.
 
@@ -97,7 +117,7 @@
 2. `WORKFLOWS/WF1.json` — es el corazón del sistema y donde está casi todo el trabajo abierto.
 3. `WORKFLOWS/WF3.json` — el segundo en importancia. Prompt nuevo desde el 01/10 (16.42).
    `WF5.json` se re-exportó el 19/10 (lazo de riego, 13.7.2); `WF7.json` y `WF1.json` el 20/10 (contrato v1, Fase 18, y la sesión 18); `WF2.json` y `WF3.json` **al cierre de la sesión 19** (26/10: respaldo de Gemini y prompt de WF2).
-4. WF2, WF4, WF5 y WF7 **solo si la tarea los toca.** WF4 está apagado a propósito.
+4. WF2, WF4, WF5, WF7 y WF8 **solo si la tarea los toca.** WF4 está apagado a propósito.
 
 **No leas `implementation_plan.md` entero.** Si necesitás el detalle de un hallazgo, abrí solo esa sección — el **mapa del final** dice dónde está cada una.
 
@@ -116,7 +136,7 @@ Un sistema experto agrícola de loop cerrado. En una frase:
 | Pieza | Qué es | Dónde corre |
 |---|---|---|
 | ESP32 + sensor 7-en-1 | Mide humedad, temperatura, pH, conductividad, N, P, K. Manda foto opcional | **No existe todavía.** Se simula con PowerShell, con el formato del contrato v1 |
-| n8n | Orquestación. 6 workflows: WF1–WF5 y WF7 (**WF6 está reservado** para los comandos de Telegram, 13.13, y no existe) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
+| n8n | Orquestación. 7 workflows: WF1–WF5, WF7 y WF8 (**WF6 está reservado** para los comandos de Telegram, 13.13, y no existe) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
 | Supabase | Postgres + Storage (bucket `fotos-cultivos`) | Proyecto `xypqsthwquegftcnoqyi`, "Tesis Cultivos" |
 | Google Gemini | Visión: diagnóstico de emergencia y validación de etapa | `gemini-3.8-flash` en WF2 y WF3 desde el 20/10 (WF4 quedó en `2.5`). Cupo gratis: 20 pedidos/día por modelo |
 | Telegram | Canal de notificación | `chatId` 5593622386, repetido en 5 nodos |
@@ -130,8 +150,10 @@ Un sistema experto agrícola de loop cerrado. En una frase:
 ## 2 · Flujo, de punta a punta
 
 ```
-ESP32 (o PowerShell)       Header Auth en las dos: X-Device-Key (credencial `ESP32 Telemetra Key`)
-   │  al encender:   POST /webhook/arranque   ──► WF7 ──► la base le asigna un arranque_id
+ESP32 (o PowerShell)       Header Auth en los cuatro: X-Device-Key (credencial `ESP32 Telemetra Key`)
+   │  al encender:   POST /webhook/arranque     ──► WF7 ──► la base le asigna un arranque_id
+   │  sus órdenes:   POST /webhook/ordenes      ──► WF8 ──► las de < 10 min, una sola vez
+   │  al terminar:   POST /webhook/orden-acuse  ──► WF8 ──► ejecutado / error
    │  cada lectura:  POST /webhook/telemetria (contrato v1)
    ▼
  WF1 ──► puerta: ¿cumple el contrato? ¿el arranque es suyo? ¿tiene cultivo? ──[no]──► 400 + fila en lectura_rechazada
@@ -152,7 +174,7 @@ ESP32 (o PowerShell)       Header Auth en las dos: X-Device-Key (credencial `ESP
 
 ---
 
-## 3 · Los 6 workflows
+## 3 · Los 7 workflows
 
 ### WF1 — `Orquestacion - Tesis` · 31 nodos · **activo**
 
@@ -274,6 +296,23 @@ Webhook → Validar Arranque → Pedido Valido? ─[no]→ Responder Pedido Inva
 
 ---
 
+### WF8 — `WF8 - Entrega de Ordenes` · 14 nodos · **activo** (desde el 10/11)
+
+Dos webhooks con la credencial de la placa. Diseño completo en el plan, **13.6**; contrato, sección 10.
+
+```
+Webhook Ordenes (/ordenes) → Validar Pedido → Pedido Valido? ─[no]→ Responder Pedido Rechazado (400)
+   └[sí]→ Tomar Ordenes (fn_tomar_ordenes) → Ordenes Tomadas? ─[sí]→ Responder Ordenes (200 {"estado":"ok","ordenes":[...]})
+                                                              └[no]→ Responder Pedido Rechazado (400)
+Webhook Acuse (/orden-acuse) → Validar Acuse → Acuse Valido? ─[no]→ Responder Acuse Rechazado (400)
+   └[sí]→ Registrar Acuse (fn_acusar_orden) → Acuse Registrado? ─[sí]→ Responder Acuse (200 aceptado/duplicado)
+                                                                └[no]→ Responder Acuse Rechazado (400)
+```
+
+`Tomar Ordenes` y `Registrar Acuse` usan `Sup S`. Solo `Registrar Acuse` tiene reintento (repetir un acuse es seguro; repetir `Tomar Ordenes` no, porque cada orden se entrega una vez). La placa da el aviso por entregado solo con `aceptado` o `duplicado` (regla 11 del contrato).
+
+---
+
 ## 4 · Modelo de datos (Supabase, esquema `public`)
 
 **Tablas principales:**
@@ -288,7 +327,7 @@ Webhook → Validar Arranque → Pedido Valido? ─[no]→ Responder Pedido Inva
 | `tipos_metricas` | Catálogo de métricas | id 1=Humedad, 3=pH, 4=Nitrógeno, 5=Fósforo, 6=Potasio |
 | `especie_planta` / `tipo_etapa` / `etapas_especie` / `parametro_etapa` | **La base de conocimiento** | `etapas_especie` ordena las etapas por especie y guarda `criterio_visual` (**NOT NULL**: cómo se reconoce en una foto la entrada a esa etapa); `parametro_etapa` guarda los umbrales de cada una |
 | `evento_riego` | Riegos | `resultado` (`pendiente` / `exitoso` / `insuficiente` / `fallo_sistema`), `fecha_recheck`, `humedad_recheck`, `comando_id` → FK a `comando_dispositivo` |
-| `comando_dispositivo` | Órdenes para el ESP32 | `tipo_comando`, `duracion_segundos`, `estado` |
+| `comando_dispositivo` | Órdenes para el ESP32 | `tipo_comando`, `duracion_segundos`, `estado` (`pendiente` → `entregado` → `ejecutado` o `error`), `creado_en`, `entregado_en`, `ejecutado_en`. RLS sin políticas: solo `service_role`. Desde el 10/11 la leen `fn_tomar_ordenes` y `fn_acusar_orden` (WF8) |
 | `seguimiento_fenologico` | Historia clínica (la escribe WF2) | `diagnostico_ia jsonb`, `path_foto` |
 | `evaluacion_fenologica` | Evaluaciones de etapa (la escribe WF3) | `resultado`, `etapa_detectada`, `diagnostico jsonb` |
 
@@ -296,7 +335,7 @@ Webhook → Validar Arranque → Pedido Valido? ─[no]→ Responder Pedido Inva
 
 **Tabla `lectura` (desde el 03/11, 16.47):** una fila por lectura, con su DNI `(arranque_id, seq)` único y sus horas; `lectura_sensores.lectura_id` apunta a ella.
 
-**Funciones RPC:** `fn_registrar_telemetria` (desde el 03/11 crea la `lectura` con su DNI, guarda también temperatura y conductividad, métricas 2 y 7, devuelve `lectura_id` y es solo de `service_role`), `fn_registrar_riego` (con tope duro), `fn_registrar_recheck_riego` (solo cierra eventos `pendiente` del mismo cultivo), `fn_registrar_evaluacion_fenologica`, y desde el 20/10 `fn_registrar_arranque`, `fn_verificar_arranque` y `fn_registrar_rechazo` (las tres solo para `service_role`, sin `SECURITY DEFINER`; las tablas nuevas con RLS y sin permisos para `anon`/`authenticated`).
+**Funciones RPC:** `fn_registrar_telemetria` (desde el 03/11 crea la `lectura` con su DNI, guarda también temperatura y conductividad, métricas 2 y 7, devuelve `lectura_id` y es solo de `service_role`), `fn_registrar_riego` (con tope duro), `fn_registrar_recheck_riego` (solo cierra eventos `pendiente` del mismo cultivo), `fn_registrar_evaluacion_fenologica`, desde el 20/10 `fn_registrar_arranque`, `fn_verificar_arranque` y `fn_registrar_rechazo`, y desde el 10/11 `fn_tomar_ordenes` y `fn_acusar_orden` (todas solo para `service_role`, sin `SECURITY DEFINER`; las tablas nuevas con RLS y sin permisos para `anon`/`authenticated`).
 
 > ⚠️ **`vista_conocimiento_experto` hace INNER JOIN contra `parametro_etapa`.** Una etapa sin umbrales no devuelve nulos: **no devuelve nada**. Es la raíz del hallazgo 16.37.
 
@@ -372,7 +411,7 @@ Consultado contra Supabase, no asumido.
 | `evento_riego` | 8. Son los de agosto, en `pendiente`, con el control vencido: no frenan nada. Los de los tests del 19 y 20/10 se limpiaron |
 | `arranque_dispositivo` | **3** (ids 6, 7 y 8, de los tests). El próximo será el **9** (los contadores no vuelven atrás) |
 | `lectura_rechazada` | 3 (ids 7 a 9, los rechazos de la página del 26/10) |
-| `comando_dispositivo` | 8 — **ninguno consumido por nadie** (la otra mitad de 16.63) |
+| `comando_dispositivo` | 8 el 26/10 — ninguno consumido. **Al 10/11: 12** (ids hasta 38), 11 en `pendiente` (las 10 viejas y la 37, vencidas) y la 38 `ejecutado`, entregada por WF8 |
 | `evaluacion_fenologica` | **5** — 11 `etapa_no_coincide` (19/09), 12 `avanza` (23/09), 13 `no_avanza` (01/10, test), 14 `no_avanza` (26/10, 3.8), 15 `no_avanza` (26/10, por el respaldo lite) |
 | `seguimiento_fenologico` | 29 (26 a 29 son de los tests de WF2) |
 | Especies | **1** (la Albahaca se dio de baja el 01/10) |
@@ -427,10 +466,9 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 | # | Dónde | Qué | Por qué es 🔴 |
 |---|---|---|---|
-| **16.63** | Lazo de riego | **El control del riego se cerró el 19/10 (13.7.2). Sigue abierta la entrega:** nadie consume `comando_dispositivo` | Falta decidir cómo lee la placa sus órdenes sin la clave maestra (D-auth, B.23). Para la defensa: trabajo futuro con diseño escrito |
 | **16.37** | WF1 | Cultivo en etapa sin umbrales se reporta sano | Guarda aplicada, **nunca ejercida**, y ya **sin datos reales que la ejerzan** (la especie 4 se borró). **16.38 (20/10) no lo vuelve imposible:** la base no puede exigir que cada etapa tenga su fila de umbrales (dos tablas, dos pasos de carga). El fondo es juntar las dos tablas |
 
-> ✅ **Cerrados:** **16.39** (27/10, sesión 20: las guardas del Motor pasan la foto y `Preparar Foto binaria` corta con nombre; verificado en vivo) · **16.51** (27/10, sesión 20: precondición en la base, WF1 y WF5; verificado en vivo. Queda: el tope de 30 s hereda un caudal **mal medido**, lo resuelve `/calibrar`) · **16.38** (20/10, sesión 18: reglas del catálogo en la base, test 13 de 13) · **16.52** (20/10, la puerta del contrato, Fase 18; confirmado antes en vivo con T0) · **16.46** y **13.7.1** (19/10, lazo de riego, 13.7.2, verificado en vivo) · **B.1** y **16.41** (23/09, catálogo completo) · **16.40** (01/10, claves JWT heredadas deshabilitadas) · **16.42** (01/10, criterio visual desde el catálogo, test en vivo) · **B.13** y **B.14** (06/10, respaldo de n8n y versión fijada) · **B.22** (13/10, contrato de telemetría escrito).
+> ✅ **Cerrados:** **16.63** (10/11, sesión 22: la entrega por WF8, cada orden una vez, vence a los 10 min; el control del riego ya estaba desde el 19/10; verificado en vivo) · **16.47** (03/11, sesión 21: cada lectura con su DNI y su hora; estaba todavía en la tabla 🟠) · **16.39** (27/10, sesión 20: las guardas del Motor pasan la foto y `Preparar Foto binaria` corta con nombre; verificado en vivo) · **16.51** (27/10, sesión 20: precondición en la base, WF1 y WF5; verificado en vivo. Queda: el tope de 30 s hereda un caudal **mal medido**, lo resuelve `/calibrar`) · **16.38** (20/10, sesión 18: reglas del catálogo en la base, test 13 de 13) · **16.52** (20/10, la puerta del contrato, Fase 18; confirmado antes en vivo con T0) · **16.46** y **13.7.1** (19/10, lazo de riego, 13.7.2, verificado en vivo) · **B.1** y **16.41** (23/09, catálogo completo) · **16.40** (01/10, claves JWT heredadas deshabilitadas) · **16.42** (01/10, criterio visual desde el catálogo, test en vivo) · **B.13** y **B.14** (06/10, respaldo de n8n y versión fijada) · **B.22** (13/10, contrato de telemetría escrito).
 >
 > ✅ **Resuelto en la sesión 18, SIN número (20/10):** una medición que decide, en `null`, **se salteaba sin aviso** (con solo la humedad en `null` la lectura salía `OK` y no se regaba). Ejercido en vivo antes y después del arreglo (plan, changelog v63). Queda el costo aceptado: avisa en cada lectura mientras el sensor siga sin medir (B.7).
 >
@@ -452,7 +490,6 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 | # | Dónde | Qué |
 |---|---|---|
-| **16.47** | Contrato · BD | Sin tiempo de dispositivo ni número de secuencia. El `arranque_id` ya lo asigna la base (20/10) y la puerta valida `ts` y `seq`, pero **todavía no se guardan** por lectura (paso 4 del contrato) |
 | **16.55** | WF5 | Ejecuta lo que le mandan sin verificar contra la base. Compone con B.23 |
 | **16.64** | Infra · Producto | **El orquestador apagado es monitoreo apagado.** n8n no recupera corridas perdidas, la pantalla sigue diciendo *Active*, y no hay señal. Es 16.44 un piso más arriba. **Pasó otra vez el 25/10.** Decisión de Agustín (26/10): Docker a mano; un VPS si pasa a producto |
 | **16.44** | Todos | El silencio del dispositivo no existe como estado: 34 días sin lecturas y cero avisos |
@@ -466,7 +503,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 - **WF4, no encenderlo:** `16.57` (pérdida de cardinalidad — es 16.16 otra vez), `16.58` (ruteo), `16.59` (el error del modelo guardado como dato — es 16.14 otra vez), `16.49`, `16.60`, `16.45` (el prompt le pide al modelo que invente la tendencia), `16.30` (quedó en `gemini-2.5-flash`).
 - **WF5, endurecer:** `16.53`, `16.54`, `16.56` (ya no tapa a 16.52), `16.62`.
-- **Seguridad y base:** `16.1` (secretos), `16.6` (mínimo privilegio), `16.13` (`anon`/`authenticated` con `ALL` sobre 18 tablas), `B.9` (`SECURITY DEFINER` ejecutable por `anon`), `B.23` (separación de credenciales).
+- **Seguridad y base:** `16.1` (secretos), `16.6` (mínimo privilegio), `16.13` (`anon`/`authenticated` con `ALL` sobre 18 tablas), ~~`B.9`~~ ✅ (resuelto el 03/11 en el paso 4 y anotado el 10/11), `B.23` (una sola clave para todas las placas; corregido el 10/11: WF5 usa `n8n interno`, así que con la clave de la placa no se ordena un riego).
 - **Contrato y datos:** `B.22` ✅ (contrato escrito el 13/10; pasos 1 y 2 vigentes desde el 20/10), ~~`16.48`~~ ✅ (temperatura y conductividad: **se guardan, no deciden**, aplicado el 03/11), `B.19` (cadencia: el contrato no la fija, sale del piloto), `B.20` (trazabilidad: el DNI de la lectura la habilita), `B.21` (retención).
 - **Observabilidad de la planta:** `16.65` (la ventana de evaluación es el 80 % de la duración: Fructificación deja **32 días ciegos**), `16.43` (una foto sin alerta no la mira nadie), `B.17` (falta la capa de tendencia). Los tres son lo mismo visto de costado: **el sistema solo observa cuando sospecha, y sospecha por un único criterio.**
 - **Resto:** ~~`16.8`~~ ✅ (04/11, paso 3: una MAC desconocida y una placa sin cultivo activo se rechazan y se registran), `16.9`, `16.21`, `16.29`, `B.2`–`B.6`, `B.8`, `B.10`–`B.12`, `B.15`, `B.16`, `B.18`.
@@ -486,14 +523,14 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 ## 9 · Qué hacer, en orden
 
-**El 28/10/2026 Agustín expuso la simulación de defensa de tesis** (5 minutos, sin demo en vivo). **(1) Lazo de riego: ✅ 19/10** (13.7.2). **(2) Contrato, pasos 1 y 2: ✅ 20/10** (Fase 18; cerró 16.52). **(3) Respaldo de Gemini en WF2 y WF3: ✅ 26/10** (sesión 19). **(4) Guion de demo: descartado (29/10).** **Queda como trabajo futuro, con diseño escrito:** pasos 3 a 5 del contrato, la entrega de órdenes a la placa (16.63), los nombres de los modelos en un solo lugar, endurecer WF5 y WF4.
+**El 28/10/2026 Agustín expuso la simulación de defensa de tesis** (5 minutos, sin demo en vivo). **(1) Lazo de riego: ✅ 19/10** (13.7.2). **(2) Contrato, pasos 1 y 2: ✅ 20/10** (Fase 18; cerró 16.52). **(3) Respaldo de Gemini en WF2 y WF3: ✅ 26/10** (sesión 19). **(4) Guion de demo: descartado (29/10).** **Después:** pasos 3 a 5 del contrato ✅ (03/11 y 04/11) y la entrega de órdenes a la placa ✅ (10/11, 16.63). **Queda:** los nombres de los modelos en un solo lugar, endurecer WF5 y WF4.
 
 La lista de abajo es el orden general del proyecto, sin la fecha.
 
 `docs/revisiones/REVISION_04_hoja_de_ruta.md` organiza lo que queda en **tres carriles** —lo que bloquea la tesis, lo que bloquea la venta, y la deuda tolerable— y define un **mínimo viable para un primer cliente**. Ese mínimo descansa en tres defensas independientes contra el mismo riesgo (regar de más): el control del riego (13.7.2 ✅), el tope duro por ventana (16.46 ✅) y **la válvula local de 30 segundos en el firmware**, la única que sigue funcionando si n8n, la red o Supabase se caen. Son capas separadas a propósito.
 
 1. **Terminar el contrato** (`docs/contrato_telemetria.md`, sección 9): pasos 1 y 2 ✅ (20/10), pasos 5 y 4 ✅ (03/11, **16.48** y **16.47**), paso 3 ✅ (04/11, cierra **16.8**).
-2. **Entrega de órdenes a la placa** (16.63): el control y el tope ya están (13.7.2, 19/10). Falta quien consuma `comando_dispositivo`, y decidir antes cómo se autentica la placa (D-auth, B.23).
+2. ~~**Entrega de órdenes a la placa** (16.63)~~ ✅ 10/11 (sesión 22, WF8). Queda una clave por placa (B.23).
 3. ~~16.38~~ ✅ 20/10. Lo que queda del hueco de umbrales (etapa sin fila) se resuelve juntando las dos tablas: trabajo futuro.
 4. **Endurecer WF5**: ~~16.51~~ ✅ (27/10), 16.55, 16.53, 16.56 (16.52 se cerró en la puerta de WF1).
 5. **No encender WF4** hasta resolver 16.57, 16.58, 16.59, 16.49, 16.60 y 16.30.
@@ -540,6 +577,15 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 
 **Test de la base que se deshace solo:** `SQL/sesion16_lazo_riego.sql`, BLOQUE 3. Termina con un error a propósito, `TEST OK: …`, que revierte todo lo que escribió. Se comprobó que puede fallar: con tres defectos inyectados, los detectó los tres.
 
+**Probar las órdenes (desde el 10/11):** dos funciones más, en `SQL/sesion22_test_ordenes_en_vivo.sql`:
+
+```powershell
+function O(){ $r = Pedir "ordenes" @{v=1; dispositivo_mac=$MAC; arranque_id=$global:a}; $r | ConvertTo-Json -Depth 5 }
+function E($id, $res = "ejecutado"){ Pedir "orden-acuse" @{v=1; dispositivo_mac=$MAC; arranque_id=$global:a; comando_id=$id; resultado=$res} }
+```
+
+`L 55` crea una orden (WF5) → `O` la trae (y la marca `entregado`) → `O` otra vez vuelve vacío → `E 38` avisa (`aceptado`; repetido, `duplicado`; `E 38 "error"` después, `400`). **Una orden vence a los 10 minutos de creada:** pedirla después vuelve vacío, y no es un error. Si el último riego quedó en `fallo_sistema`, mandar `L 68` antes de la sequía para levantar el freno. En la página, paso 3, "Recibir órdenes".
+
 **Probar la puerta y el arranque:** `SQL/sesion17_test_puerta_en_vivo.sql` (arranque, cuatro rechazos con errores distintos, lectura sana, todo `null`, riego corto, y la LIMPIEZA FINAL, que también borra `lectura_rechazada` y `arranque_dispositivo`).
 
 **Reglas de testing no negociables:**
@@ -575,7 +621,7 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 
 ## 12 · Mapa del plan, si hace falta profundizar
 
-`docs/implementation_plan.md` (v67, ~6.800 líneas). **Abrí solo la sección que necesites.**
+`docs/implementation_plan.md` (v71, ~6.900 líneas). **Abrí solo la sección que necesites.**
 
 | Buscás | Andá a |
 |---|---|
@@ -587,15 +633,15 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | Detalle de un diferido `B.x` | `Backlog`, al final |
 | WF1 nodo por nodo | `Fase 4` |
 | WF2 / WF3 / WF4 nodo por nodo | `Fase 8` / `Fase 9` / `Fase 10` |
-| Riego automático | `Fase 13`. El lazo (control, freno, rearme, tope) y su test en vivo están en **`13.7.2`**; `13.7.1` es el diseño viejo con sus tres defectos |
+| Riego automático | `Fase 13`. El lazo (control, freno, rearme, tope) y su test en vivo están en **`13.7.2`**; `13.7.1` es el diseño viejo con sus tres defectos. **La entrega de órdenes (WF8) está en `13.6`** |
 | La RPC transaccional de riego | `13.5.3` (el tope duro se le agregó en `13.7.2`) |
 | La RPC transaccional de WF3 | `9.14` |
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en las sesiones 19 a 21 | Changelog **v64** a **v70**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
+| Lo hecho en las sesiones 19 a 22 | Changelog **v64** a **v71**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
-| El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10; pasos 1 a 5 aplicados el 04/11) |
+| El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10; pasos 1 a 5 aplicados el 04/11; órdenes, sección 10, el 10/11) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |
 
 **Las cuatro revisiones externas** (setiembre 2026, hechas por un agente que leyó este archivo y los workflows pero **no** el plan). Sus conclusiones ya están integradas al plan; los archivos quedan porque tienen el razonamiento completo:
@@ -607,4 +653,4 @@ function F($h = 68.0, $ph = 6.4){ $b = @{v=1; dispositivo_mac=$MAC; arranque_id=
 | `docs/revisiones/REVISION_03_workflows.md` | Los cinco workflows nodo por nodo. Su §1 acota la anomalía de WF3 a cuatro causas |
 | `docs/revisiones/REVISION_04_hoja_de_ruta.md` | Los tres carriles y el mínimo viable para un primer cliente |
 
-**Otros archivos del repo:** `SQL/` (esquema y scripts de prueba) · `test/` (fotos y escenarios de prueba) · `WORKFLOWS/` (los 6 JSON: WF1–WF5 y WF7) · `SQL/sesion18_16.38_restricciones_catalogo.sql` (16.38, aplicado). La propuesta original de la tesis (Anexo II) y el logo de la facultad **no están en el repo** (el Anexo tiene datos personales de Agustín; los sacó él el 03/11).
+**Otros archivos del repo:** `SQL/` (esquema y scripts de prueba) · `test/` (fotos y escenarios de prueba) · `WORKFLOWS/` (los 7 JSON: WF1–WF5, WF7 y WF8) · `SQL/sesion18_16.38_restricciones_catalogo.sql` (16.38, aplicado). La propuesta original de la tesis (Anexo II) y el logo de la facultad **no están en el repo** (el Anexo tiene datos personales de Agustín; los sacó él el 03/11).

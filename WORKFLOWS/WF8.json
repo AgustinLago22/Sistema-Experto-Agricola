@@ -1,0 +1,502 @@
+{
+  "name": "WF8 - Entrega de Ordenes",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ordenes",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a5c3c7d6-0102-4c70-a83e-dcf7dec28ab6",
+      "name": "Webhook Ordenes",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1728,
+        160
+      ],
+      "webhookId": "cc9b92f3-a90d-4503-ade5-851e75be065e",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EkesV1k723OAsJkg",
+          "name": "ESP32 Telemetra Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// VALIDAR PEDIDO DE ÓRDENES — WF8 · 16.63\n// Escrito el 09/11/2026 (sesión 22).\n// ------------------------------------------------------------\n// La placa pregunta si tiene órdenes. Este nodo revisa el pedido; qué órdenes\n// le tocan, y que cada una se entregue una sola vez, lo decide la base\n// (fn_tomar_ordenes). La Secret key no sale de n8n: la placa solo tiene su\n// X-Device-Key, la misma del arranque y de las lecturas.\n// ============================================================\nconst VERSION_CONTRATO = 1;\nconst MAC_RE = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/i;\n\nconst crudo = $('Webhook Ordenes').first().json.body;\nconst esObjeto = crudo !== null && typeof crudo === 'object' && !Array.isArray(crudo);\nconst b = esObjeto ? crudo : {};\nconst errores = [];\nconst tiene = (k) => Object.prototype.hasOwnProperty.call(b, k);\nconst esEntero = (x) => typeof x === 'number' && Number.isSafeInteger(x);\nconst mostrar = (x) => JSON.stringify(x) ?? String(x);\n\nif (!esObjeto) {\n  errores.push('cuerpo: tiene que ser un objeto JSON');\n} else if (tiene('v') && b.v !== VERSION_CONTRATO) {\n  errores.push(`v: versión ${mostrar(b.v)} desconocida; este servidor entiende la ${VERSION_CONTRATO}`);\n} else {\n  if (!tiene('v')) errores.push('v: falta');\n\n  if (!tiene('dispositivo_mac')) errores.push('dispositivo_mac: falta');\n  else if (typeof b.dispositivo_mac !== 'string' || !MAC_RE.test(b.dispositivo_mac.trim()))\n    errores.push(`dispositivo_mac: ${mostrar(b.dispositivo_mac)} no tiene el formato AA:BB:CC:DD:EE:FF`);\n\n  if (!tiene('arranque_id')) errores.push('arranque_id: falta');\n  else if (!esEntero(b.arranque_id) || b.arranque_id < 1)\n    errores.push(`arranque_id: ${mostrar(b.arranque_id)} no es un entero positivo`);\n}\n\nconst pedidoOk = errores.length === 0;\n\nreturn [{\n  json: {\n    pedido_ok: pedidoOk,\n    errores,\n    pedido: pedidoOk\n      ? { dispositivo_mac: b.dispositivo_mac.trim().toUpperCase(), arranque_id: b.arranque_id }\n      : null,\n  },\n}];\n"
+      },
+      "id": "810fe830-85ae-46aa-b731-dbbac94debe7",
+      "name": "Validar Pedido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a1b46fdc-d746-4351-ae65-c4bafbab7677",
+              "leftValue": "={{ $json.pedido_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c9b296a5-35b6-437f-a26f-e19bf5f016e9",
+      "name": "Pedido Valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1280,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_tomar_ordenes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_mac: $json.pedido.dispositivo_mac, p_arranque_id: $json.pedido.arranque_id }) }}",
+        "options": {}
+      },
+      "id": "da1b4b35-76ee-4c7b-953f-acaab6300386",
+      "name": "Tomar Ordenes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1056,
+        64
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "fb738971-a23a-49eb-a584-f6a819207051",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "07c2c883-4c1b-456a-8a21-fb51895db18f",
+      "name": "Ordenes Tomadas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -832,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ estado: \"ok\", ordenes: $json.ordenes }) }}",
+        "options": {}
+      },
+      "id": "96aa2f38-0b09-41bf-8787-1dbce091bd04",
+      "name": "Responder Ordenes",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -608,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ estado: \"rechazado\", errores: $json.errores }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "a46b9b8b-37e3-49f1-99bc-9d1fc7a77460",
+      "name": "Responder Pedido Rechazado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -608,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "orden-acuse",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b7f4190f-fbe4-4444-b9fb-e5fbda7c60a6",
+      "name": "Webhook Acuse",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1728,
+        608
+      ],
+      "webhookId": "77ff8913-539e-4f65-8037-45fcc06ed53f",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EkesV1k723OAsJkg",
+          "name": "ESP32 Telemetra Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// VALIDAR ACUSE — WF8 · 16.63\n// Escrito el 09/11/2026 (sesión 22).\n// ------------------------------------------------------------\n// La placa avisa cómo terminó una orden: \"ejecutado\" o \"error\". Este nodo\n// revisa el pedido; si la orden es de esa placa, si estaba entregada y si el\n// acuse es un reintento, lo decide la base (fn_acusar_orden). Repetir el\n// mismo acuse es seguro: la base responde \"duplicado\" y no cambia nada.\n// ============================================================\nconst VERSION_CONTRATO = 1;\nconst MAC_RE = /^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/i;\nconst RESULTADOS = ['ejecutado', 'error'];\n\nconst crudo = $('Webhook Acuse').first().json.body;\nconst esObjeto = crudo !== null && typeof crudo === 'object' && !Array.isArray(crudo);\nconst b = esObjeto ? crudo : {};\nconst errores = [];\nconst tiene = (k) => Object.prototype.hasOwnProperty.call(b, k);\nconst esEntero = (x) => typeof x === 'number' && Number.isSafeInteger(x);\nconst mostrar = (x) => JSON.stringify(x) ?? String(x);\n\nif (!esObjeto) {\n  errores.push('cuerpo: tiene que ser un objeto JSON');\n} else if (tiene('v') && b.v !== VERSION_CONTRATO) {\n  errores.push(`v: versión ${mostrar(b.v)} desconocida; este servidor entiende la ${VERSION_CONTRATO}`);\n} else {\n  if (!tiene('v')) errores.push('v: falta');\n\n  if (!tiene('dispositivo_mac')) errores.push('dispositivo_mac: falta');\n  else if (typeof b.dispositivo_mac !== 'string' || !MAC_RE.test(b.dispositivo_mac.trim()))\n    errores.push(`dispositivo_mac: ${mostrar(b.dispositivo_mac)} no tiene el formato AA:BB:CC:DD:EE:FF`);\n\n  if (!tiene('arranque_id')) errores.push('arranque_id: falta');\n  else if (!esEntero(b.arranque_id) || b.arranque_id < 1)\n    errores.push(`arranque_id: ${mostrar(b.arranque_id)} no es un entero positivo`);\n\n  if (!tiene('comando_id')) errores.push('comando_id: falta');\n  else if (!esEntero(b.comando_id) || b.comando_id < 1)\n    errores.push(`comando_id: ${mostrar(b.comando_id)} no es un entero positivo`);\n\n  if (!tiene('resultado')) errores.push('resultado: falta');\n  else if (!RESULTADOS.includes(b.resultado))\n    errores.push(`resultado: ${mostrar(b.resultado)} tiene que ser \"ejecutado\" o \"error\"`);\n}\n\nconst acuseOk = errores.length === 0;\n\nreturn [{\n  json: {\n    acuse_ok: acuseOk,\n    errores,\n    acuse: acuseOk\n      ? {\n          dispositivo_mac: b.dispositivo_mac.trim().toUpperCase(),\n          arranque_id: b.arranque_id,\n          comando_id: b.comando_id,\n          resultado: b.resultado,\n        }\n      : null,\n  },\n}];\n"
+      },
+      "id": "581e565c-97e9-4b57-b6d4-f8e66b7a657f",
+      "name": "Validar Acuse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cd8f117a-96c3-4c14-958e-cad8c76ebe05",
+              "leftValue": "={{ $json.acuse_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0602a0a3-45c8-45eb-84eb-09585dc00982",
+      "name": "Acuse Valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1280,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_acusar_orden",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_mac: $json.acuse.dispositivo_mac, p_arranque_id: $json.acuse.arranque_id, p_comando_id: $json.acuse.comando_id, p_resultado: $json.acuse.resultado }) }}",
+        "options": {}
+      },
+      "id": "2f63f729-15cd-443e-b74c-616af0b4899f",
+      "name": "Registrar Acuse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1056,
+        512
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "31a44abd-3020-4011-bacc-b0fc6bf4465f",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eb7046c8-5a4e-4ae6-beeb-3880541728b2",
+      "name": "Acuse Registrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -832,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ estado: $json.resultado, comando_id: $('Validar Acuse').first().json.acuse.comando_id, estado_orden: $json.estado_orden }) }}",
+        "options": {}
+      },
+      "id": "7b9d5e41-3978-4d2a-95bb-fbe6029b5b34",
+      "name": "Responder Acuse",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -608,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ estado: \"rechazado\", errores: $json.errores }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "6667d132-6347-4db3-8d55-a3034958de81",
+      "name": "Responder Acuse Rechazado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -608,
+        704
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Ordenes": {
+      "main": [
+        [
+          {
+            "node": "Validar Pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Pedido": {
+      "main": [
+        [
+          {
+            "node": "Pedido Valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedido Valido?": {
+      "main": [
+        [
+          {
+            "node": "Tomar Ordenes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Pedido Rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tomar Ordenes": {
+      "main": [
+        [
+          {
+            "node": "Ordenes Tomadas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ordenes Tomadas?": {
+      "main": [
+        [
+          {
+            "node": "Responder Ordenes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Pedido Rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Acuse": {
+      "main": [
+        [
+          {
+            "node": "Validar Acuse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Acuse": {
+      "main": [
+        [
+          {
+            "node": "Acuse Valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acuse Valido?": {
+      "main": [
+        [
+          {
+            "node": "Registrar Acuse",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Acuse Rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Acuse": {
+      "main": [
+        [
+          {
+            "node": "Acuse Registrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acuse Registrado?": {
+      "main": [
+        [
+          {
+            "node": "Responder Acuse",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Acuse Rechazado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "5cd7d4de-35e3-43fa-acf8-3af20e899a16",
+  "meta": {
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "UZUm5qio19TAGdQZ",
+  "tags": []
+}
