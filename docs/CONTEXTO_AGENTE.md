@@ -1,10 +1,22 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, y el 10/11 con la sesión 22 (16.63, la entrega de órdenes): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v71**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes) y el 11/11 con la sesión 23 (16.33): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v72**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
 > **Este archivo es una foto, y envejece.** Fue escrito después de una ronda de cuatro revisiones externas que corrieron en paralelo leyendo la versión anterior. Tres de ellas numeraron hallazgos nuevos usando el "último número" que este archivo declaraba, y chocaron entre sí. La lección quedó registrada como regla, abajo: **no asignes números de hallazgo.**
+
+---
+
+## ▶ Sesión 23 — CERRADA (11/11): una placa, un solo cultivo activo (16.33 ✅)
+
+**Decisión de alcance de Agustín (11/11): la tesis NO promete la placa física funcionando.** Se defiende con el simulador. Era la pregunta abierta de `REVISION_04_hoja_de_ruta.md`: el hardware no sube al carril que bloquea la tesis. **Orden que sigue:** las fuentes de los números (Fase 17) y después el informe.
+
+**Base** (`SQL/sesion23_16.33_un_cultivo_activo_por_placa.sql`, aplicado por Agustín, verificado por MCP): `uq_cultivo_activo_por_dispositivo`, índice único parcial sobre `cultivo (dispositivo_id) where active`. El alta de un segundo cultivo activo en la misma placa falla en ese momento (antes, WF1 tomaba uno cualquiera con `limit: 1`). `where active` cubre justo lo que lee la vista (`active = true`) y la MAC ya era única: la vista devuelve a lo sumo una fila por placa. Ningún workflow ni función cambia `active` ni `dispositivo_id`: no cambia nada de lo que corre. Test que se deshace solo (6 casos): corrido antes y después del cambio, OK 6 de 6 después; probado antes en PGlite (falló antes, detectó tres índices mal hechos).
+
+**Ciclo nuevo en la misma maceta, desde ahora:** primero `active = false` en el cultivo viejo, después el alta del nuevo. El resto sigue en B.16. **Visto al pasar, sin tocar:** `cultivo.active` admite vacío. **La base tiene una sola especie** (Tomate Cherry): la Albahaca se dio de baja el 01/10 (v54); las notas viejas del plan que dicen "no borrar Albahaca" son anteriores.
+
+**Sin datos de prueba nuevos.** Los de la sesión 22 siguen ahí, y **el freno sigue puesto** (riego 30 en falla): para probar el paso 3 de la página en vivo, primero una lectura sana (`L 68`).
 
 ---
 
@@ -494,7 +506,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 | **16.64** | Infra · Producto | **El orquestador apagado es monitoreo apagado.** n8n no recupera corridas perdidas, la pantalla sigue diciendo *Active*, y no hay señal. Es 16.44 un piso más arriba. **Pasó otra vez el 25/10.** Decisión de Agustín (26/10): Docker a mano; un VPS si pasa a producto |
 | **16.44** | Todos | El silencio del dispositivo no existe como estado: 34 días sin lecturas y cero avisos |
 | **16.43** | WF1 · WF2 | Una foto sin alerta de umbral no la analiza nadie |
-| **16.33 · 16.61** | BD | Faltan restricciones: dos cultivos por dispositivo, y la tercera. (16.38, el catálogo, se cerró el 20/10) |
+| **16.61** | BD | Un `duracion_estimada_dias` o un `etapa_actual_id` nulo cambia la ventana de evaluación de WF3 sin avisar. (16.38, el catálogo, se cerró el 20/10; 16.33, dos cultivos activos por placa, el 11/11) |
 | **16.31 · 16.15** | WF3 | `etapa_no_coincide` es estado absorbente · la degradación no deja señal operativa |
 | **B.17** | Arquitectura | Falta la capa de tendencia: el sistema ve estados, no procesos. Los datos ya existen, falta quien los lea |
 | **B.7** | Producto | Fatiga de alertas: notifica por nivel, no por transición |
@@ -523,7 +535,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 ## 9 · Qué hacer, en orden
 
-**El 28/10/2026 Agustín expuso la simulación de defensa de tesis** (5 minutos, sin demo en vivo). **(1) Lazo de riego: ✅ 19/10** (13.7.2). **(2) Contrato, pasos 1 y 2: ✅ 20/10** (Fase 18; cerró 16.52). **(3) Respaldo de Gemini en WF2 y WF3: ✅ 26/10** (sesión 19). **(4) Guion de demo: descartado (29/10).** **Después:** pasos 3 a 5 del contrato ✅ (03/11 y 04/11) y la entrega de órdenes a la placa ✅ (10/11, 16.63). **Queda:** los nombres de los modelos en un solo lugar, endurecer WF5 y WF4.
+**El 28/10/2026 Agustín expuso la simulación de defensa de tesis** (5 minutos, sin demo en vivo). **(1) Lazo de riego: ✅ 19/10** (13.7.2). **(2) Contrato, pasos 1 y 2: ✅ 20/10** (Fase 18; cerró 16.52). **(3) Respaldo de Gemini en WF2 y WF3: ✅ 26/10** (sesión 19). **(4) Guion de demo: descartado (29/10).** **Después:** pasos 3 a 5 del contrato ✅ (03/11 y 04/11) la entrega de órdenes a la placa ✅ (10/11, 16.63) y un solo cultivo activo por placa ✅ (11/11, 16.33). **La tesis no promete la placa física (decisión del 11/11): sigue la Fase 17 (las fuentes de los números) y el informe.** **Queda:** los nombres de los modelos en un solo lugar, endurecer WF5 y WF4.
 
 La lista de abajo es el orden general del proyecto, sin la fecha.
 
@@ -621,7 +633,7 @@ function E($id, $res = "ejecutado"){ Pedir "orden-acuse" @{v=1; dispositivo_mac=
 
 ## 12 · Mapa del plan, si hace falta profundizar
 
-`docs/implementation_plan.md` (v71, ~6.900 líneas). **Abrí solo la sección que necesites.**
+`docs/implementation_plan.md` (v72, ~6.900 líneas). **Abrí solo la sección que necesites.**
 
 | Buscás | Andá a |
 |---|---|
@@ -639,7 +651,7 @@ function E($id, $res = "ejecutado"){ Pedir "orden-acuse" @{v=1; dispositivo_mac=
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en las sesiones 19 a 22 | Changelog **v64** a **v71**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
+| Lo hecho en las sesiones 19 a 23 | Changelog **v64** a **v72**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
 | El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10; pasos 1 a 5 aplicados el 04/11; órdenes, sección 10, el 10/11) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |
