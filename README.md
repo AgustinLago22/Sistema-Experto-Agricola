@@ -116,6 +116,8 @@ El sistema está construido sobre un conjunto de principios que el documento de 
 
 El registro de hallazgos del documento de referencia lleva la cuenta de lo verificado, lo pendiente y lo diferido con su justificación.
 
+**Backlog:** el [Project del repositorio](https://github.com/users/AgustinLago22/projects/2) muestra de un vistazo lo hecho, lo que falta y lo que queda fuera de alcance, con un issue por fase o pieza de trabajo. El detalle de cada uno sigue en el documento de referencia.
+
 ## Alcance y limitaciones
 
 El trabajo verifica **el comportamiento del sistema de control**: la corrección de las decisiones del motor de inferencia, el aislamiento de fallos, la atomicidad de las escrituras y el comportamiento de las rutas de error bajo inyección de fallos.
