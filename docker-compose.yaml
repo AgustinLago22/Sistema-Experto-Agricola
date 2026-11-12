@@ -17,6 +17,18 @@ services:
       # Es la MISMA que n8n generó en el primer arranque: cambiarla deja las
       # credenciales irrecuperables. Si falta, compose se niega a arrancar.
       - "N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?Falta N8N_ENCRYPTION_KEY en .env - ver B.13}"
+      # Token del bot de Telegram para WF6 (13.13.6, opción A). WF6 consulta
+      # los mensajes con getUpdates desde un nodo HTTP, y la credencial de
+      # Telegram de n8n no sirve para eso: el token va en la ruta de la URL.
+      # Vive en .env, fuera de git. Nunca escribirlo en un nodo: el JSON
+      # exportado va al repo público.
+      - "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:?Falta TELEGRAM_BOT_TOKEN en .env - ver 13.13.6}"
+      # Permite leer las variables de entorno desde los nodos ($env). Costo
+      # aceptado (13.13.6): una expresión puede leer TODAS, incluida
+      # N8N_ENCRYPTION_KEY. Con un solo usuario, que ya tiene acceso a todo,
+      # el riesgo nuevo es bajo. Al pasar WF6 a webhook (Telegram Trigger),
+      # volver a bloquearlo y sacar TELEGRAM_BOT_TOKEN.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_storage:/home/node/.n8n
 

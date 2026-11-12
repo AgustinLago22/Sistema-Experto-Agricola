@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v73)
+# Sistema Experto Agrícola — Plan de Implementación (v74)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -142,7 +142,8 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 > - **Sin datos de prueba nuevos:** el test no deja filas.
 > - **Backlog en GitHub (12/11, v73):** Project número 2, público, con 32 issues y el campo Status en castellano (Por hacer, En curso, Hecho, Fuera de alcance). Al cerrar una pieza, cerrar su issue.
 > - **Alcance según la propuesta (Anexo II), leído el 11/11:** quedan fuera la placa física y su firmware, el riego físico, entrenar modelos propios, la validación agronómica experimental, el fertirriego, una interfaz web o móvil y el multiusuario. Promete comandos de inspección por Telegram (WF6), análisis proactivo y un orquestador accesible para la evaluación. **El servidor queda como decisión abierta del autor (12/11):** se define cerca de la defensa; mientras tanto, para desarrollar WF6 alcanza con un túnel gratis.
-> - **Orden propuesto (12/11), sin confirmar todavía por el autor:** WF6 → análisis proactivo (16.43) → Fase 17 corta → informe → el servidor.
+> - **Orden (12/11):** WF6 primero (confirmado por el autor: "según el backlog, WF6"); después, propuesto: análisis proactivo (16.43) → Fase 17 corta → informe → el servidor.
+> - **WF6 diseñado (12/11, v74), sin construir:** ver 13.13. Token del bot: opción A, en `.env` y leído con `$env`, aplicada y probada desde un nodo (13.13.6). Sigue la base (13.13.7, paso 1).
 > - **Lo que sigue:** las fuentes de los números (Fase 17), y después el informe. Otros candidatos: probar el paso 3 de la página en vivo (antes, una lectura sana para levantar el freno), una clave por placa (B.23), WF6 (13.13).
 >
 > [!IMPORTANT]
@@ -826,6 +827,7 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v74 | 12/11 | **Sesión 23: diseño v2 de WF6, comandos por Telegram (13.13), sin construir.** **(1) Comandos v1:** `/estado` y `/diagnostico` (la inspección bajo demanda que promete la propuesta), `/pausar` y `/reanudar` (modo mantenimiento, que WF1 ya respeta desde 13.12), `/ayuda`. Fuera de v1: `/calibrar` (necesita la bomba real), `/regar` (16.55 primero) y el aviso de fin de pausa. **(2) Reglas:** solo el chat del autor; un comando de más de 10 minutos no se ejecuta; cada comando como mucho una vez (se confirma a Telegram antes de procesar); toda falla contesta. **(3) Entrada:** por consulta (`getUpdates` cada 30 s, abierta hasta 25 s) mientras n8n corra en la laptop; la lógica empieza en `Normalizar mensaje`, así pasar a webhook (servidor o ngrok) cambia solo la entrada. **(4) Base (sin aplicar):** `vista_estado_cultivo` y `fn_pausar_cultivo` (tope 24 h). **(5) Encontrado:** la credencial de Telegram de n8n no sirve para `getUpdates` desde un nodo HTTP (sin `authenticate`, el token va en la ruta): Agustín eligió la opción A: el token en `.env`, pasado al contenedor y leído con `$env` (compose y `.env.example` cambiados; probado con `getMe` desde un nodo, 13.13.6). Diseño de agosto plegado al final de 13.13. |
 | v73 | 12/11 | **Sesión 23: backlog en GitHub Projects.** **(1) Qué hay:** el Project "Sistema Experto Agrícola · Backlog" (número 2, público, enlazado al repo) con 32 issues (#1 a #32, etiqueta `backlog`), uno por fase o pieza de trabajo, y el campo **Status** de GitHub pasado a castellano (las opciones se renombraron conservando su id, así las automatizaciones siguen andando: ítem agregado → Por hacer, ítem cerrado → Hecho): 14 Hecho (cerrados como completados: Fases 1 a 13 y Fase 18 pasos 1 a 5), 1 En curso (Fase 16), 14 Por hacer (WF6, análisis proactivo, Fase 17, informe, Fase 18 paso 6, servidor, siete arreglos y "Opcional · Reactivar WF4"), 3 Fuera de alcance (cerrados como no planeados: placa física y riego físico, Fases 14 y 15). Verificado leyendo con `gh`: los 32 en el Project con su estado. **Ojo:** un issue cerrado como "no planeado" también cae en Hecho por la automatización; hay que pasarlo a mano a Fuera de alcance. **(2) Regla:** el detalle sigue en este documento; el issue es el índice visible. Al cerrar una pieza, cerrar también su issue (un commit puede hacerlo con `closes #N`). **(3) README:** enlace al Project en "Estado". El script que lo creó quedó fuera del repo. |
 | v72 | 11/11 | **Sesión 23: una placa, un solo cultivo activo (cierra 16.33).** **(1) Decisión de alcance (autor, 11/11):** la tesis no promete la placa física funcionando; se defiende con el simulador. Orden que sigue: 16.33, las fuentes de los números (Fase 17) y el informe. **(2) Base** (`SQL/sesion23_16.33_un_cultivo_activo_por_placa.sql`): `create unique index uq_cultivo_activo_por_dispositivo on cultivo (dispositivo_id) where active`, con un comentario que dice cómo se hace un ciclo nuevo. Ninguna tabla, columna, dato, vista ni workflow cambia. **(3) Verificado antes por MCP:** ningún dato lo violaba; la vista lee `active = true`, lo mismo que cubre el índice; la MAC ya era única; nada en los workflows ni en las funciones cambia `active` ni `dispositivo_id` (WF1 escribe `ultima_foto_path`; `fn_registrar_evaluacion_fenologica`, la etapa y `ultima_foto_evaluada_path`). **(4) Test que se deshace solo**, 6 casos (dos que la regla frena y cuatro que no tiene que frenar), con una especie de prueba para distinguir un índice por (placa, especie): en PGlite, FALLÓ (4 bien) antes, OK 6 de 6 después, y detectó tres índices mal hechos a propósito; en la base real, el autor lo corrió antes y después del cambio, y después dio OK 6 de 6. Verificado por MCP: índice único y válido, sin filas de prueba. **(5) B.16** anotado: el ciclo nuevo ahora tiene un orden obligatorio (desactivar primero el viejo). **Visto al pasar, sin tocar:** `cultivo.active` admite vacío (un cultivo así no está en la vista ni en el índice) |
 | v71 | 10/11 | **Sesión 22: la placa recibe sus órdenes (cierra 16.63).** **(1) Qué cambia:** la placa pide sus órdenes a WF8 (`/webhook/ordenes`) y avisa cómo terminó cada una (`/webhook/orden-acuse`), con la misma `X-Device-Key` de las lecturas. La Secret key no sale de n8n. Decisiones del autor (09/11): por n8n, cada orden una sola vez, vencimiento de 10 minutos. **(2) Base** (`SQL/sesion22_16.63_entrega_ordenes.sql`): `fn_tomar_ordenes` pasa a `entregado` y devuelve, en un solo `UPDATE`, las órdenes `pendiente` de esa placa de menos de 10 minutos (dos pedidos simultáneos no se llevan la misma); `fn_acusar_orden` solo pasa de `entregado` a `ejecutado` o `error`, un acuse repetido da `duplicado` y uno contradictorio se rechaza. Las dos validan MAC y arranque, sin `SECURITY DEFINER`, solo `service_role`. Ninguna tabla cambia. Test: FALLÓ (1 bien) antes, OK 10 de 10 después; antes, en PGlite, detectó 4 defectos metidos a propósito. **(3) WF8**, 14 nodos, export idéntico al importado. **(4) En vivo (10/11):** las 10 órdenes viejas no se entregan; la 37 venció; la 38 llega una vez, `aceptado`, `duplicado`, `400`. El control del riego dijo "revisar la conexión" (riego 29, orden sin entregar) y "tanque, bomba, fuga o sensor" (riego 30, orden ejecutada): las dos ramas de 13.7.2, por primera vez sin un `UPDATE` a mano. **(5) Página del simulador:** paso 3, "Recibir órdenes", probado contra un servidor de prueba, no en vivo. **(6) Contrato:** sección 10 y reglas 8 a 11, sin subir `v`. **(7) 13.6 reescrito:** el simulador con la Secret key queda descartado. **(8) Contradicciones h e i:** B.9 ya estaba resuelto (03/11) y B.23 estaba mal descrito (WF5 usa `n8n interno`). **Límites:** una clave para todas las placas; pedir más seguido que cada 10 min; las vencidas quedan en `pendiente` |
@@ -3810,7 +3812,149 @@ COMMENT ON COLUMN public.cultivo.mantenimiento_hasta IS 'Si tiene una fecha futu
 
 Mientras está en pausa: la lectura se persiste igual (no se pierde el historial), pero `Motor de Inferencia` (13.3) no dispara ninguna rama de alerta/riego — se corta primero en el IF de WF1 (13.4). Se activa/desactiva por Telegram (`/pausar` y `/reanudar`, ver 13.13) con una duración fija de 2 horas — tiempo de sobra para un trasplante, corto para no dejar un cultivo "invisible" por error prolongado.
 
-### 13.13 — WF6: Comandos por Telegram (modo mantenimiento + calibración guiada)
+### 13.13 — WF6: Comandos por Telegram (inspección bajo demanda + modo mantenimiento)
+
+> [!IMPORTANT]
+> **Diseño v2 (12/11/2026, sesión 23). Sin construir.** Reemplaza al diseño de agosto, que queda plegado al final de esta sección. Cambia por dos motivos: la propuesta (Anexo II) promete **"comandos de inspección bajo demanda"**, y el diseño de agosto solo tenía comandos de control; y `/calibrar` necesita la bomba real, que la propuesta deja fuera de alcance. Issue del backlog: #16.
+
+**Qué es nuevo.** Es el primer workflow que **escucha** al usuario. Hasta ahora Telegram fue solo de salida (WF1, WF2, WF3 y WF5 mandan avisos).
+
+#### 13.13.1 — Los comandos (v1)
+
+| Comando | Qué hace | Lee | Escribe |
+|---|---|---|---|
+| `/estado` | La foto del momento: etapa y días en la etapa, la última lectura con su antigüedad y los rangos de la etapa, el riego automático, el último riego, la pausa y la última foto | `vista_estado_cultivo` (nueva, 13.13.4) | nada |
+| `/diagnostico` | La IA analiza **ahora** la última foto, aunque no haya alerta. Responde "analizando" y el diagnóstico llega por el mensaje de siempre de WF2 | `vista_estado_cultivo` y la foto en Storage | nada directo: WF2 guarda el diagnóstico en `seguimiento_fenologico`, como siempre |
+| `/pausar` · `/pausar 3h` · `/pausar 30m` | Modo mantenimiento (un trasplante, una poda): mientras dura, WF1 guarda las lecturas pero **no riega ni avisa** (13.12, ya aplicado en WF1). Sin duración, 2 h | — | `cultivo.mantenimiento_hasta`, por `fn_pausar_cultivo` (nueva, 13.13.4) |
+| `/reanudar` | Termina la pausa ahora | — | `cultivo.mantenimiento_hasta = null`, por la misma función |
+| `/ayuda` · `/start` | La lista de comandos. Telegram manda `/start` la primera vez que se abre el bot | — | nada |
+
+Cualquier otro texto recibe "No entendí. Mandá /ayuda".
+
+**Fuera de v1, a propósito:**
+- **`/calibrar`.** Mide el caudal con la bomba real, y el riego físico está fuera de alcance. El `CHECK` con `CALIBRAR_BOMBA` ya está aplicado (06/08) y queda para cuando haya placa.
+- **`/regar` a mano.** WF5 ejecuta lo que le mandan sin verificar contra la base (16.55). Abrir una puerta nueva hacia WF5 antes de cerrar eso agranda el problema.
+- **Aviso de fin de pausa.** Necesita un disparador programado propio; `/estado` ya muestra hasta cuándo dura.
+
+#### 13.13.2 — Reglas comunes a todos los comandos
+
+1. **Solo el chat del autor** (`5593622386`, chat privado). Cualquier otro chat se ignora **sin contestar**: contestar le confirmaría a un extraño que el bot existe y escucha.
+2. **Un comando viejo no se ejecuta.** Si el mensaje tiene más de **10 minutos** cuando se procesa, se contesta "Este comando llegó tarde (lo mandaste a las HH:MM, con n8n apagado). No lo ejecuté: mandalo de nuevo." **Por qué:** Telegram guarda los mensajes 24 h. Con la PC apagada, un `/pausar 2h` mandado a la mañana se ejecutaría a la noche y pausaría el riego cuando nadie lo pidió. Es el mismo criterio que el vencimiento de las órdenes de riego (13.6).
+3. **Cada comando se procesa como mucho una vez.** Primero se le confirma a Telegram que los mensajes se leyeron, y después se procesan. Si n8n se cae en el medio, el comando se pierde y hay que mandarlo de nuevo. Se prefiere eso a ejecutarlo dos veces, el mismo criterio de la entrega de órdenes (16.63).
+4. **Toda falla contesta algo.** Si una consulta a la base o la descarga de la foto falla, el usuario recibe "No pude completar /estado: <motivo>". Nunca silencio (criterio "fallar de forma audible").
+5. **Qué cultivo.** Si hay un solo cultivo activo, es ese. Si hay varios, el comando lleva el nombre (`/estado tomate`) y, si falta o coincide con más de uno, se contesta con la lista. Hoy hay uno solo; la regla está para que el día que haya dos no se elija uno al azar (la misma familia de 16.33).
+6. **Texto plano.** Sin Markdown ni HTML: un nombre de cultivo con `_` o `*` rompería el formato y Telegram rechazaría el mensaje entero.
+7. **Telegram agrega `@nombre_del_bot`** al comando cuando se toca desde el menú (`/estado@MiBot`). Se ignora esa parte.
+
+#### 13.13.3 — Cómo está armado: entrada, costura y lógica
+
+```
+ ENTRADA (cambia según dónde corre n8n)          COSTURA                LÓGICA (igual siempre)
+ ┌───────────────────────────────────────┐   ┌────────────────────┐   ┌──────────────────────────────────┐
+ │ Cada 30 s → Pedir mensajes            │   │                    │   │ Filtrar (chat, edad)             │
+ │   (getUpdates, espera hasta 25 s)     │ → │ Normalizar mensaje │ → │ → Interpretar comando            │
+ │ → ¿Hay mensajes? → Confirmar lectura  │   │                    │   │ → Leer estado → Elegir cultivo   │
+ └───────────────────────────────────────┘   └────────────────────┘   │ → Switch → armar y responder     │
+                                                                      └──────────────────────────────────┘
+```
+
+**La costura es `Normalizar mensaje`.** Venga de donde venga, cada mensaje sale con la misma forma: `{ update_id, chat_id, chat_tipo, fecha, texto }`. Todo lo que está después no sabe cómo llegó.
+
+**Entrada por consulta (v1, mientras n8n corre en la laptop):**
+
+- **`Cada 30 s`** (Schedule Trigger).
+- **`Pedir mensajes`** (HTTP GET `getUpdates`, `timeout=25`, `allowed_updates=["message"]`, tope del nodo 30 s). Telegram deja la consulta abierta hasta 25 s y contesta apenas llega un mensaje: la demora típica es de segundos, con unas 2.900 consultas por día. Si falla (sin red, o un `409` porque se superpusieron dos corridas), la corrida termina sin hacer nada: en la próxima vuelve a pedir y los mensajes siguen ahí.
+- **`¿Hay mensajes?`** (IF): sin mensajes, termina.
+- **`Confirmar lectura`** (HTTP GET `getUpdates` con `offset = último update_id + 1`, `limit=1`, `timeout=0`). Esa llamada le dice a Telegram que todo lo anterior ya se leyó; no se guarda ningún estado en n8n.
+- **Corridas guardadas:** WF6 corre unas 2.900 veces por día, casi todas sin mensajes. En la configuración del workflow, "guardar corridas exitosas" va en **no** y "guardar corridas con error" en **sí**. Para depurar un comando, se prende un rato.
+
+**Cuando n8n pase a un servidor (o con ngrok):** se borran `Cada 30 s`, `Pedir mensajes`, `¿Hay mensajes?` y `Confirmar lectura`, se pone un **Telegram Trigger** (con la credencial que ya existe) y se conecta a `Normalizar mensaje`, que pasa a leer un mensaje en vez de una lista. La lógica no se toca. **Ojo:** Telegram no deja usar las dos formas a la vez. Con el webhook registrado, `getUpdates` falla con `409`. Para volver a la consulta, primero `deleteWebhook`.
+
+**Lógica:**
+
+- **`Filtrar`** (Code): descarta otros chats (regla 1) y separa los viejos (regla 2), que van directo a `Responder`.
+- **`Interpretar comando`** (Code): saca el comando, la duración (`3h`, `30m`, `90m`; tope 24 h) y el nombre del cultivo. Una duración inválida (`/pausar 0h`, `/pausar 30h`, `/pausar mañana`) se contesta con el formato correcto y no llega a la base.
+- **`Leer estado`** (HTTP GET a `vista_estado_cultivo`): una sola consulta por corrida, aunque haya varios mensajes.
+- **`Elegir cultivo`** (Code): aplica la regla 5.
+- **`Switch`** por comando:
+  - **estado** → `Armar estado` (Code) → `Responder`.
+  - **diagnostico** → `¿Se puede diagnosticar?` (Code: sin foto, o un diagnóstico de hace menos de 10 minutos → se contesta por qué no) → `Descargar foto` (Storage, como `Descargar Foto` de WF3) → `Foto a base64` → `Pedir diagnóstico` (POST a `/webhook/diagnostico-ia` con la credencial `n8n interno`, igual que `Trigger a WF2` de WF1) → `Responder` "Analizando la foto del 04/11 20:04, en un minuto llega el diagnóstico". WF2 contesta en cuanto recibe el pedido y hace el análisis aparte, así WF6 no espera a Gemini.
+  - **pausar / reanudar** → `Pausar o reanudar` (RPC `fn_pausar_cultivo`) → `Responder`.
+  - **ayuda / no entendido** → `Responder`.
+- **`Responder`** (Telegram, credencial `Telegram bot Agricola`, al chat del mensaje).
+
+**El cuerpo que recibe WF2 desde `/diagnostico`** tiene los mismos campos que le manda WF1, sacados de `vista_estado_cultivo`: `cultivo_id`, `etapas_especie_id`, `planta`, `etapa`, `mac_address`, `humedad`, `ph`, `n`, `p`, `k`, `umbrales` (`{ humedad: {min, max}, ph: {min, max}, n_ideal, p_ideal, k_ideal }`), `estado: "CONSULTA A PEDIDO"`, `observaciones: ["Pedido por el usuario desde Telegram (/diagnostico), no por una alerta."]`, `path_foto_evento` (la ruta de la foto) y `foto_base64`. **WF2 no se toca.** Limitación conocida: su prompt titula los valores como "críticos detectados" aunque sea una consulta a pedido; se corrige junto con 16.43, que necesita lo mismo.
+
+**Límite de un diagnóstico cada 10 minutos por cultivo:** cuida la cuota gratuita de Gemini. Se mide con el último registro en `seguimiento_fenologico`. Si WF2 falla, no deja registro y se puede volver a pedir enseguida.
+
+#### 13.13.4 — Lo que se agrega en la base
+
+**`vista_estado_cultivo`** (`security_invoker`, solo `service_role`, como `vista_ultimo_arranque`). Una fila por cultivo activo con todo lo que necesitan `/estado` y `/diagnostico`, para que WF6 haga **una** consulta y no seis:
+
+- **Cultivo:** `cultivo_id`, `nombre`, `planta`, `etapa`, `etapas_especie_id`, `dias_en_etapa`, `duracion_estimada_dias`, `mantenimiento_hasta`, `riego_automatico_disponible`, `dispositivo_mac`.
+- **Última lectura** (la más reciente de `lectura`, con sus valores de `lectura_sensores` por `lectura_id`): `ultima_lectura_fecha`, `humedad`, `ph`, `n`, `p`, `k`, `temperatura`, `conductividad`.
+- **Rangos de la etapa** (`parametro_etapa`): `humedad_min`, `humedad_max`, `ph_min`, `ph_max`, `ideal_n`, `ideal_p`, `ideal_k`.
+- **Último riego** (`vista_ultimo_riego`): `riego_fecha`, `riego_resultado`, `riego_comando_estado`.
+- **Última foto:** `ultima_foto_path` y `ultima_foto_fecha` (de `storage.objects.created_at`, la hora real en que se subió).
+- **Último diagnóstico:** `ultimo_diagnostico_fecha` (`seguimiento_fenologico`).
+
+**`fn_pausar_cultivo(p_cultivo_id uuid, p_minutos integer) returns timestamptz`** (solo `service_role`). Con `p_minutos` entre 1 y 1440 deja `mantenimiento_hasta = now() + p_minutos`; con `0` lo deja en `null` (reanudar). Devuelve el valor que quedó. Rechaza un cultivo inexistente o inactivo y un valor fuera de rango. **Por qué una función y no un UPDATE desde n8n:** el tope y la validación quedan en la base, donde se pueden probar con un test que falle antes; un UPDATE desde n8n aceptaría cualquier cosa. **Por qué el tope de 24 h:** durante la pausa no se riega ni se avisa; una maceta chica puede secarse en un día de calor. Para más tiempo, se vuelve a pausar a conciencia.
+
+**Qué no se hace en la base, y por qué:**
+- **El "freno" del riego no se recalcula para `/estado`.** Hoy lo decide el Motor de WF1 (fallo del último riego y si después se vio la maceta húmeda). Copiar esa regla en la vista crearía una segunda definición que se desincroniza en silencio. `/estado` muestra los hechos (fecha y resultado del último riego). Llevar el freno a la base, para que lo lean WF1 y WF6, queda anotado como mejora.
+- **Humedad y pH sí llevan ✅ o ⚠️**, comparando contra los mismos `humedad_min/max` y `ph_min/max` de la base. Es una repetición mínima de WF1 (la comparación, no los números), aceptada a sabiendas porque es lo que más se mira. **N, P y K** se muestran con su ideal, sin marca: la regla de WF1 (±30 %) no se copia.
+
+#### 13.13.5 — Cómo se ven las respuestas (con los datos reales de la base al 12/11)
+
+```
+🌱 Tomate Cherry - Demo Tesis
+Etapa: Fructificación, día 49 (se estiman 40)
+
+Última lectura: 10/11 15:31 (hace 2 días) ⚠️
+💧 Humedad 55 % (rango 60 a 75) ⚠️
+🧪 pH 6.4 (rango 6.0 a 6.8) ✅
+N 25 · P 40 · K 60 mg/kg (ideal 25 · 40 · 60)
+🌡️ 22.5 °C · CE 1.2 mS/cm
+
+Riego automático: disponible
+Último riego: 10/11 15:12, falló (no subió la humedad)
+Pausa: no
+Última foto: 04/11 20:04
+```
+
+- **La antigüedad de la lectura** lleva ⚠️ si pasó más de 1 día. Es el único lugar donde hoy se ve el silencio de la placa (16.44), y solo cuando alguien pregunta.
+- **`/pausar 3h`:** "⏸️ Pausado hasta las 21:30. Mientras tanto no riego ni aviso; las lecturas se siguen guardando. /reanudar para terminar antes."
+- **`/reanudar`:** "▶️ Listo, vuelvo a regar y avisar con la próxima lectura." Si no había pausa: "No estaba en pausa."
+- **`/diagnostico`:** "🔎 Analizando la foto del 04/11 20:04. En un minuto llega el diagnóstico." Si es vieja, se agrega "(tiene 8 días)".
+
+#### 13.13.6 — Antes de construir: dónde vive el token del bot
+
+**Encontrado al diseñar (12/11).** La consulta (`getUpdates`) se hace con un nodo HTTP, y la credencial de Telegram de n8n no le sirve: no tiene `authenticate` y el token va en la ruta de la URL (`/bot<token>/getUpdates`), así que el nodo HTTP no puede inyectarlo (revisado en el código de la credencial `telegramApi` de n8n). El nodo Telegram de n8n tampoco tiene una operación para leer mensajes. Opciones:
+
+| | Dónde queda el token | Contra |
+|---|---|---|
+| **A. Variable de entorno** | En `.env` (fuera de git), pasada al contenedor; el nodo la lee con `$env` | Para leerla hay que permitir `$env` en los nodos (`N8N_BLOCK_ENV_ACCESS_IN_NODE=false`), y eso deja leer **todas** las variables desde una expresión, incluida `N8N_ENCRYPTION_KEY`. Con un solo usuario que ya tiene acceso a todo, el riesgo nuevo es bajo, pero existe |
+| **B. En la base** | Supabase Vault, leído por una función solo para `service_role` | El token queda en un segundo lugar, y se lee cada 30 s |
+| **C. Escrito en el nodo** | En el workflow | **Descartada:** el JSON exportado va al repo público |
+| **D. Webhook** | En la credencial que ya existe (Telegram Trigger) | Necesita una dirección pública: un servidor o ngrok |
+
+**Decisión del autor (12/11): la opción A.** Aplicada y probada:
+
+- **`docker-compose.yaml`** pasa `TELEGRAM_BOT_TOKEN` desde `.env` (si falta, compose no arranca, igual que con `N8N_ENCRYPTION_KEY`) y pone `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. **`.env.example`** tiene la línea vacía.
+- **Verificado:** `docker compose config` falla sin el token y pasa con él. Dentro del contenedor, el token tiene el formato correcto, el bloqueo vale `false` y `getMe` devuelve el bot `experto_agro_tesis_bot`, sin webhook registrado y sin mensajes pendientes. Desde un nodo HTTP de prueba (sin guardar), `https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getMe` devolvió `"ok": true` con el mismo bot.
+- **Trampa del editor:** la vista previa de la expresión muestra `[access to env vars denied]` aunque el acceso esté permitido. En el navegador el editor siempre da el acceso por bloqueado (revisado en el código del editor de 2.19.5). Lo que vale es ejecutar el nodo, que corre en el servidor.
+- **Al pasar a webhook (opción D):** volver a bloquear `$env` y sacar `TELEGRAM_BOT_TOKEN` de compose.
+
+#### 13.13.7 — Orden de construcción y pruebas
+
+1. **Base:** `vista_estado_cultivo` y `fn_pausar_cultivo`, con un test que se deshace solo y que **falla antes** de aplicar (sin la vista ni la función) y pasa después. Casos de la función: pausar 120 min, reanudar, 0 y 1440 en el borde, -1 y 1441 rechazados, cultivo inexistente e inactivo rechazados. Casos de la vista: una fila por cultivo activo, la lectura más reciente y no otra, cultivo sin lecturas ni foto con valores vacíos y no un error.
+2. **Token:** opción A, hecho el 12/11 (13.13.6).
+3. **WF6:** el JSON para importar y el código de cada nodo también en `.txt`.
+4. **En vivo, comando por comando**, verificando en la base y en Telegram: `/ayuda`, `/estado` (comparado contra una consulta directa a la base), `/pausar 1h` (`mantenimiento_hasta` en la base, y una lectura de sequía con el simulador que **no** riega ni avisa), `/reanudar` (la misma lectura ahora sí avisa), `/diagnostico` (nueva fila en `seguimiento_fenologico` y el mensaje de WF2), un segundo `/diagnostico` enseguida (rechazado por el límite), un comando con n8n apagado más de 10 minutos (llega tarde y no se ejecuta). Otro chat y dos cultivos activos no se pueden provocar en vivo: se prueban con datos fijados en n8n.
+5. **Opcional:** cargar el menú de comandos del bot (`setMyCommands`), así al escribir `/` Telegram muestra la lista.
+
+<details>
+<summary><b>Diseño de agosto (v1), reemplazado el 12/11 — click para expandir</b></summary>
 
 > [!IMPORTANT]
 > **Primer workflow que escucha al usuario, no solo le avisa.** Hasta ahora Telegram se usó siempre de salida (nodos "Send a text message"). Esto necesita un nodo **Telegram Trigger** (inbound) — el mismo bot de la Fase 2, configurado para recibir mensajes en vez de solo mandarlos.
@@ -3857,6 +4001,8 @@ ALTER TABLE public.comando_dispositivo ADD CONSTRAINT comando_dispositivo_tipo_c
 
 **Contrato ESP32 (extensión de 13.6):** al recibir un comando `CALIBRAR_BOMBA`, el dispositivo hace exactamente lo mismo que con `ACTIVAR_RIEGO` (prender la bomba la `duracion_segundos` indicada y marcar `ejecutado`) — no necesita lógica nueva, la diferencia de significado vive del lado de n8n/Telegram, no del firmware.
 
+</details>
+
 ### 13.14 — Checklist Fase 13
 
 - [x] SQL 13.1 a-g (tipo_maceta, maceta_recomendada_especie, columnas cultivo/dispositivo, comando_dispositivo, evento_riego, vista_ultimo_riego) — ✅ aplicado y verificado 06/08/2026 (RLS en las 6 tablas, sin alertas nuevas en el advisor de seguridad)
@@ -3883,7 +4029,7 @@ ALTER TABLE public.comando_dispositivo ADD CONSTRAINT comando_dispositivo_tipo_c
 - [ ] SQL 13.8 (vista_recomendacion_maceta)
 - [ ] Test 13.10 ✅
 - [x] SQL 13.12 (`cultivo.mantenimiento_hasta`) — ✅ aplicado y verificado 06/08/2026
-- [ ] WF6 creado: modo mantenimiento + calibración guiada (13.13)
+- [ ] WF6 creado: inspección bajo demanda (`/estado`, `/diagnostico`) + modo mantenimiento (`/pausar`, `/reanudar`), diseño v2 del 12/11 (13.13). `/calibrar` quedó fuera de v1
 - [x] SQL 13.13 (nuevo `CHECK` de `tipo_comando` con `CALIBRAR_BOMBA`) — ✅ aplicado y verificado 06/08/2026
 
 ---

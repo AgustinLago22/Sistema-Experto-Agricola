@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) y el 12/11 con el backlog en GitHub: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v73**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) y el 12/11 con el backlog en GitHub y el diseño de WF6: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v74**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -8,13 +8,15 @@
 
 ---
 
-## ▶ Sesión 23, continuación (12/11): backlog en GitHub y alcance según la propuesta
+## ▶ Sesión 23, continuación (12/11): backlog en GitHub, alcance según la propuesta y diseño de WF6
 
 **Backlog público** (plan v73): Project número 2 de `AgustinLago22`, "Sistema Experto Agrícola · Backlog", enlazado al repo, con 32 issues (#1 a #32, etiqueta `backlog`) y el campo **Status** de GitHub pasado a castellano (Hecho 14, En curso 1, Por hacer 14, Fuera de alcance 3; las opciones se renombraron conservando su id, así la automatización sigue: agregado → Por hacer, cerrado → Hecho; un cierre como "no planeado" también cae en Hecho y se pasa a mano a Fuera de alcance). Verificado con `gh`. **Al cerrar una pieza, cerrar su issue** (o `closes #N` en el commit). Agustín corre lo que escribe en GitHub; el agente lee y verifica. Ojo: PowerShell 5.1 rompe las comillas dobles dentro de un argumento para `gh`, y una función llamada `Gh` tapa a `gh.exe` (no distingue mayúsculas).
 
 **Lo que dice la propuesta (Anexo II).** Fuera de alcance: la placa física y su firmware, el riego físico (sin bomba ni electroválvula), entrenar modelos propios, la validación agronómica experimental, el fertirriego, una interfaz web o móvil y el multiusuario. Promete: comandos de inspección por Telegram (WF6), análisis proactivo y un orquestador "accesible para su evaluación". **El servidor es una decisión abierta de Agustín:** no quiere pagarlo sin placa; se decide cerca de la defensa. Para desarrollar WF6 alcanza con un túnel gratis.
 
-**Orden propuesto, sin confirmar:** WF6 (primero definir qué comandos de inspección lleva) → análisis proactivo (16.43) → Fase 17 corta → informe → servidor.
+**Orden:** WF6 primero (confirmado por Agustín); después, propuesto: análisis proactivo (16.43) → Fase 17 corta → informe → servidor.
+
+**WF6 diseñado (v74, plan 13.13), sin construir.** Comandos v1: `/estado`, `/diagnostico` (reusa WF2, uno cada 10 min), `/pausar [3h|30m]` (tope 24 h) y `/reanudar` (WF1 ya respeta `mantenimiento_hasta`), `/ayuda`. Solo el chat del autor; más de 10 min de viejo no se ejecuta; como mucho una vez. Entrada por `getUpdates` cada 30 s; la lógica empieza en `Normalizar mensaje` (pasar a webhook cambia solo la entrada). Base, sin aplicar: `vista_estado_cultivo` y `fn_pausar_cultivo`. **Token del bot (13.13.6), opción A de Agustín:** la credencial de Telegram de n8n no sirve para `getUpdates` desde un nodo HTTP, así que el token vive en `.env`, compose lo pasa al contenedor (`TELEGRAM_BOT_TOKEN`, con `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`) y el nodo lo lee con `{{ $env.TELEGRAM_BOT_TOKEN }}`. Probado con `getMe` desde un nodo. Nunca escribir el token en un nodo (el JSON va al repo público). La vista previa del editor dice `[access to env vars denied]` igual: es solo del navegador, ejecutando anda. Datos reales al 12/11: Fructificación día 49 de 40 estimados, última lectura 10/11 (humedad 55, rango 60 a 75), último riego 10/11 `fallo_sistema`, última foto 04/11.
 
 **Ojo antes de commitear:** `SQL/sesion22_test_ordenes_en_vivo.sql` tiene en la copia local la `X-Device-Key` real en lugar de `LA_CLAVE`. No va a ningún commit: `git restore` de ese archivo.
 
@@ -645,7 +647,7 @@ function E($id, $res = "ejecutado"){ Pedir "orden-acuse" @{v=1; dispositivo_mac=
 
 ## 12 · Mapa del plan, si hace falta profundizar
 
-`docs/implementation_plan.md` (v73, ~6.900 líneas). **Abrí solo la sección que necesites.**
+`docs/implementation_plan.md` (v74, ~6.900 líneas). **Abrí solo la sección que necesites.**
 
 | Buscás | Andá a |
 |---|---|
@@ -663,7 +665,7 @@ function E($id, $res = "ejecutado"){ Pedir "orden-acuse" @{v=1; dispositivo_mac=
 | Fertirriego (diseñado, sin implementar) | `Fase 15` |
 | Trazabilidad de la base de conocimiento y bibliografía (incluye BBCH de los criterios visuales) | `Fase 17` |
 | El hallazgo sin número del camino `duplicado` y su fix descartado | Final de `Fase 16`, título **Hallazgo sin número** |
-| Lo hecho en las sesiones 19 a 23 | Changelog **v64** a **v73**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
+| Lo hecho en las sesiones 19 a 23 | Changelog **v64** a **v74**, y **Cierre de sesión**. Las sesiones 18 (v63) y 17 (v61, v62) están en **Historial de sesiones**; la 17 también en **Fase 18** |
 | El contrato aplicado: arranque, WF7, la puerta de WF1, T0 y el test en vivo | **`Fase 18`** (18.1 arranque, 18.2 puerta, 18.3 pruebas, 18.5 lo que queda) |
 | El contrato de telemetría (qué manda el ESP32 y qué responde el sistema) | `docs/contrato_telemetria.md` (vigente desde el 20/10; pasos 1 a 5 aplicados el 04/11; órdenes, sección 10, el 10/11) |
 | Respaldo, restauración y versión de n8n | `B.13` y `B.14`, en el Backlog |
