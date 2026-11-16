@@ -1,0 +1,481 @@
+{
+  "name": "WF6 - Comandos por Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "87dc25d3-b286-49d4-b3ff-6892abf2aa2b",
+      "name": "Cada 30 s"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timeout",
+              "value": "25"
+            },
+            {
+              "name": "allowed_updates",
+              "value": "[\"message\"]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "9d1fad36-3ee9-4233-aeca-3cbad742b17c",
+      "name": "Pedir mensajes",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8962cf7d-cf68-4032-9fc6-a3260a1fe175",
+              "leftValue": "={{ $json.ok === true && Array.isArray($json.result) && $json.result.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "a5d5819e-e818-4aac-9b6e-eac7104cf71a",
+      "name": "Hay mensajes?"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "offset",
+              "value": "={{ Math.max(...$json.result.map(u => u.update_id)) + 1 }}"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            },
+            {
+              "name": "timeout",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        0
+      ],
+      "id": "d28004e6-aa2d-407a-b5c9-4b094d424ad7",
+      "name": "Confirmar lectura"
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF6 · Normalizar mensaje (Code, una vez para todos los ítems)\n// La costura de WF6 (13.13.3). Venga de donde venga el mensaje (hoy\n// getUpdates; con un servidor, un Telegram Trigger), sale siempre con la\n// misma forma: { update_id, chat_id, chat_tipo, fecha, texto }.\n// Todo lo que está después no sabe cómo llegó.\n\n// Validación positiva: sin la confirmación no se procesa nada. Los mensajes\n// siguen en Telegram y llegan otra vez en la próxima vuelta.\nconst confirmacion = $('Confirmar lectura').first().json;\nif (confirmacion.ok !== true) {\n  throw new Error('Telegram no confirmó la lectura; no proceso nada: ' +\n    JSON.stringify(confirmacion).slice(0, 200));\n}\n\nconst updates = $('Pedir mensajes').first().json.result;\nconst salida = [];\nfor (const u of updates) {\n  const m = u.message;\n  if (!m || !m.chat) continue;          // solo mensajes (allowed_updates)\n  salida.push({ json: {\n    update_id: u.update_id,\n    chat_id:   m.chat.id,\n    chat_tipo: m.chat.type,\n    fecha:     m.date,                   // segundos Unix, puesto por Telegram\n    texto:     typeof m.text === 'string' ? m.text : '',\n  }});\n}\nreturn salida;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "5b5c8a4f-8387-4f14-b132-d0b40539d250",
+      "name": "Normalizar mensaje"
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF6 · Filtrar (Code, una vez para todos los ítems)\n// Regla 1 (13.13.2): solo el chat privado del autor. Cualquier otro chat se\n// ignora SIN responder (no le confirma a nadie que el bot existe).\n// Regla 2: un mensaje de más de 10 minutos no se ejecuta; se marca como\n// tarde y más adelante se le contesta que llegó tarde.\n// Si no queda ningún mensaje, el flujo termina acá (cero ítems, a propósito).\n\nconst CHAT_AUTOR = 5593622386;\nconst TOPE_ATRASO_MIN = 10;\nconst ahora = Date.now();\n\nconst salida = [];\nfor (const item of $input.all()) {\n  const m = item.json;\n  if (m.chat_id !== CHAT_AUTOR || m.chat_tipo !== 'private') continue;\n  const atraso_min = Math.floor((ahora - m.fecha * 1000) / 60000);\n  salida.push({ json: { ...m, atraso_min, tarde: atraso_min > TOPE_ATRASO_MIN } });\n}\nreturn salida;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "d61fd97c-6efa-4597-97b5-bc585037fbf7",
+      "name": "Filtrar"
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF6 · Interpretar comando (Code, una vez para todos los ítems)\n// Saca de cada texto: el comando, la duración (solo /pausar) y el nombre del\n// cultivo (opcional; hace falta solo con varios cultivos activos).\n//   /estado            /estado Tomate\n//   /pausar            (2 h)      /pausar 3h   /pausar 30m   /pausar 3 h Tomate\n//   /reanudar          /diagnostico          /ayuda   /start\n// Tolera el sufijo @nombre_del_bot (/estado@experto_agro_tesis_bot), las\n// mayúsculas y las tildes (/diagnóstico).\n// Una duración inválida (/pausar 0h, /pausar 30h, /pausar 3) no llega a la\n// base: se contesta con el formato correcto. El tope lo vuelve a controlar\n// fn_pausar_cultivo, que es la que decide.\n\nconst PAUSA_DEFECTO_MIN = 120;\nconst TOPE_MIN = 1440;\nconst COMANDOS = ['estado', 'diagnostico', 'pausar', 'reanudar', 'ayuda', 'start'];\n\nconst sinTildes = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');\n\n// \"3h\" -> 180, \"30m\" -> 30, \"90min\" -> 90. Cualquier otra cosa -> null.\nfunction aMinutos(tok) {\n  const m = /^(\\d{1,5})(h|hs|hora|horas|m|min|mins|minuto|minutos)$/i.exec(tok);\n  if (!m) return null;\n  const n = Number(m[1]);\n  return m[2].toLowerCase().startsWith('h') ? n * 60 : n;\n}\n\nreturn $input.all().map(item => {\n  const m = item.json;\n  const texto = m.texto.trim();\n  const out = { ...m, comando: 'no_entendido', minutos: null, nombre: '', error_formato: '' };\n  if (!texto.startsWith('/')) return { json: out };\n\n  const [primero, ...resto] = texto.split(/\\s+/);\n  const cmd = sinTildes(primero.slice(1).split('@')[0].toLowerCase());\n  if (!COMANDOS.includes(cmd)) return { json: out };\n  out.comando = cmd === 'start' ? 'ayuda' : cmd;\n\n  let args = resto;\n  if (cmd === 'pausar') {\n    if (args.length > 0 && /^\\d/.test(args[0])) {\n      // Empieza con un número: es la duración. Acepta \"3h\" y \"3 h\".\n      let tok = args[0], usados = 1;\n      if (/^\\d+$/.test(tok) && args[1] && /^[a-z]+$/i.test(args[1])) { tok += args[1]; usados = 2; }\n      const min = aMinutos(tok);\n      if (min === null) {\n        out.error_formato = `No entendí la duración «${tok}». Usá /pausar 3h o /pausar 30m. Sin duración, pausa 2 h.`;\n      } else if (min < 1 || min > TOPE_MIN) {\n        out.error_formato = `La pausa tiene que ser de 1 minuto a 24 h, y «${tok}» queda afuera. ` +\n          'Si hace falta más, volvé a pausar cuando termine.';\n      } else {\n        out.minutos = min;\n      }\n      args = args.slice(usados);\n    } else {\n      out.minutos = PAUSA_DEFECTO_MIN;\n    }\n  }\n  out.nombre = args.join(' ');\n  return { json: out };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "3549fab1-d6ac-4813-a017-b644ff4cdc10",
+      "name": "Interpretar comando"
+    },
+    {
+      "parameters": {
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/vista_estado_cultivo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "order",
+              "value": "nombre"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "b1af2db7-0f9d-4eb7-9f40-e314c9abf995",
+      "name": "Leer estado",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// WF6 · Elegir cultivo (Code, una vez para todos los ítems)\n// Para cada mensaje decide qué hacer y deja listo lo que hace falta:\n//   accion 'responder'  → texto listo (ayuda, estado, llegó tarde, errores)\n//   accion 'pausa'      → cultivo_id y minutos (0 = reanudar) para la RPC\n// Regla 5 (13.13.2): con un solo cultivo activo se usa ese; con varios, el\n// comando tiene que traer el nombre. Lee la base UNA vez (Leer estado) para\n// todos los mensajes de la corrida.\n// Todas las salidas tienen los mismos campos: chat_id, accion, texto,\n// cultivo_id, minutos, nombre_cultivo.\n\nconst ZONA = 'America/Argentina/Buenos_Aires';\nconst UN_DIA_MS = 24 * 60 * 60 * 1000;\n\n// ---- Lo que devolvió la base ----------------------------------------------\n// Validación positiva: un cultivo es una fila con cultivo_id. Un error del\n// nodo (continúa con el error como dato) o la respuesta vacía no lo son.\nconst filas = $('Leer estado').all().map(i => i.json);\nconst cultivos = filas.filter(f => typeof f.cultivo_id === 'string');\nconst errorBase = cultivos.length === 0 && filas.some(f => f.error !== undefined);\n\n// ---- Formatos ---------------------------------------------------------------\n// Hora de Argentina con Intl (JavaScript estándar), sin depender de Luxon.\n// El cero de adelante se pone a mano: con 'es-AR', '2-digit' da \"4/11\".\nconst FORMATO = new Intl.DateTimeFormat('en-US', { timeZone: ZONA, day: 'numeric', month: 'numeric',\n  hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });\nconst ms = iso => Date.parse(iso);\nconst dos = s => String(Number(s)).padStart(2, '0');\nfunction fecha(iso) {\n  const p = Object.fromEntries(FORMATO.formatToParts(new Date(ms(iso))).map(x => [x.type, x.value]));\n  return `${dos(p.day)}/${dos(p.month)} ${dos(p.hour)}:${dos(p.minute)}`;\n}\nconst uno = x => String(Math.round(x * 10) / 10);\nconst ph = x => Number(x).toFixed(1);\nconst dato = (x, f) => (x === null || x === undefined) ? 'sin dato' : f(x);\n\nfunction hace(iso) {\n  const min = Math.floor((Date.now() - ms(iso)) / 60000);\n  if (min < 1) return 'recién';\n  if (min < 60) return `hace ${min} min`;\n  const h = Math.floor(min / 60);\n  if (h < 24) return `hace ${h} h`;\n  const d = Math.floor(h / 24);\n  return d === 1 ? 'hace 1 día' : `hace ${d} días`;\n}\n\nfunction atraso(min) {\n  if (min < 60) return `${min} min`;\n  const h = Math.floor(min / 60);\n  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} días`;\n}\n\n// ✅ dentro del rango de la etapa, ⚠️ afuera. Sin dato o sin rango, sin marca.\nfunction marca(x, min, max) {\n  if (x === null || x === undefined || min === null || max === null) return '';\n  return (x >= min && x <= max) ? ' ✅' : ' ⚠️';\n}\n\nconst RESULTADO_RIEGO = {\n  exitoso:       'funcionó (la humedad volvió al rango)',\n  insuficiente:  'subió la humedad, pero no alcanzó',\n  fallo_sistema: 'no tuvo efecto (la humedad no subió)',\n  pendiente:     'esperando el control',\n};\nconst ORDEN_RIEGO = {\n  pendiente: ' · la placa no tomó la orden',\n  entregado: ' · la placa no confirmó',\n  error:     ' · la placa avisó un error',\n};\n\nconst enPausa = c => c.mantenimiento_hasta !== null && c.mantenimiento_hasta !== undefined\n  && ms(c.mantenimiento_hasta) > Date.now();\n\n// ---- Textos -----------------------------------------------------------------\nconst AYUDA = [\n  '🤖 Comandos',\n  '/estado: cómo está el cultivo ahora',\n  '/diagnostico: la IA analiza la última foto',\n  '/pausar: pausa el riego y los avisos 2 h (o /pausar 3h, /pausar 30m; hasta 24 h)',\n  '/reanudar: termina la pausa',\n  '/ayuda: esta lista',\n  '',\n  'Con más de un cultivo activo, agregá el nombre: /estado Tomate',\n].join('\\n');\n\nfunction textoEstado(c) {\n  const l = [];\n  l.push(`🌱 ${c.nombre}`);\n  const dias = c.dias_en_etapa === null ? '' : `, día ${c.dias_en_etapa}`;\n  const est = c.duracion_estimada_dias === null ? '' : ` (se estiman ${c.duracion_estimada_dias})`;\n  l.push(`Etapa: ${c.etapa ?? 'sin etapa'}${dias}${est}`);\n  l.push('');\n  if (c.ultima_lectura_fecha === null) {\n    l.push('Última lectura: ninguna todavía');\n  } else {\n    const vieja = Date.now() - ms(c.ultima_lectura_fecha) > UN_DIA_MS ? ' ⚠️' : '';\n    l.push(`Última lectura: ${fecha(c.ultima_lectura_fecha)} (${hace(c.ultima_lectura_fecha)})${vieja}`);\n    l.push(`💧 Humedad ${dato(c.humedad, x => uno(x) + ' %')} (rango ${uno(c.humedad_min)} a ${uno(c.humedad_max)})` +\n           marca(c.humedad, c.humedad_min, c.humedad_max));\n    l.push(`🧪 pH ${dato(c.ph, ph)} (rango ${ph(c.ph_min)} a ${ph(c.ph_max)})` + marca(c.ph, c.ph_min, c.ph_max));\n    l.push(`N ${dato(c.n, uno)} · P ${dato(c.p, uno)} · K ${dato(c.k, uno)} mg/kg ` +\n           `(ideal ${uno(c.ideal_n)} · ${uno(c.ideal_p)} · ${uno(c.ideal_k)})`);\n    l.push(`🌡️ ${dato(c.temperatura, x => uno(x) + ' °C')} · CE ${dato(c.conductividad, x => uno(x) + ' mS/cm')}`);\n  }\n  l.push('');\n  l.push(`Riego automático: ${c.riego_automatico_disponible === true ? 'disponible' : 'no disponible'}`);\n  if (c.riego_fecha === null) {\n    l.push('Último riego: ninguno');\n  } else {\n    const res = RESULTADO_RIEGO[c.riego_resultado] ?? (c.riego_resultado ?? 'sin resultado');\n    l.push(`Último riego: ${fecha(c.riego_fecha)}, ${res}${ORDEN_RIEGO[c.riego_comando_estado] ?? ''}`);\n  }\n  l.push(enPausa(c) ? `⏸️ Pausa: hasta ${fecha(c.mantenimiento_hasta)} (/reanudar para terminar)` : 'Pausa: no');\n  l.push(`Última foto: ${c.ultima_foto_fecha === null ? (c.ultima_foto_path ? 'sin fecha' : 'ninguna') : fecha(c.ultima_foto_fecha)}`);\n  l.push(`Último diagnóstico: ${c.ultimo_diagnostico_fecha === null ? 'ninguno' : fecha(c.ultimo_diagnostico_fecha)}`);\n  return l.join('\\n');\n}\n\n// ---- Elegir el cultivo (regla 5) -------------------------------------------\nconst norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();\nconst lista = () => cultivos.map(c => c.nombre).join(', ');\n\nfunction elegir(m) {\n  if (errorBase) return { error: '⚠️ No pude leer el estado en la base. Probá de nuevo en unos minutos.' };\n  if (cultivos.length === 0) return { error: 'No hay ningún cultivo activo.' };\n  const dur = m.comando === 'pausar' && m.minutos !== 120\n    ? ' ' + (m.minutos % 60 === 0 ? `${m.minutos / 60}h` : `${m.minutos}m`) : '';\n  const ejemplo = `/${m.comando}${dur}`;\n  if (m.nombre === '') {\n    if (cultivos.length === 1) return { cultivo: cultivos[0] };\n    return { error: `Hay ${cultivos.length} cultivos activos: ${lista()}. Decime cuál, por ejemplo: ${ejemplo} ${cultivos[0].nombre}` };\n  }\n  const buscado = norm(m.nombre);\n  const exactos = cultivos.filter(c => norm(c.nombre) === buscado);\n  const parecidos = exactos.length ? exactos : cultivos.filter(c => norm(c.nombre).includes(buscado));\n  if (parecidos.length === 1) return { cultivo: parecidos[0] };\n  if (parecidos.length > 1) {\n    return { error: `«${m.nombre}» coincide con más de un cultivo: ${parecidos.map(c => c.nombre).join(', ')}. Escribí el nombre completo.` };\n  }\n  const pista = m.comando === 'pausar' ? '\\nPara la duración: /pausar 3h o /pausar 30m.' : '';\n  return { error: `No encontré un cultivo activo que se llame «${m.nombre}». Activos: ${lista()}.${pista}` };\n}\n\n// ---- Cada mensaje -----------------------------------------------------------\nreturn $('Interpretar comando').all().map(item => {\n  const m = item.json;\n  const out = { chat_id: m.chat_id, accion: 'responder', texto: '', cultivo_id: null, minutos: null, nombre_cultivo: '' };\n\n  if (m.tarde) {\n    out.texto = `⏰ Tu mensaje «${m.texto.trim()}» llegó con ${atraso(m.atraso_min)} de atraso ` +\n      '(n8n estaba apagado o sin conexión). No lo ejecuté para no actuar con datos viejos: si todavía hace falta, mandalo de nuevo.';\n    return { json: out };\n  }\n  if (m.comando === 'ayuda') { out.texto = AYUDA; return { json: out }; }\n  if (m.comando === 'no_entendido') {\n    const t = m.texto.trim();\n    out.texto = (t ? `No entendí «${t.slice(0, 60)}».\\n\\n` : '') + AYUDA;\n    return { json: out };\n  }\n  if (m.error_formato) { out.texto = m.error_formato; return { json: out }; }\n\n  const e = elegir(m);\n  if (e.error) { out.texto = e.error; return { json: out }; }\n  const c = e.cultivo;\n  out.cultivo_id = c.cultivo_id;\n  out.nombre_cultivo = c.nombre;\n\n  if (m.comando === 'estado') {\n    out.texto = textoEstado(c);\n  } else if (m.comando === 'pausar' || m.comando === 'reanudar') {\n    out.accion = 'pausa';\n    out.minutos = m.comando === 'reanudar' ? 0 : m.minutos;\n  } else if (m.comando === 'diagnostico') {\n    // Parte 2 de WF6. Hasta entonces, se avisa en vez de callar.\n    out.texto = '🔧 /diagnostico todavía no está listo: llega en la segunda parte de WF6.';\n  }\n  return { json: out };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        0
+      ],
+      "id": "f3b85d0c-430d-4f9e-955e-0fa337b47ae6",
+      "name": "Elegir cultivo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "280650ca-cacf-4d32-8d68-44ecce4f1611",
+              "leftValue": "={{ $json.accion }}",
+              "rightValue": "pausa",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2016,
+        0
+      ],
+      "id": "1104d28f-d816-47de-9c5b-546a1a3df542",
+      "name": "Es pausa?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xypqsthwquegftcnoqyi.supabase.co/rest/v1/rpc/fn_pausar_cultivo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_cultivo_id: $json.cultivo_id, p_minutos: $json.minutos }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2240,
+        192
+      ],
+      "id": "5d4a6aaa-d4e4-4d60-a9a6-9024f716bbbd",
+      "name": "Pausar o reanudar",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF6 · Texto de la pausa (Code, una vez por cada ítem)\n// Arma la respuesta de /pausar y /reanudar con lo que devolvió\n// fn_pausar_cultivo: siempre una fila (valido, mantenimiento_hasta,\n// estaba_en_pausa, errores). Validación positiva: si no llegó esa fila\n// (error de red o de la base), se contesta que no se pudo.\n\nconst ZONA = 'America/Argentina/Buenos_Aires';\n// El cero de adelante se pone a mano: con 'es-AR', '2-digit' da \"4/11\".\nconst FORMATO = new Intl.DateTimeFormat('en-US', { timeZone: ZONA, day: 'numeric', month: 'numeric',\n  year: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });\nconst dos = s => String(Number(s)).padStart(2, '0');\nconst partes = t => {\n  const p = Object.fromEntries(FORMATO.formatToParts(new Date(t)).map(x => [x.type, x.value]));\n  return { day: dos(p.day), month: dos(p.month), year: p.year, hour: dos(p.hour), minute: dos(p.minute) };\n};\n\nconst pedido = $('Elegir cultivo').item.json;\nconst r = $json;\nconst reanudar = pedido.minutos === 0;\nconst verbo = reanudar ? 'reanudar' : 'pausar';\n\nlet texto;\nif (r.valido === true && reanudar) {\n  texto = r.estaba_en_pausa === true\n    ? `▶️ ${pedido.nombre_cultivo}: listo, vuelvo a regar y avisar desde la próxima lectura.`\n    : `${pedido.nombre_cultivo} no estaba en pausa: todo sigue normal.`;\n} else if (r.valido === true && typeof r.mantenimiento_hasta === 'string') {\n  const h = partes(Date.parse(r.mantenimiento_hasta));\n  const hoy = partes(Date.now());\n  const mismoDia = h.day === hoy.day && h.month === hoy.month && h.year === hoy.year;\n  const cuando = mismoDia\n    ? `las ${h.hour}:${h.minute}`\n    : `el ${h.day}/${h.month} a las ${h.hour}:${h.minute}`;\n  texto = `⏸️ ${pedido.nombre_cultivo}: pausado hasta ${cuando}. ` +\n    'Mientras tanto no riego ni aviso; las lecturas se siguen guardando. /reanudar para terminar antes.' +\n    (r.estaba_en_pausa === true ? '\\n(Ya estaba en pausa: quedó esta nueva hora.)' : '');\n} else if (r.valido === false && Array.isArray(r.errores) && r.errores.length > 0) {\n  texto = `⚠️ No pude ${verbo}: ${r.errores[0]}`;\n} else {\n  texto = `⚠️ No pude ${verbo}: la base no respondió bien. Probá de nuevo en unos minutos.`;\n}\n\nreturn { json: { chat_id: pedido.chat_id, texto } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        192
+      ],
+      "id": "e70e84c1-7382-4b8d-9fa6-6d96cf281cc8",
+      "name": "Texto de la pausa"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2688,
+        0
+      ],
+      "id": "c3f637cc-e1ab-44ac-9085-fba7405f46b7",
+      "name": "Responder",
+      "webhookId": "274aad51-ef09-452b-834f-121135b9e3aa",
+      "credentials": {
+        "telegramApi": {
+          "id": "vlCMJHg1NP96CPPT",
+          "name": "Telegram bot Agricola"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cada 30 s": {
+      "main": [
+        [
+          {
+            "node": "Pedir mensajes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedir mensajes": {
+      "main": [
+        [
+          {
+            "node": "Hay mensajes?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hay mensajes?": {
+      "main": [
+        [
+          {
+            "node": "Confirmar lectura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmar lectura": {
+      "main": [
+        [
+          {
+            "node": "Normalizar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar mensaje": {
+      "main": [
+        [
+          {
+            "node": "Filtrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar": {
+      "main": [
+        [
+          {
+            "node": "Interpretar comando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpretar comando": {
+      "main": [
+        [
+          {
+            "node": "Leer estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer estado": {
+      "main": [
+        [
+          {
+            "node": "Elegir cultivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Elegir cultivo": {
+      "main": [
+        [
+          {
+            "node": "Es pausa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es pausa?": {
+      "main": [
+        [
+          {
+            "node": "Pausar o reanudar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pausar o reanudar": {
+      "main": [
+        [
+          {
+            "node": "Texto de la pausa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Texto de la pausa": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveDataSuccessExecution": "none",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": -1,
+    "availableInMCP": false
+  },
+  "versionId": "9c084fc9-bb8a-4f5d-97a4-6c6f3fe8a83f",
+  "meta": {
+    "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
+  },
+  "id": "ktGlXmvgaM7KazJu",
+  "tags": []
+}

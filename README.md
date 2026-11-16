@@ -45,10 +45,9 @@ WF3 (cada 8 h) ──► última foto ──► visión artificial ──► ¿a
 | WF3 | Validación fenológica | Programado, cada 8 h | Confirma por imagen el avance de etapa del cultivo |
 | WF4 | Análisis preventivo | Programado, cada 6 h | Informe periódico de tendencia. **Inactivo por decisión** hasta contar con telemetría real |
 | WF5 | Control de riego | Llamado por WF1 | Calcula la dosis con el volumen de la maceta y el caudal de la bomba, y registra la orden |
+| WF6 | Comandos por Telegram | Programado, cada 30 s | Responde los comandos del autor: el estado del cultivo y pausar o reanudar el riego y los avisos. El diagnóstico a pedido está en construcción |
 | WF7 | Registro de arranque | Webhook `/arranque` | Asigna a cada encendido de la placa un número que no se repite |
 | WF8 | Entrega de órdenes | Webhooks `/ordenes` y `/orden-acuse` | Entrega a la placa sus órdenes de riego, cada una una sola vez y con vencimiento, y registra cómo terminó |
-
-WF6 está reservado para los comandos por Telegram (pausar, reanudar, calibrar), todavía sin construir.
 
 Los workflows están exportados en `WORKFLOWS/` con nombre estable, de modo que cada cambio se lea como diferencia entre versiones.
 

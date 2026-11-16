@@ -1,10 +1,26 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) y el 12/11 con el backlog en GitHub y el diseño de WF6: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v74**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, y el 16/11 con la primera parte de WF6: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v75**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
 > **Este archivo es una foto, y envejece.** Fue escrito después de una ronda de cuatro revisiones externas que corrieron en paralelo leyendo la versión anterior. Tres de ellas numeraron hallazgos nuevos usando el "último número" que este archivo declaraba, y chocaron entre sí. La lección quedó registrada como regla, abajo: **no asignes números de hallazgo.**
+
+---
+
+## ▶ Sesión 23, continuación (15 y 16/11): WF6, primera parte construida y probada (plan v75)
+
+**Qué hay:** WF6 activo en n8n (id `ktGlXmvgaM7KazJu`), `WORKFLOWS/WF6.json` exportado por Agustín. Descripción en la sección 3, detalle en el plan 13.13.3 y 13.13.7. El código de cada nodo se escribió como `.txt` aparte, se armó el JSON con un script que revisa las conexiones y que no haya nada con forma de token, y se probaron los nodos de código fuera de n8n (66 casos). **Desde ahora la versión buena es la exportada de n8n.**
+
+**Probado en vivo, contra la base:** `/ayuda`, `hola`, `/estado` (igual a `vista_estado_cultivo`), `/pausar 1h` y `/reanudar` (`mantenimiento_hasta`), `/pausar 30h` rechazado sin tocar la base. La pausa frena a WF1: con pausa, dos sequías se guardaron sin aviso ni riego (`Esta en mantenimiento` las cortó); después de `/reanudar`, la misma sequía avisó y regó. Un `/estado` mandado con n8n apagado se contestó como tarde (11 min).
+
+**Datos de prueba nuevos, sin limpiar a propósito (#28):** arranque 29, lecturas 35 a 38, riego 33 (`pendiente` hasta la próxima lectura; con humedad 55 quedará `fallo_sistema` y el freno vuelve) y orden 41 (vencida sin entregar). El freno del 10/11 ya está levantado: la lectura 35 mostró 68.
+
+**Pendientes que salieron:** cambiar la `X-Device-Key` de la placa de demo (se compartió fuera de n8n el 16/11; se cambia en la credencial `ESP32 Telemetra Key` y en el simulador). "Riego automático: disponible" en `/estado` no dice si el freno está puesto (plan 13.13.5).
+
+**Sigue:** la segunda parte, `/diagnostico` (13.13.3): revisar foto y límite de 10 minutos, bajar la foto como `Descargar Foto` de WF3, pasarla a base64 y llamar a `/webhook/diagnostico-ia` con la credencial `n8n interno`. Opcional, `setMyCommands`. Issue #16, en curso.
+
+**Al pegar líneas de PowerShell desde el chat:** el texto entre dos `$` se rompió al copiarlo (perdió los `$` y los espacios). Para el simulador, mejor la página `test/simulador.html`.
 
 ---
 
@@ -162,7 +178,7 @@ Un sistema experto agrícola de loop cerrado. En una frase:
 | Pieza | Qué es | Dónde corre |
 |---|---|---|
 | ESP32 + sensor 7-en-1 | Mide humedad, temperatura, pH, conductividad, N, P, K. Manda foto opcional | **No existe todavía.** Se simula con PowerShell, con el formato del contrato v1 |
-| n8n | Orquestación. 7 workflows: WF1–WF5, WF7 y WF8 (**WF6 está reservado** para los comandos de Telegram, 13.13, y no existe) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
+| n8n | Orquestación. 8 workflows: WF1 a WF8 (WF6, los comandos por Telegram, desde el 15/11; su segunda parte, `/diagnostico`, falta) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
 | Supabase | Postgres + Storage (bucket `fotos-cultivos`) | Proyecto `xypqsthwquegftcnoqyi`, "Tesis Cultivos" |
 | Google Gemini | Visión: diagnóstico de emergencia y validación de etapa | `gemini-3.8-flash` en WF2 y WF3 desde el 20/10 (WF4 quedó en `2.5`). Cupo gratis: 20 pedidos/día por modelo |
 | Telegram | Canal de notificación | `chatId` 5593622386, repetido en 5 nodos |
@@ -200,7 +216,7 @@ ESP32 (o PowerShell)       Header Auth en los cuatro: X-Device-Key (credencial `
 
 ---
 
-## 3 · Los 7 workflows
+## 3 · Los 8 workflows
 
 ### WF1 — `Orquestacion - Tesis` · 31 nodos · **activo**
 
@@ -336,6 +352,25 @@ Webhook Acuse (/orden-acuse) → Validar Acuse → Acuse Valido? ─[no]→ Resp
 ```
 
 `Tomar Ordenes` y `Registrar Acuse` usan `Sup S`. Solo `Registrar Acuse` tiene reintento (repetir un acuse es seguro; repetir `Tomar Ordenes` no, porque cada orden se entrega una vez). La placa da el aviso por entregado solo con `aceptado` o `duplicado` (regla 11 del contrato).
+
+---
+
+### WF6 — `WF6 - Comandos por Telegram` · 13 nodos · **activo** (desde el 15/11, primera parte)
+
+Diseño en el plan, **13.13**. Escucha el chat del autor por consulta (`getUpdates`), porque n8n corre en la laptop sin dirección pública.
+
+```
+Cada 30 s → Pedir mensajes → Hay mensajes? → Confirmar lectura → Normalizar mensaje → Filtrar
+  → Interpretar comando → Leer estado (vista_estado_cultivo) → Elegir cultivo → Es pausa?
+       sí: Pausar o reanudar (fn_pausar_cultivo) → Texto de la pausa → Responder
+       no: Responder
+```
+
+- **Dónde se declaran los comandos:** la lista `COMANDOS` de `Interpretar comando`; lo que hace cada uno y todos los textos, en `Elegir cultivo` (incluida `AYUDA`). Un comando nuevo toca los dos y la ayuda.
+- **Funciona:** `/estado`, `/pausar [3h|30m]` (2 h por defecto, tope 24 h), `/reanudar`, `/ayuda` y `/start`, el texto no entendido y el mensaje de más de 10 minutos (cuenta minutos enteros: desde 11 es tarde y no se ejecuta). `/diagnostico` contesta "todavía no está listo": es la segunda parte.
+- **Token:** `{{ $env.TELEGRAM_BOT_TOKEN }}` en las dos llamadas a `getUpdates`; `Responder` usa la credencial `Telegram bot Agricola`. Solo chat `5593622386`, privado.
+- **Configuración:** exitosas no se guardan. En la base de n8n una corrida así queda `running` con `deletedAt`, no colgada. Al apagar n8n queda una corrida *crashed* ("out of memory") que no hace daño. Pegar el JSON en el lienzo no trae la configuración.
+- **Para leer la base de n8n** (solo lectura): `MSYS_NO_PATHCONV=1 docker exec -w /usr/local/lib/node_modules/n8n/node_modules/.pnpm/sqlite3@5.1.7/node_modules n8n_server node -e '…'` con `sqlite3.OPEN_READONLY` sobre `/home/node/.n8n/database.sqlite`; los datos de una ejecución se leen con `flatted` (`/usr/local/lib/node_modules/n8n/node_modules/flatted`).
 
 ---
 
