@@ -41,11 +41,11 @@ WF3 (cada 8 h) ──► última foto ──► visión artificial ──► ¿a
 | # | Nombre | Disparador | Función |
 |---|---|---|---|
 | WF1 | Orquestación | Webhook `/telemetria` | Valida el contrato, evalúa la lectura contra los umbrales, la persiste y decide |
-| WF2 | Diagnóstico de emergencia | Llamado por WF1 | Análisis de imagen ante una alerta de umbral |
+| WF2 | Diagnóstico de emergencia | Llamado por WF1 y WF6 | Análisis de imagen ante una alerta de umbral o a pedido; si no logra el diagnóstico, avisa el motivo |
 | WF3 | Validación fenológica | Programado, cada 8 h | Confirma por imagen el avance de etapa del cultivo |
 | WF4 | Análisis preventivo | Programado, cada 6 h | Informe periódico de tendencia. **Inactivo por decisión** hasta contar con telemetría real |
 | WF5 | Control de riego | Llamado por WF1 | Calcula la dosis con el volumen de la maceta y el caudal de la bomba, y registra la orden |
-| WF6 | Comandos por Telegram | Programado, cada 30 s | Responde los comandos del autor: el estado del cultivo y pausar o reanudar el riego y los avisos. El diagnóstico a pedido está en construcción |
+| WF6 | Comandos por Telegram | Programado, cada 30 s | Responde los comandos del autor: el estado del cultivo, un diagnóstico de la última foto a pedido, y pausar o reanudar el riego y los avisos |
 | WF7 | Registro de arranque | Webhook `/arranque` | Asigna a cada encendido de la placa un número que no se repite |
 | WF8 | Entrega de órdenes | Webhooks `/ordenes` y `/orden-acuse` | Entrega a la placa sus órdenes de riego, cada una una sola vez y con vencimiento, y registra cómo terminó |
 
@@ -87,10 +87,10 @@ El sistema no riega solo si falta el volumen de la maceta o el caudal de la bomb
 
 ## Puesta en marcha
 
-1. Crear un archivo `.env` junto a `docker-compose.yaml` con `N8N_ENCRYPTION_KEY`, la clave que cifra las credenciales de n8n. Está fuera del repositorio, y sin ella el contenedor no arranca.
+1. Crear un archivo `.env` junto a `docker-compose.yaml` con `N8N_ENCRYPTION_KEY`, la clave que cifra las credenciales de n8n, y `TELEGRAM_BOT_TOKEN`, que WF6 usa para leer los mensajes (modelo en `.env.example`). Está fuera del repositorio, y sin esas dos el contenedor no arranca.
 2. Levantar el orquestador: `docker compose up -d`. Queda en `http://localhost:5678`.
-3. Importar los JSON de `WORKFLOWS/` y crear las credenciales que referencian por nombre: la clave del dispositivo (Header Auth, cabecera `X-Device-Key`), el acceso a Supabase, la clave interna con la que WF1 llama a WF2 y WF5, Telegram y Gemini. Ningún secreto está en el repositorio.
-4. Activar WF1, WF2, WF3, WF5, WF7 y WF8. WF4 queda apagado.
+3. Importar los JSON de `WORKFLOWS/` y crear las credenciales que referencian por nombre: la clave del dispositivo (Header Auth, cabecera `X-Device-Key`), el acceso a Supabase, la clave interna con la que WF1 llama a WF2 y WF5 (y WF6 a WF2), Telegram y Gemini. Ningún secreto está en el repositorio.
+4. Activar WF1, WF2, WF3, WF5, WF6, WF7 y WF8. WF4 queda apagado. La configuración de WF6 (zona horaria, no guardar las corridas exitosas) se pone a mano después de importar.
 
 Para probar sin hardware, abrir `test/simulador.html` en el navegador, escribir la clave del dispositivo y empezar por "Encender placa".
 

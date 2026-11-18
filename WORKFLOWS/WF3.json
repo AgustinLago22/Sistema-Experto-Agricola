@@ -91,7 +91,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpQueryAuth",
         "sendHeaders": true,
@@ -191,8 +191,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        4080,
-        -224
+        3904,
+        -240
       ],
       "id": "e84bacdf-bf20-4d6c-b4c7-24f55b3c3b4f",
       "name": "Mandar foto",
@@ -322,8 +322,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        3856,
-        -224
+        3584,
+        -240
       ],
       "id": "79fa011b-13d5-473b-97fc-83847c2dccb0",
       "name": "Generar URL Firmada",
@@ -730,7 +730,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "82071ba1-c63e-4e60-8454-7defbac512d0",
+  "versionId": "11e03d76-d64b-4356-aaad-3ebca888d28e",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

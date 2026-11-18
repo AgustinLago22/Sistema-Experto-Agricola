@@ -1,6 +1,6 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, y el 16/11 con la primera parte de WF6: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v75**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, y el 16/11 con WF6 completo: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v76**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
@@ -8,9 +8,18 @@
 
 ---
 
+## ▶ Sesión 23, continuación (16/11, noche): `/diagnostico`, aviso de falla en WF2 y Gemini 3.6 (plan v76)
+
+- **`/diagnostico` probado en vivo.** WF6 tiene 20 nodos (id `4IA10LufXMrjIk7x`). Freno de 3 minutos con `$getWorkflowStaticData`, porque el límite de 10 minutos no ve el pedido mientras WF2 trabaja.
+- **WF2 avisa por Telegram cuando no hay diagnóstico** (`Explicar fallo` → `Avisar fallo` → `Diagnostico Fallido`), 10 nodos. Probado con nombres de modelo falsos.
+- **Gemini: principal `gemini-3.6-flash` en WF2 y WF3** desde el 16/11; respaldo, `gemini-3.5-flash-lite`. El 3.8 falló 4 de 4 veces ese día por saturación. Los Pro no tienen cupo gratis; `-latest` apunta al más nuevo (el saturado).
+- **Falta:** ver en vivo el rechazo de los 10 minutos, el menú de comandos (opcional), cerrar #16. El mensaje de `Diagnostico Fallido` arranca con `==` (detalle viejo).
+
+---
+
 ## ▶ Sesión 23, continuación (15 y 16/11): WF6, primera parte construida y probada (plan v75)
 
-**Qué hay:** WF6 activo en n8n (id `ktGlXmvgaM7KazJu`), `WORKFLOWS/WF6.json` exportado por Agustín. Descripción en la sección 3, detalle en el plan 13.13.3 y 13.13.7. El código de cada nodo se escribió como `.txt` aparte, se armó el JSON con un script que revisa las conexiones y que no haya nada con forma de token, y se probaron los nodos de código fuera de n8n (66 casos). **Desde ahora la versión buena es la exportada de n8n.**
+**Qué hay:** WF6 activo en n8n (id `ktGlXmvgaM7KazJu`, reemplazado el 16/11 por `4IA10LufXMrjIk7x`), `WORKFLOWS/WF6.json` exportado por Agustín. Descripción en la sección 3, detalle en el plan 13.13.3 y 13.13.7. El código de cada nodo se escribió como `.txt` aparte, se armó el JSON con un script que revisa las conexiones y que no haya nada con forma de token, y se probaron los nodos de código fuera de n8n (66 casos). **Desde ahora la versión buena es la exportada de n8n.**
 
 **Probado en vivo, contra la base:** `/ayuda`, `hola`, `/estado` (igual a `vista_estado_cultivo`), `/pausar 1h` y `/reanudar` (`mantenimiento_hasta`), `/pausar 30h` rechazado sin tocar la base. La pausa frena a WF1: con pausa, dos sequías se guardaron sin aviso ni riego (`Esta en mantenimiento` las cortó); después de `/reanudar`, la misma sequía avisó y regó. Un `/estado` mandado con n8n apagado se contestó como tarde (11 min).
 
@@ -178,9 +187,9 @@ Un sistema experto agrícola de loop cerrado. En una frase:
 | Pieza | Qué es | Dónde corre |
 |---|---|---|
 | ESP32 + sensor 7-en-1 | Mide humedad, temperatura, pH, conductividad, N, P, K. Manda foto opcional | **No existe todavía.** Se simula con PowerShell, con el formato del contrato v1 |
-| n8n | Orquestación. 8 workflows: WF1 a WF8 (WF6, los comandos por Telegram, desde el 15/11; su segunda parte, `/diagnostico`, falta) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
+| n8n | Orquestación. 8 workflows: WF1 a WF8 (WF6, los comandos por Telegram, desde el 15/11; completo el 16/11) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
 | Supabase | Postgres + Storage (bucket `fotos-cultivos`) | Proyecto `xypqsthwquegftcnoqyi`, "Tesis Cultivos" |
-| Google Gemini | Visión: diagnóstico de emergencia y validación de etapa | `gemini-3.8-flash` en WF2 y WF3 desde el 20/10 (WF4 quedó en `2.5`). Cupo gratis: 20 pedidos/día por modelo |
+| Google Gemini | Visión: diagnóstico de emergencia y validación de etapa | `gemini-3.6-flash` en WF2 y WF3 desde el 16/11 (antes `3.8`, saturado), respaldo `gemini-3.5-flash-lite` (WF4 quedó en `2.5`). Cupo gratis: 20 pedidos/día el Flash, 500 el Flash Lite |
 | Telegram | Canal de notificación | `chatId` 5593622386, repetido en 5 nodos |
 
 **El ESP32 no está armado y nada depende de él.** La orquestación se construye primero, desacoplada a propósito: el sistema solo habla vía HTTP contra Supabase, nunca al revés.
@@ -269,14 +278,16 @@ El freno también lee el resultado guardado de lecturas anteriores, y se suelta 
 
 El Motor emite `recheck_riego` (null si la lectura no es un control) **en las tres ramas**. `Consolidar datos` arma `rpc_recheck`, y `Registrar Recheck de Riego` llama a `fn_registrar_recheck_riego` **en cada lectura**: con `p_evento_id` null no hace nada. Ese nodo tiene *Retry* encendido, porque la RPC es idempotente.
 
-### WF2 — `Diagnostico IA Emergencia` · 8 nodos · **activo**
+### WF2 — `Diagnostico IA Emergencia` · 10 nodos · **activo**
 
-Webhook `/diagnostico-ia`. Lo dispara WF1 cuando hay alerta **y** foto.
+Webhook `/diagnostico-ia`. Lo disparan WF1 cuando hay alerta **y** foto, y `/diagnostico` de WF6 (`estado: "CONSULTA A PEDIDO"`).
 
 ```
 Webhook → IA Vision Gemini ─[ok]──────────────────────────→ Parsear Respuesta IA → Diagnostico Valido? ─[sí]→ Persistir Diagnotico → Telegram
-              └[error]→ IA Vision Gemini Respaldo ─────────↗                                            └[no]→ Diagnostico Fallido (Stop and Error)
+              └[error]→ IA Vision Gemini Respaldo ─────────↗                                            └[no]→ Explicar fallo → Avisar fallo (Telegram) → Diagnostico Fallido (Stop and Error)
 ```
+
+**Aviso de falla (16/11):** `Explicar fallo` saca la causa del error del respaldo y arma el texto; `Avisar fallo` sigue aunque Telegram falle; el corte lee de `$('Explicar fallo')`, porque después de Telegram `$json` es la respuesta de Telegram. **Modelo:** el principal es `gemini-3.6-flash` desde el 16/11.
 
 **Respaldo (26/10):** `IA Vision Gemini` (`gemini-3.8-flash`) tiene *On Error → Continue (using error output)*; la salida de error va a `IA Vision Gemini Respaldo` (`gemini-3.5-flash-lite`, *On Error → Continue*), que lee los datos de `$('Webhook').first()` porque por la salida de error solo llega el error. Los dos: 2 intentos, 5 s, tope de 60 s. `Parsear Respuesta IA` no cambió: lee `$input` y `$('Webhook')`. **El prompt** dice "sin dato" para un `null` (con `??`, el `0` se respeta) y lleva los **rangos de la etapa** desde `body.umbrales`.
 
@@ -355,7 +366,7 @@ Webhook Acuse (/orden-acuse) → Validar Acuse → Acuse Valido? ─[no]→ Resp
 
 ---
 
-### WF6 — `WF6 - Comandos por Telegram` · 13 nodos · **activo** (desde el 15/11, primera parte)
+### WF6 — `WF6 - Comandos por Telegram` · 20 nodos · **activo** (desde el 15/11; `/diagnostico` desde el 16/11)
 
 Diseño en el plan, **13.13**. Escucha el chat del autor por consulta (`getUpdates`), porque n8n corre en la laptop sin dirección pública.
 
@@ -363,11 +374,13 @@ Diseño en el plan, **13.13**. Escucha el chat del autor por consulta (`getUpdat
 Cada 30 s → Pedir mensajes → Hay mensajes? → Confirmar lectura → Normalizar mensaje → Filtrar
   → Interpretar comando → Leer estado (vista_estado_cultivo) → Elegir cultivo → Es pausa?
        sí: Pausar o reanudar (fn_pausar_cultivo) → Texto de la pausa → Responder
-       no: Responder
+       no: Es diagnostico? ─no→ Responder
+           └sí→ Descargar foto → Foto a base64 → Armar pedido → Foto lista? ─no→ Responder
+                └sí→ Pedir diagnóstico (POST /webhook/diagnostico-ia, n8n interno) → Texto del diagnóstico → Responder
 ```
 
 - **Dónde se declaran los comandos:** la lista `COMANDOS` de `Interpretar comando`; lo que hace cada uno y todos los textos, en `Elegir cultivo` (incluida `AYUDA`). Un comando nuevo toca los dos y la ayuda.
-- **Funciona:** `/estado`, `/pausar [3h|30m]` (2 h por defecto, tope 24 h), `/reanudar`, `/ayuda` y `/start`, el texto no entendido y el mensaje de más de 10 minutos (cuenta minutos enteros: desde 11 es tarde y no se ejecuta). `/diagnostico` contesta "todavía no está listo": es la segunda parte.
+- **Funciona:** `/estado`, `/pausar [3h|30m]` (2 h por defecto, tope 24 h), `/reanudar`, `/ayuda` y `/start`, el texto no entendido y el mensaje de más de 10 minutos (cuenta minutos enteros: desde 11 es tarde y no se ejecuta). `/diagnostico`: uno cada 10 minutos (último registro en `seguimiento_fenologico`) y, mientras WF2 trabaja, 3 minutos de freno guardados en la memoria del workflow (`$getWorkflowStaticData`, solo en corridas de producción).
 - **Token:** `{{ $env.TELEGRAM_BOT_TOKEN }}` en las dos llamadas a `getUpdates`; `Responder` usa la credencial `Telegram bot Agricola`. Solo chat `5593622386`, privado.
 - **Configuración:** exitosas no se guardan. En la base de n8n una corrida así queda `running` con `deletedAt`, no colgada. Al apagar n8n queda una corrida *crashed* ("out of memory") que no hace daño. Pegar el JSON en el lienzo no trae la configuración.
 - **Para leer la base de n8n** (solo lectura): `MSYS_NO_PATHCONV=1 docker exec -w /usr/local/lib/node_modules/n8n/node_modules/.pnpm/sqlite3@5.1.7/node_modules n8n_server node -e '…'` con `sqlite3.OPEN_READONLY` sobre `/home/node/.n8n/database.sqlite`; los datos de una ejecución se leen con `flatted` (`/usr/local/lib/node_modules/n8n/node_modules/flatted`).

@@ -14,10 +14,10 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
-        0,
-        0
+        32,
+        -272
       ],
-      "id": "87dc25d3-b286-49d4-b3ff-6892abf2aa2b",
+      "id": "c12c4d7b-8021-4936-b498-ab10245b1fc7",
       "name": "Cada 30 s"
     },
     {
@@ -43,10 +43,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        224,
-        0
+        256,
+        -272
       ],
-      "id": "9d1fad36-3ee9-4233-aeca-3cbad742b17c",
+      "id": "8a7e37b1-f5e7-43a8-85d9-6b68cbed83e0",
       "name": "Pedir mensajes",
       "onError": "continueRegularOutput"
     },
@@ -78,10 +78,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        448,
-        0
+        480,
+        -272
       ],
-      "id": "a5d5819e-e818-4aac-9b6e-eac7104cf71a",
+      "id": "f5197759-0d79-4241-b4df-95b87b7506a3",
       "name": "Hay mensajes?"
     },
     {
@@ -111,10 +111,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        672,
-        0
+        704,
+        -272
       ],
-      "id": "d28004e6-aa2d-407a-b5c9-4b094d424ad7",
+      "id": "d1655f51-dbca-4f9b-82c2-27049d087b02",
       "name": "Confirmar lectura"
     },
     {
@@ -124,10 +124,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        896,
-        0
+        928,
+        -272
       ],
-      "id": "5b5c8a4f-8387-4f14-b132-d0b40539d250",
+      "id": "274b248e-8f6b-49f2-812e-cf57f4f87358",
       "name": "Normalizar mensaje"
     },
     {
@@ -137,10 +137,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1120,
-        0
+        1152,
+        -272
       ],
-      "id": "d61fd97c-6efa-4597-97b5-bc585037fbf7",
+      "id": "fcf85e88-5c58-461d-bc10-16c838613478",
       "name": "Filtrar"
     },
     {
@@ -150,10 +150,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1344,
-        0
+        1376,
+        -272
       ],
-      "id": "3549fab1-d6ac-4813-a017-b644ff4cdc10",
+      "id": "01484af1-c39b-402b-972b-efbd1eac5826",
       "name": "Interpretar comando"
     },
     {
@@ -181,10 +181,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1568,
-        0
+        1600,
+        -272
       ],
-      "id": "b1af2db7-0f9d-4eb7-9f40-e314c9abf995",
+      "id": "f3e0f304-c544-4493-a195-d8b911e893fe",
       "name": "Leer estado",
       "executeOnce": true,
       "alwaysOutputData": true,
@@ -198,15 +198,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// WF6 · Elegir cultivo (Code, una vez para todos los ítems)\n// Para cada mensaje decide qué hacer y deja listo lo que hace falta:\n//   accion 'responder'  → texto listo (ayuda, estado, llegó tarde, errores)\n//   accion 'pausa'      → cultivo_id y minutos (0 = reanudar) para la RPC\n// Regla 5 (13.13.2): con un solo cultivo activo se usa ese; con varios, el\n// comando tiene que traer el nombre. Lee la base UNA vez (Leer estado) para\n// todos los mensajes de la corrida.\n// Todas las salidas tienen los mismos campos: chat_id, accion, texto,\n// cultivo_id, minutos, nombre_cultivo.\n\nconst ZONA = 'America/Argentina/Buenos_Aires';\nconst UN_DIA_MS = 24 * 60 * 60 * 1000;\n\n// ---- Lo que devolvió la base ----------------------------------------------\n// Validación positiva: un cultivo es una fila con cultivo_id. Un error del\n// nodo (continúa con el error como dato) o la respuesta vacía no lo son.\nconst filas = $('Leer estado').all().map(i => i.json);\nconst cultivos = filas.filter(f => typeof f.cultivo_id === 'string');\nconst errorBase = cultivos.length === 0 && filas.some(f => f.error !== undefined);\n\n// ---- Formatos ---------------------------------------------------------------\n// Hora de Argentina con Intl (JavaScript estándar), sin depender de Luxon.\n// El cero de adelante se pone a mano: con 'es-AR', '2-digit' da \"4/11\".\nconst FORMATO = new Intl.DateTimeFormat('en-US', { timeZone: ZONA, day: 'numeric', month: 'numeric',\n  hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });\nconst ms = iso => Date.parse(iso);\nconst dos = s => String(Number(s)).padStart(2, '0');\nfunction fecha(iso) {\n  const p = Object.fromEntries(FORMATO.formatToParts(new Date(ms(iso))).map(x => [x.type, x.value]));\n  return `${dos(p.day)}/${dos(p.month)} ${dos(p.hour)}:${dos(p.minute)}`;\n}\nconst uno = x => String(Math.round(x * 10) / 10);\nconst ph = x => Number(x).toFixed(1);\nconst dato = (x, f) => (x === null || x === undefined) ? 'sin dato' : f(x);\n\nfunction hace(iso) {\n  const min = Math.floor((Date.now() - ms(iso)) / 60000);\n  if (min < 1) return 'recién';\n  if (min < 60) return `hace ${min} min`;\n  const h = Math.floor(min / 60);\n  if (h < 24) return `hace ${h} h`;\n  const d = Math.floor(h / 24);\n  return d === 1 ? 'hace 1 día' : `hace ${d} días`;\n}\n\nfunction atraso(min) {\n  if (min < 60) return `${min} min`;\n  const h = Math.floor(min / 60);\n  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} días`;\n}\n\n// ✅ dentro del rango de la etapa, ⚠️ afuera. Sin dato o sin rango, sin marca.\nfunction marca(x, min, max) {\n  if (x === null || x === undefined || min === null || max === null) return '';\n  return (x >= min && x <= max) ? ' ✅' : ' ⚠️';\n}\n\nconst RESULTADO_RIEGO = {\n  exitoso:       'funcionó (la humedad volvió al rango)',\n  insuficiente:  'subió la humedad, pero no alcanzó',\n  fallo_sistema: 'no tuvo efecto (la humedad no subió)',\n  pendiente:     'esperando el control',\n};\nconst ORDEN_RIEGO = {\n  pendiente: ' · la placa no tomó la orden',\n  entregado: ' · la placa no confirmó',\n  error:     ' · la placa avisó un error',\n};\n\nconst enPausa = c => c.mantenimiento_hasta !== null && c.mantenimiento_hasta !== undefined\n  && ms(c.mantenimiento_hasta) > Date.now();\n\n// ---- Textos -----------------------------------------------------------------\nconst AYUDA = [\n  '🤖 Comandos',\n  '/estado: cómo está el cultivo ahora',\n  '/diagnostico: la IA analiza la última foto',\n  '/pausar: pausa el riego y los avisos 2 h (o /pausar 3h, /pausar 30m; hasta 24 h)',\n  '/reanudar: termina la pausa',\n  '/ayuda: esta lista',\n  '',\n  'Con más de un cultivo activo, agregá el nombre: /estado Tomate',\n].join('\\n');\n\nfunction textoEstado(c) {\n  const l = [];\n  l.push(`🌱 ${c.nombre}`);\n  const dias = c.dias_en_etapa === null ? '' : `, día ${c.dias_en_etapa}`;\n  const est = c.duracion_estimada_dias === null ? '' : ` (se estiman ${c.duracion_estimada_dias})`;\n  l.push(`Etapa: ${c.etapa ?? 'sin etapa'}${dias}${est}`);\n  l.push('');\n  if (c.ultima_lectura_fecha === null) {\n    l.push('Última lectura: ninguna todavía');\n  } else {\n    const vieja = Date.now() - ms(c.ultima_lectura_fecha) > UN_DIA_MS ? ' ⚠️' : '';\n    l.push(`Última lectura: ${fecha(c.ultima_lectura_fecha)} (${hace(c.ultima_lectura_fecha)})${vieja}`);\n    l.push(`💧 Humedad ${dato(c.humedad, x => uno(x) + ' %')} (rango ${uno(c.humedad_min)} a ${uno(c.humedad_max)})` +\n           marca(c.humedad, c.humedad_min, c.humedad_max));\n    l.push(`🧪 pH ${dato(c.ph, ph)} (rango ${ph(c.ph_min)} a ${ph(c.ph_max)})` + marca(c.ph, c.ph_min, c.ph_max));\n    l.push(`N ${dato(c.n, uno)} · P ${dato(c.p, uno)} · K ${dato(c.k, uno)} mg/kg ` +\n           `(ideal ${uno(c.ideal_n)} · ${uno(c.ideal_p)} · ${uno(c.ideal_k)})`);\n    l.push(`🌡️ ${dato(c.temperatura, x => uno(x) + ' °C')} · CE ${dato(c.conductividad, x => uno(x) + ' mS/cm')}`);\n  }\n  l.push('');\n  l.push(`Riego automático: ${c.riego_automatico_disponible === true ? 'disponible' : 'no disponible'}`);\n  if (c.riego_fecha === null) {\n    l.push('Último riego: ninguno');\n  } else {\n    const res = RESULTADO_RIEGO[c.riego_resultado] ?? (c.riego_resultado ?? 'sin resultado');\n    l.push(`Último riego: ${fecha(c.riego_fecha)}, ${res}${ORDEN_RIEGO[c.riego_comando_estado] ?? ''}`);\n  }\n  l.push(enPausa(c) ? `⏸️ Pausa: hasta ${fecha(c.mantenimiento_hasta)} (/reanudar para terminar)` : 'Pausa: no');\n  l.push(`Última foto: ${c.ultima_foto_fecha === null ? (c.ultima_foto_path ? 'sin fecha' : 'ninguna') : fecha(c.ultima_foto_fecha)}`);\n  l.push(`Último diagnóstico: ${c.ultimo_diagnostico_fecha === null ? 'ninguno' : fecha(c.ultimo_diagnostico_fecha)}`);\n  return l.join('\\n');\n}\n\n// ---- Elegir el cultivo (regla 5) -------------------------------------------\nconst norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();\nconst lista = () => cultivos.map(c => c.nombre).join(', ');\n\nfunction elegir(m) {\n  if (errorBase) return { error: '⚠️ No pude leer el estado en la base. Probá de nuevo en unos minutos.' };\n  if (cultivos.length === 0) return { error: 'No hay ningún cultivo activo.' };\n  const dur = m.comando === 'pausar' && m.minutos !== 120\n    ? ' ' + (m.minutos % 60 === 0 ? `${m.minutos / 60}h` : `${m.minutos}m`) : '';\n  const ejemplo = `/${m.comando}${dur}`;\n  if (m.nombre === '') {\n    if (cultivos.length === 1) return { cultivo: cultivos[0] };\n    return { error: `Hay ${cultivos.length} cultivos activos: ${lista()}. Decime cuál, por ejemplo: ${ejemplo} ${cultivos[0].nombre}` };\n  }\n  const buscado = norm(m.nombre);\n  const exactos = cultivos.filter(c => norm(c.nombre) === buscado);\n  const parecidos = exactos.length ? exactos : cultivos.filter(c => norm(c.nombre).includes(buscado));\n  if (parecidos.length === 1) return { cultivo: parecidos[0] };\n  if (parecidos.length > 1) {\n    return { error: `«${m.nombre}» coincide con más de un cultivo: ${parecidos.map(c => c.nombre).join(', ')}. Escribí el nombre completo.` };\n  }\n  const pista = m.comando === 'pausar' ? '\\nPara la duración: /pausar 3h o /pausar 30m.' : '';\n  return { error: `No encontré un cultivo activo que se llame «${m.nombre}». Activos: ${lista()}.${pista}` };\n}\n\n// ---- Cada mensaje -----------------------------------------------------------\nreturn $('Interpretar comando').all().map(item => {\n  const m = item.json;\n  const out = { chat_id: m.chat_id, accion: 'responder', texto: '', cultivo_id: null, minutos: null, nombre_cultivo: '' };\n\n  if (m.tarde) {\n    out.texto = `⏰ Tu mensaje «${m.texto.trim()}» llegó con ${atraso(m.atraso_min)} de atraso ` +\n      '(n8n estaba apagado o sin conexión). No lo ejecuté para no actuar con datos viejos: si todavía hace falta, mandalo de nuevo.';\n    return { json: out };\n  }\n  if (m.comando === 'ayuda') { out.texto = AYUDA; return { json: out }; }\n  if (m.comando === 'no_entendido') {\n    const t = m.texto.trim();\n    out.texto = (t ? `No entendí «${t.slice(0, 60)}».\\n\\n` : '') + AYUDA;\n    return { json: out };\n  }\n  if (m.error_formato) { out.texto = m.error_formato; return { json: out }; }\n\n  const e = elegir(m);\n  if (e.error) { out.texto = e.error; return { json: out }; }\n  const c = e.cultivo;\n  out.cultivo_id = c.cultivo_id;\n  out.nombre_cultivo = c.nombre;\n\n  if (m.comando === 'estado') {\n    out.texto = textoEstado(c);\n  } else if (m.comando === 'pausar' || m.comando === 'reanudar') {\n    out.accion = 'pausa';\n    out.minutos = m.comando === 'reanudar' ? 0 : m.minutos;\n  } else if (m.comando === 'diagnostico') {\n    // Parte 2 de WF6. Hasta entonces, se avisa en vez de callar.\n    out.texto = '🔧 /diagnostico todavía no está listo: llega en la segunda parte de WF6.';\n  }\n  return { json: out };\n});\n"
+        "jsCode": "// WF6 · Elegir cultivo (Code, una vez para todos los ítems)\n// Para cada mensaje decide qué hacer y deja listo lo que hace falta:\n//   accion 'responder'  → texto listo (ayuda, estado, llegó tarde, errores)\n//   accion 'pausa'      → cultivo_id y minutos (0 = reanudar) para la RPC\n//   accion 'diagnostico'→ pedido para WF2 (sin la foto) y el texto \"Analizando\"\n// Regla 5 (13.13.2): con un solo cultivo activo se usa ese; con varios, el\n// comando tiene que traer el nombre. Lee la base UNA vez (Leer estado) para\n// todos los mensajes de la corrida.\n// Todas las salidas tienen los mismos campos: chat_id, accion, texto,\n// cultivo_id, minutos, nombre_cultivo, pedido.\n\nconst ZONA = 'America/Argentina/Buenos_Aires';\nconst UN_DIA_MS = 24 * 60 * 60 * 1000;\n\n// ---- Lo que devolvió la base ----------------------------------------------\n// Validación positiva: un cultivo es una fila con cultivo_id. Un error del\n// nodo (continúa con el error como dato) o la respuesta vacía no lo son.\nconst filas = $('Leer estado').all().map(i => i.json);\nconst cultivos = filas.filter(f => typeof f.cultivo_id === 'string');\nconst errorBase = cultivos.length === 0 && filas.some(f => f.error !== undefined);\n\n// ---- Formatos ---------------------------------------------------------------\n// Hora de Argentina con Intl (JavaScript estándar), sin depender de Luxon.\n// El cero de adelante se pone a mano: con 'es-AR', '2-digit' da \"4/11\".\nconst FORMATO = new Intl.DateTimeFormat('en-US', { timeZone: ZONA, day: 'numeric', month: 'numeric',\n  hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });\nconst ms = iso => Date.parse(iso);\nconst dos = s => String(Number(s)).padStart(2, '0');\nfunction fecha(iso) {\n  const p = Object.fromEntries(FORMATO.formatToParts(new Date(ms(iso))).map(x => [x.type, x.value]));\n  return `${dos(p.day)}/${dos(p.month)} ${dos(p.hour)}:${dos(p.minute)}`;\n}\nconst uno = x => String(Math.round(x * 10) / 10);\nconst ph = x => Number(x).toFixed(1);\nconst dato = (x, f) => (x === null || x === undefined) ? 'sin dato' : f(x);\n\nfunction hace(iso) {\n  const min = Math.floor((Date.now() - ms(iso)) / 60000);\n  if (min < 1) return 'recién';\n  if (min < 60) return `hace ${min} min`;\n  const h = Math.floor(min / 60);\n  if (h < 24) return `hace ${h} h`;\n  const d = Math.floor(h / 24);\n  return d === 1 ? 'hace 1 día' : `hace ${d} días`;\n}\n\nfunction atraso(min) {\n  if (min < 60) return `${min} min`;\n  const h = Math.floor(min / 60);\n  return h < 48 ? `${h} h` : `${Math.floor(h / 24)} días`;\n}\n\n// ✅ dentro del rango de la etapa, ⚠️ afuera. Sin dato o sin rango, sin marca.\nfunction marca(x, min, max) {\n  if (x === null || x === undefined || min === null || max === null) return '';\n  return (x >= min && x <= max) ? ' ✅' : ' ⚠️';\n}\n\nconst RESULTADO_RIEGO = {\n  exitoso:       'funcionó (la humedad volvió al rango)',\n  insuficiente:  'subió la humedad, pero no alcanzó',\n  fallo_sistema: 'no tuvo efecto (la humedad no subió)',\n  pendiente:     'esperando el control',\n};\nconst ORDEN_RIEGO = {\n  pendiente: ' · la placa no tomó la orden',\n  entregado: ' · la placa no confirmó',\n  error:     ' · la placa avisó un error',\n};\n\nconst enPausa = c => c.mantenimiento_hasta !== null && c.mantenimiento_hasta !== undefined\n  && ms(c.mantenimiento_hasta) > Date.now();\n\n// ---- Textos -----------------------------------------------------------------\nconst AYUDA = [\n  '🤖 Comandos',\n  '/estado: cómo está el cultivo ahora',\n  '/diagnostico: la IA analiza la última foto',\n  '/pausar: pausa el riego y los avisos 2 h (o /pausar 3h, /pausar 30m; hasta 24 h)',\n  '/reanudar: termina la pausa',\n  '/ayuda: esta lista',\n  '',\n  'Con más de un cultivo activo, agregá el nombre: /estado Tomate',\n].join('\\n');\n\nfunction textoEstado(c) {\n  const l = [];\n  l.push(`🌱 ${c.nombre}`);\n  const dias = c.dias_en_etapa === null ? '' : `, día ${c.dias_en_etapa}`;\n  const est = c.duracion_estimada_dias === null ? '' : ` (se estiman ${c.duracion_estimada_dias})`;\n  l.push(`Etapa: ${c.etapa ?? 'sin etapa'}${dias}${est}`);\n  l.push('');\n  if (c.ultima_lectura_fecha === null) {\n    l.push('Última lectura: ninguna todavía');\n  } else {\n    const vieja = Date.now() - ms(c.ultima_lectura_fecha) > UN_DIA_MS ? ' ⚠️' : '';\n    l.push(`Última lectura: ${fecha(c.ultima_lectura_fecha)} (${hace(c.ultima_lectura_fecha)})${vieja}`);\n    l.push(`💧 Humedad ${dato(c.humedad, x => uno(x) + ' %')} (rango ${uno(c.humedad_min)} a ${uno(c.humedad_max)})` +\n           marca(c.humedad, c.humedad_min, c.humedad_max));\n    l.push(`🧪 pH ${dato(c.ph, ph)} (rango ${ph(c.ph_min)} a ${ph(c.ph_max)})` + marca(c.ph, c.ph_min, c.ph_max));\n    l.push(`N ${dato(c.n, uno)} · P ${dato(c.p, uno)} · K ${dato(c.k, uno)} mg/kg ` +\n           `(ideal ${uno(c.ideal_n)} · ${uno(c.ideal_p)} · ${uno(c.ideal_k)})`);\n    l.push(`🌡️ ${dato(c.temperatura, x => uno(x) + ' °C')} · CE ${dato(c.conductividad, x => uno(x) + ' mS/cm')}`);\n  }\n  l.push('');\n  l.push(`Riego automático: ${c.riego_automatico_disponible === true ? 'disponible' : 'no disponible'}`);\n  if (c.riego_fecha === null) {\n    l.push('Último riego: ninguno');\n  } else {\n    const res = RESULTADO_RIEGO[c.riego_resultado] ?? (c.riego_resultado ?? 'sin resultado');\n    l.push(`Último riego: ${fecha(c.riego_fecha)}, ${res}${ORDEN_RIEGO[c.riego_comando_estado] ?? ''}`);\n  }\n  l.push(enPausa(c) ? `⏸️ Pausa: hasta ${fecha(c.mantenimiento_hasta)} (/reanudar para terminar)` : 'Pausa: no');\n  l.push(`Última foto: ${c.ultima_foto_fecha === null ? (c.ultima_foto_path ? 'sin fecha' : 'ninguna') : fecha(c.ultima_foto_fecha)}`);\n  l.push(`Último diagnóstico: ${c.ultimo_diagnostico_fecha === null ? 'ninguno' : fecha(c.ultimo_diagnostico_fecha)}`);\n  return l.join('\\n');\n}\n\n// ---- /diagnostico ------------------------------------------------------------\n// Uno cada 10 min por cultivo, por el cupo gratis de Gemini. Se mide con el\n// último registro de WF2: si WF2 falla no deja registro y se puede repetir.\nconst ESPERA_DIAG_MIN = 10;\nconst hora = iso => fecha(iso).slice(6);\n// WF2 tarda hasta ~90 s en guardar, y mientras tanto la base no ve el pedido.\n// La memoria del workflow lo frena unos minutos; si WF2 falló, se puede repetir.\nconst EN_CAMINO_MIN = 3;\nconst memoria = $getWorkflowStaticData('global');\nmemoria.diagPedido = memoria.diagPedido || {};\n\nfunction diagnostico(c) {\n  if (!c.ultima_foto_path) return { texto: `📷 ${c.nombre} no tiene ninguna foto para analizar.` };\n  // La vista no encontró el archivo en Storage: bajarlo fallaría.\n  if (c.ultima_foto_fecha === null) return { texto: `⚠️ No encontré en Storage la última foto de ${c.nombre}: no la puedo analizar.` };\n  if (c.ultimo_diagnostico_fecha !== null) {\n    const min = Math.floor((Date.now() - ms(c.ultimo_diagnostico_fecha)) / 60000);\n    if (min < ESPERA_DIAG_MIN) {\n      const desde = new Date(ms(c.ultimo_diagnostico_fecha) + ESPERA_DIAG_MIN * 60000).toISOString();\n      return { texto: `⏳ El último diagnóstico es de hace ${min} min. Hay uno cada ${ESPERA_DIAG_MIN} minutos para cuidar el cupo de la IA: probá desde las ${hora(desde)}.` };\n    }\n  }\n  const pedidoHace = Math.floor((Date.now() - (memoria.diagPedido[c.cultivo_id] ?? 0)) / 60000);\n  if (pedidoHace < EN_CAMINO_MIN) {\n    return { texto: `⏳ Ya hay un diagnóstico en camino (lo pedí hace ${pedidoHace} min). Si en ${EN_CAMINO_MIN} minutos no llegó, pedilo de nuevo.` };\n  }\n  memoria.diagPedido[c.cultivo_id] = Date.now();\n\n  const dias = Math.floor((Date.now() - ms(c.ultima_foto_fecha)) / UN_DIA_MS);\n  const edad = dias < 1 ? '' : ` (tiene ${dias} ${dias === 1 ? 'día' : 'días'})`;\n  const lectura = c.ultima_lectura_fecha === null ? 'no hay lecturas: van sin dato'\n    : `los valores, de la última lectura (${fecha(c.ultima_lectura_fecha)})`;\n  return {\n    accion: 'diagnostico',\n    texto: `🔎 Analizando la foto del ${fecha(c.ultima_foto_fecha)}${edad}. En un minuto llega el diagnóstico.`,\n    // Los mismos campos que WF1 le manda a WF2 (13.13.3).\n    pedido: {\n      cultivo_id: c.cultivo_id, etapas_especie_id: c.etapas_especie_id, planta: c.planta, etapa: c.etapa,\n      mac_address: c.dispositivo_mac, humedad: c.humedad, ph: c.ph, n: c.n, p: c.p, k: c.k,\n      umbrales: { humedad: { min: c.humedad_min, max: c.humedad_max }, ph: { min: c.ph_min, max: c.ph_max },\n                  n_ideal: c.ideal_n, p_ideal: c.ideal_p, k_ideal: c.ideal_k },\n      estado: 'CONSULTA A PEDIDO',\n      observaciones: [\n        'Pedido por el usuario desde Telegram (/diagnostico), no por una alerta.',\n        `La foto es del ${fecha(c.ultima_foto_fecha)}; ${lectura}.`,\n      ],\n      path_foto_evento: c.ultima_foto_path,\n    },\n  };\n}\n\n// ---- Elegir el cultivo (regla 5) -------------------------------------------\nconst norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();\nconst lista = () => cultivos.map(c => c.nombre).join(', ');\n\nfunction elegir(m) {\n  if (errorBase) return { error: '⚠️ No pude leer el estado en la base. Probá de nuevo en unos minutos.' };\n  if (cultivos.length === 0) return { error: 'No hay ningún cultivo activo.' };\n  const dur = m.comando === 'pausar' && m.minutos !== 120\n    ? ' ' + (m.minutos % 60 === 0 ? `${m.minutos / 60}h` : `${m.minutos}m`) : '';\n  const ejemplo = `/${m.comando}${dur}`;\n  if (m.nombre === '') {\n    if (cultivos.length === 1) return { cultivo: cultivos[0] };\n    return { error: `Hay ${cultivos.length} cultivos activos: ${lista()}. Decime cuál, por ejemplo: ${ejemplo} ${cultivos[0].nombre}` };\n  }\n  const buscado = norm(m.nombre);\n  const exactos = cultivos.filter(c => norm(c.nombre) === buscado);\n  const parecidos = exactos.length ? exactos : cultivos.filter(c => norm(c.nombre).includes(buscado));\n  if (parecidos.length === 1) return { cultivo: parecidos[0] };\n  if (parecidos.length > 1) {\n    return { error: `«${m.nombre}» coincide con más de un cultivo: ${parecidos.map(c => c.nombre).join(', ')}. Escribí el nombre completo.` };\n  }\n  const pista = m.comando === 'pausar' ? '\\nPara la duración: /pausar 3h o /pausar 30m.' : '';\n  return { error: `No encontré un cultivo activo que se llame «${m.nombre}». Activos: ${lista()}.${pista}` };\n}\n\n// ---- Cada mensaje -----------------------------------------------------------\nreturn $('Interpretar comando').all().map(item => {\n  const m = item.json;\n  const out = { chat_id: m.chat_id, accion: 'responder', texto: '', cultivo_id: null, minutos: null, nombre_cultivo: '', pedido: null };\n\n  if (m.tarde) {\n    out.texto = `⏰ Tu mensaje «${m.texto.trim()}» llegó con ${atraso(m.atraso_min)} de atraso ` +\n      '(n8n estaba apagado o sin conexión). No lo ejecuté para no actuar con datos viejos: si todavía hace falta, mandalo de nuevo.';\n    return { json: out };\n  }\n  if (m.comando === 'ayuda') { out.texto = AYUDA; return { json: out }; }\n  if (m.comando === 'no_entendido') {\n    const t = m.texto.trim();\n    out.texto = (t ? `No entendí «${t.slice(0, 60)}».\\n\\n` : '') + AYUDA;\n    return { json: out };\n  }\n  if (m.error_formato) { out.texto = m.error_formato; return { json: out }; }\n\n  const e = elegir(m);\n  if (e.error) { out.texto = e.error; return { json: out }; }\n  const c = e.cultivo;\n  out.cultivo_id = c.cultivo_id;\n  out.nombre_cultivo = c.nombre;\n\n  if (m.comando === 'estado') {\n    out.texto = textoEstado(c);\n  } else if (m.comando === 'pausar' || m.comando === 'reanudar') {\n    out.accion = 'pausa';\n    out.minutos = m.comando === 'reanudar' ? 0 : m.minutos;\n  } else if (m.comando === 'diagnostico') {\n    Object.assign(out, diagnostico(c));\n  }\n  return { json: out };\n});\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1792,
-        0
+        1824,
+        -272
       ],
-      "id": "f3b85d0c-430d-4f9e-955e-0fa337b47ae6",
+      "id": "a385b191-c220-4a48-92eb-e173ca9a20d0",
       "name": "Elegir cultivo"
     },
     {
@@ -236,10 +236,10 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        2016,
-        0
+        2048,
+        -272
       ],
-      "id": "1104d28f-d816-47de-9c5b-546a1a3df542",
+      "id": "a93b6a83-31cb-4fb1-9f9d-4cd6b43d93b3",
       "name": "Es pausa?"
     },
     {
@@ -267,10 +267,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        2240,
-        192
+        2272,
+        -80
       ],
-      "id": "5d4a6aaa-d4e4-4d60-a9a6-9024f716bbbd",
+      "id": "a0116a4a-9aec-4bfd-879f-1827515a46b4",
       "name": "Pausar o reanudar",
       "credentials": {
         "httpHeaderAuth": {
@@ -288,10 +288,10 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2464,
-        192
+        2496,
+        -80
       ],
-      "id": "e70e84c1-7382-4b8d-9fa6-6d96cf281cc8",
+      "id": "c7f46c46-59e8-4f90-96b6-1ca3450e315f",
       "name": "Texto de la pausa"
     },
     {
@@ -305,10 +305,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        2688,
-        0
+        3840,
+        -272
       ],
-      "id": "c3f637cc-e1ab-44ac-9085-fba7405f46b7",
+      "id": "b868bbca-9d80-478c-a71b-a696212bb16a",
       "name": "Responder",
       "webhookId": "274aad51-ef09-452b-834f-121135b9e3aa",
       "credentials": {
@@ -317,6 +317,185 @@
           "name": "Telegram bot Agricola"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "76c5f1d9-5504-436c-b130-1e5022b2748a",
+              "leftValue": "={{ $json.accion }}",
+              "rightValue": "diagnostico",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2272,
+        -80
+      ],
+      "id": "bc4b97be-b4ce-4678-bd02-46f08d18050e",
+      "name": "Es diagnostico?"
+    },
+    {
+      "parameters": {
+        "url": "=https://xypqsthwquegftcnoqyi.supabase.co/storage/v1/object/fotos-cultivos/{{ $json.pedido.path_foto_evento }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2496,
+        112
+      ],
+      "id": "7026600d-7ad3-4786-83f5-b1566183c7b1",
+      "name": "Descargar foto",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gTOS54ckoPzBEe5K",
+          "name": "Sup S"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "destinationKey": "foto_base64",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2720,
+        112
+      ],
+      "id": "054f87f1-e41d-4cdf-96bf-5e655e271333",
+      "name": "Foto a base64",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF6 · Armar pedido (Code, una vez por cada ítem)\n// Junta el pedido de Elegir cultivo con la foto en base64. Si la descarga\n// falló, no se llama a WF2 y se avisa.\n\nconst MINIMO_BASE64 = 1000;   // ~750 bytes: menos que eso no es una foto (como WF3)\n\nconst p = $('Elegir cultivo').item.json;\nlet foto = $json.foto_base64;\nif (foto && typeof foto === 'object' && 'value' in foto) foto = foto.value;\nconst listo = typeof foto === 'string' && foto.trim().length >= MINIMO_BASE64;\n\nreturn { json: {\n  listo,\n  chat_id: p.chat_id,\n  texto: listo ? p.texto : '⚠️ No pude bajar la foto de Storage. Probá de nuevo en unos minutos.',\n  cuerpo: listo ? { ...p.pedido, foto_base64: foto.trim() } : null,\n} };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2944,
+        112
+      ],
+      "id": "07f729a2-452a-4845-a958-48ab4ec15134",
+      "name": "Armar pedido"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "42e8aeb2-ad86-4d3a-b175-e2e4cd2f21c3",
+              "leftValue": "={{ $json.listo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3168,
+        112
+      ],
+      "id": "5d0b0d03-69b5-4edd-90d8-826338812056",
+      "name": "Foto lista?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/diagnostico-ia",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.cuerpo) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3392,
+        208
+      ],
+      "id": "130e90af-6171-4229-bc49-a64b24a98499",
+      "name": "Pedir diagnóstico",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "K3hCG51oxIc6x1W1",
+          "name": "n8n interno"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// WF6 · Texto del diagnóstico (Code, una vez por cada ítem)\n// WF2 contesta \"Workflow was started\" apenas recibe el pedido; el diagnóstico\n// llega después, con su propio mensaje.\n\nconst a = $('Armar pedido').item.json;\nconst recibido = $json.message === 'Workflow was started';\n\nreturn { json: {\n  chat_id: a.chat_id,\n  texto: recibido ? a.texto : '⚠️ No pude pedir el diagnóstico: WF2 no respondió. Probá de nuevo en unos minutos.',\n} };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3616,
+        208
+      ],
+      "id": "5cc5d6e2-757d-4272-b227-06fd7ad280a7",
+      "name": "Texto del diagnóstico"
     }
   ],
   "pinData": {},
@@ -431,7 +610,7 @@
         ],
         [
           {
-            "node": "Responder",
+            "node": "Es diagnostico?",
             "type": "main",
             "index": 0
           }
@@ -459,6 +638,97 @@
           }
         ]
       ]
+    },
+    "Es diagnostico?": {
+      "main": [
+        [
+          {
+            "node": "Descargar foto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar foto": {
+      "main": [
+        [
+          {
+            "node": "Foto a base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Foto a base64": {
+      "main": [
+        [
+          {
+            "node": "Armar pedido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar pedido": {
+      "main": [
+        [
+          {
+            "node": "Foto lista?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Foto lista?": {
+      "main": [
+        [
+          {
+            "node": "Pedir diagnóstico",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pedir diagnóstico": {
+      "main": [
+        [
+          {
+            "node": "Texto del diagnóstico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Texto del diagnóstico": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -469,13 +739,12 @@
     "timezone": "America/Argentina/Buenos_Aires",
     "saveDataSuccessExecution": "none",
     "callerPolicy": "workflowsFromSameOwner",
-    "executionTimeout": -1,
     "availableInMCP": false
   },
-  "versionId": "9c084fc9-bb8a-4f5d-97a4-6c6f3fe8a83f",
+  "versionId": "5255935d-9196-46f2-900c-d75c3fbe68ee",
   "meta": {
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
   },
-  "id": "ktGlXmvgaM7KazJu",
+  "id": "4IA10LufXMrjIk7x",
   "tags": []
 }
