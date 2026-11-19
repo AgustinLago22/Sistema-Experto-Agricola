@@ -1,10 +1,22 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, y el 16/11 con WF6 completo: ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v76**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, el 16/11 con WF6 completo, y el 19/11 con la sesión 24 (16.43, WF4 reconvertido): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v77**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
 > **Este archivo es una foto, y envejece.** Fue escrito después de una ronda de cuatro revisiones externas que corrieron en paralelo leyendo la versión anterior. Tres de ellas numeraron hallazgos nuevos usando el "último número" que este archivo declaraba, y chocaron entre sí. La lección quedó registrada como regla, abajo: **no asignes números de hallazgo.**
+
+---
+
+## ▶ Sesión 24 (18 y 19/11): análisis de rutina de la foto, 16.43 ✅ (plan v77)
+
+- **WF4 reconvertido, no un WF9** (decisión de Agustín). El WF4 viejo promediaba 6 h de `lectura_sensores`, lo evaluaba con otra regla que WF1 y le pedía a Gemini una tendencia sin historial. Se reemplazó entero (mismo id `Xqp1u6DBpbqyg57N`, 7 nodos, **activo**). Sus hallazgos (16.30, 16.45, 16.49, 16.57 a 16.60) se cerraron **por reemplazo, no por arreglo**. **Regla que salió de esto:** antes de proponer una pieza nueva, revisar lo que existe, también lo apagado.
+- **Cómo anda:** cada 6 h, `vista_fotos_para_analizar` (foto en Storage, de 10 min a 48 h, sin fila en `seguimiento_fenologico` con esa `path_foto`, cultivo sin pausa) → bajar la foto → WF2 con `origen: 'proactivo'`. WF2 avisa solo si encontró algo (severidad media o más, plagas o malezas); si falla, no avisa y se reintenta en el turno siguiente.
+- **Base** (`SQL/sesion24_16.43_fotos_para_analizar.sql`, OK 16 de 16): la vista y `seguimiento_fenologico.origen` (`alerta`, `consulta`, `proactivo`; null en las viejas). **WF2** 12 nodos (`Avisar?`, `Avisar el fallo?`; prompt según el origen; `malezas_detectadas`; sin el `==`). **WF6** manda `origen: 'consulta'`.
+- **En vivo:** `/diagnostico` → `consulta`; rechazo de los 10 min visto; lectura 39 sana con foto → WF4 → `proactivo`, sin Telegram; segunda corrida sin filas. Esa vez contestó el **respaldo** de Gemini (el 3.6 falló; causa sin registrar).
+- **Datos de prueba nuevos (#28):** arranque 30, lectura 39 y su foto; diagnósticos del 18/11 (2) y 19/11 (1).
+- **Ojo:** en n8n hay un **WF6 viejo** apagado (`ktGlXmvgaM7KazJu`, "… viejo", 13 nodos). En esta sesión se editó y exportó por error en lugar del bueno (`4IA10LufXMrjIk7x`). Propuesto borrarlo (está en git). El riego 33 sigue en `pendiente` tras la lectura 39 (sin revisar).
+- **Sigue:** Fase 17 corta → informe → servidor.
 
 ---
 
@@ -168,7 +180,7 @@
 2. `WORKFLOWS/WF1.json` — es el corazón del sistema y donde está casi todo el trabajo abierto.
 3. `WORKFLOWS/WF3.json` — el segundo en importancia. Prompt nuevo desde el 01/10 (16.42).
    `WF5.json` se re-exportó el 19/10 (lazo de riego, 13.7.2); `WF7.json` y `WF1.json` el 20/10 (contrato v1, Fase 18, y la sesión 18); `WF2.json` y `WF3.json` **al cierre de la sesión 19** (26/10: respaldo de Gemini y prompt de WF2).
-4. WF2, WF4, WF5, WF7 y WF8 **solo si la tarea los toca.** WF4 está apagado a propósito.
+4. WF2, WF4, WF5, WF7 y WF8 **solo si la tarea los toca.** WF4 es, desde el 19/11, el análisis de rutina de la foto (activo).
 
 **No leas `implementation_plan.md` entero.** Si necesitás el detalle de un hallazgo, abrí solo esa sección — el **mapa del final** dice dónde está cada una.
 
@@ -189,7 +201,7 @@ Un sistema experto agrícola de loop cerrado. En una frase:
 | ESP32 + sensor 7-en-1 | Mide humedad, temperatura, pH, conductividad, N, P, K. Manda foto opcional | **No existe todavía.** Se simula con PowerShell, con el formato del contrato v1 |
 | n8n | Orquestación. 8 workflows: WF1 a WF8 (WF6, los comandos por Telegram, desde el 15/11; completo el 16/11) | Docker en la PC de Agustín, `localhost:5678`. **Versión fijada `2.19.5`** (B.14), volumen `tesis_n8n_storage` respaldado (B.13) |
 | Supabase | Postgres + Storage (bucket `fotos-cultivos`) | Proyecto `xypqsthwquegftcnoqyi`, "Tesis Cultivos" |
-| Google Gemini | Visión: diagnóstico de emergencia y validación de etapa | `gemini-3.6-flash` en WF2 y WF3 desde el 16/11 (antes `3.8`, saturado), respaldo `gemini-3.5-flash-lite` (WF4 quedó en `2.5`). Cupo gratis: 20 pedidos/día el Flash, 500 el Flash Lite |
+| Google Gemini | Visión: diagnóstico de emergencia y validación de etapa | `gemini-3.6-flash` en WF2 y WF3 desde el 16/11 (antes `3.8`, saturado), respaldo `gemini-3.5-flash-lite` (WF4 no llama a Gemini: usa WF2). Cupo gratis: 20 pedidos/día el Flash, 500 el Flash Lite |
 | Telegram | Canal de notificación | `chatId` 5593622386, repetido en 5 nodos |
 
 **El ESP32 no está armado y nada depende de él.** La orquestación se construye primero, desacoplada a propósito: el sistema solo habla vía HTTP contra Supabase, nunca al revés.
@@ -220,7 +232,7 @@ ESP32 (o PowerShell)       Header Auth en los cuatro: X-Device-Key (credencial `
       (si Storage falla, sigue igual y avisa por Telegram)
 
  WF3 (cada 8 h, solo)  ──► mira la última foto ──► Gemini ──► ¿avanzó de etapa?
- WF4 (apagado)         ──► análisis preventivo de rutina
+ WF4 (cada 6 h, solo)  ──► última foto que nadie analizó ──► WF2 (avisa si encuentra algo)
 ```
 
 ---
@@ -316,9 +328,9 @@ Schedule (8h) → Obtener Cultivos Activos → Obtener Orden Etapas [executeOnce
 
 **Deduplicación — tiene DOS capas:** `Validacion de foto` exige `ultima_foto_path` no vacío **y** distinto de `ultima_foto_evaluada_path`; y la RPC tiene su propia clave de idempotencia `(cultivo_id, path_foto)` y devuelve `duplicado` si la foto ya tiene conclusión. **Limpiar la marca a mano no hace reevaluar** (la RPC frena igual). Regla: **para reevaluar, se manda una foto nueva por WF1; la marca no se toca a mano.**
 
-### WF4 — `Análisis Preventivo de Rutina` · 10 nodos · **APAGADO a propósito**
+### WF4 — `Análisis Preventivo de Rutina` · 7 nodos · **activo** (desde el 19/11)
 
-Schedule cada 6 h. Sin ESP32 real no hay telemetría fresca; activarlo solo generaría corridas vacías. **Es una decisión, no un pendiente.** Quedó en `gemini-2.5-flash` (16.30).
+Análisis de rutina de la foto (16.43). `Cada 6 h` → `Fotos para analizar` (`vista_fotos_para_analizar`, `Sup S`) → `Descargar foto` → `Foto a base64` → `Armar pedido` (el mismo pedido que `/diagnostico`, con `origen: 'proactivo'`) → `Foto lista?` → `Pedir análisis` (`/webhook/diagnostico-ia`, `n8n interno`). Sin filas, termina en el primer nodo. No llama a Gemini. El WF4 viejo (promedios de sensores) está en git hasta el commit `c99c2cd`.
 
 ### WF5 — `Control de Riego` · 9 nodos · **activo**
 
@@ -405,7 +417,7 @@ Cada 30 s → Pedir mensajes → Hay mensajes? → Confirmar lectura → Normali
 | `seguimiento_fenologico` | Historia clínica (la escribe WF2) | `diagnostico_ia jsonb`, `path_foto` |
 | `evaluacion_fenologica` | Evaluaciones de etapa (la escribe WF3) | `resultado`, `etapa_detectada`, `diagnostico jsonb` |
 
-**Vistas:** `vista_cultivos_activos` (la que consumen WF1/WF3/WF4; desde el 27/10 trae `riego_automatico_disponible`, y la base exige caudal y volumen > 0 si están cargados), `vista_conocimiento_experto` (umbrales por especie+etapa), `vista_promedios_recientes`, `vista_ultimo_arranque` (firmware vigente por placa, `security_invoker`), `vista_ultimo_riego`. Esta última, desde el 19/10, trae además `evento_id`, `comando_estado`, `absorcion_completa` (≥ 15 min), `recheck_vencido` (> 60 min) y `humedad_max_posterior`. **Los dos tiempos se definen solo ahí**: los leen WF5 y el Motor.
+**Vistas:** `vista_fotos_para_analizar` (desde el 19/11, la lee WF4: las filas de `vista_estado_cultivo` con una foto de 10 min a 48 h que nadie analizó, sin pausa), `vista_cultivos_activos` (la que consumen WF1 y WF3; desde el 27/10 trae `riego_automatico_disponible`, y la base exige caudal y volumen > 0 si están cargados), `vista_conocimiento_experto` (umbrales por especie+etapa), `vista_promedios_recientes`, `vista_ultimo_arranque` (firmware vigente por placa, `security_invoker`), `vista_ultimo_riego`. Esta última, desde el 19/10, trae además `evento_id`, `comando_estado`, `absorcion_completa` (≥ 15 min), `recheck_vencido` (> 60 min) y `humedad_max_posterior`. **Los dos tiempos se definen solo ahí**: los leen WF5 y el Motor.
 
 **Tabla `lectura` (desde el 03/11, 16.47):** una fila por lectura, con su DNI `(arranque_id, seq)` único y sus horas; `lectura_sensores.lectura_id` apunta a ella.
 
@@ -548,7 +560,7 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 >
 > ✅ **Resuelto en la sesión 19, SIN número (26/10):** el prompt de WF2 mandaba `undefined%` con un valor en `null` o en `0` (el `||` trata el 0 como falta). Ejercido antes y después; ahora `??` y "sin dato".
 >
-> 🟡 **SIN número (20/10, bajó de 🟠 el 26/10):** **un solo modelo de Gemini.** **Respaldo aplicado en WF2 y WF3** (`gemini-3.5-flash-lite`, salida de error, tope de 60 s). **Sigue abierto:** WF4 sin respaldo (apagado), y el nombre de cada modelo escrito en la URL de cada nodo (6 lugares): cuando Google da de baja un modelo, ese nodo pasa a `404` sin aviso. Falta tenerlos en un solo lugar (probar antes qué permite el n8n de Agustín) y revisar las fechas de baja. Para después del 28/10.
+> 🟡 **SIN número (20/10, bajó de 🟠 el 26/10):** **un solo modelo de Gemini.** **Respaldo aplicado en WF2 y WF3** (`gemini-3.5-flash-lite`, salida de error, tope de 60 s). **Sigue abierto:** el nombre de cada modelo escrito en la URL de cada nodo (4 lugares desde el 19/11): cuando Google da de baja un modelo, ese nodo pasa a `404` sin aviso. Falta tenerlos en un solo lugar (probar antes qué permite el n8n de Agustín) y revisar las fechas de baja. Para después del 28/10.
 >
 > 🟢 **SIN número (26/10):** en WF3, con 2 o más cultivos y respuestas mezcladas entre principal y respaldo, `Parsear y decidir` corta con "Desalineación". Seguro e inalcanzable con un cultivo; aceptado a sabiendas.
 >
@@ -567,7 +579,6 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 | **16.55** | WF5 | Ejecuta lo que le mandan sin verificar contra la base. Compone con B.23 |
 | **16.64** | Infra · Producto | **El orquestador apagado es monitoreo apagado.** n8n no recupera corridas perdidas, la pantalla sigue diciendo *Active*, y no hay señal. Es 16.44 un piso más arriba. **Pasó otra vez el 25/10.** Decisión de Agustín (26/10): Docker a mano; un VPS si pasa a producto |
 | **16.44** | Todos | El silencio del dispositivo no existe como estado: 34 días sin lecturas y cero avisos |
-| **16.43** | WF1 · WF2 | Una foto sin alerta de umbral no la analiza nadie |
 | **16.61** | BD | Un `duracion_estimada_dias` o un `etapa_actual_id` nulo cambia la ventana de evaluación de WF3 sin avisar. (16.38, el catálogo, se cerró el 20/10; 16.33, dos cultivos activos por placa, el 11/11) |
 | **16.31 · 16.15** | WF3 | `etapa_no_coincide` es estado absorbente · la degradación no deja señal operativa |
 | **B.17** | Arquitectura | Falta la capa de tendencia: el sistema ve estados, no procesos. Los datos ya existen, falta quien los lea |
@@ -575,11 +586,11 @@ Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = c
 
 ### 🟡 · 🟢 — agrupados
 
-- **WF4, no encenderlo:** `16.57` (pérdida de cardinalidad — es 16.16 otra vez), `16.58` (ruteo), `16.59` (el error del modelo guardado como dato — es 16.14 otra vez), `16.49`, `16.60`, `16.45` (el prompt le pide al modelo que invente la tendencia), `16.30` (quedó en `gemini-2.5-flash`).
+- ~~**WF4, no encenderlo:** `16.57`, `16.58`, `16.59`, `16.49`, `16.60`, `16.45`, `16.30`~~ ✅ cerrados **por reemplazo** el 19/11 (WF4 reconvertido, 16.43).
 - **WF5, endurecer:** `16.53`, `16.54`, `16.56` (ya no tapa a 16.52), `16.62`.
 - **Seguridad y base:** `16.1` (secretos), `16.6` (mínimo privilegio), `16.13` (`anon`/`authenticated` con `ALL` sobre 18 tablas), ~~`B.9`~~ ✅ (resuelto el 03/11 en el paso 4 y anotado el 10/11), `B.23` (una sola clave para todas las placas; corregido el 10/11: WF5 usa `n8n interno`, así que con la clave de la placa no se ordena un riego).
 - **Contrato y datos:** `B.22` ✅ (contrato escrito el 13/10; pasos 1 y 2 vigentes desde el 20/10), ~~`16.48`~~ ✅ (temperatura y conductividad: **se guardan, no deciden**, aplicado el 03/11), `B.19` (cadencia: el contrato no la fija, sale del piloto), `B.20` (trazabilidad: el DNI de la lectura la habilita), `B.21` (retención).
-- **Observabilidad de la planta:** `16.65` (la ventana de evaluación es el 80 % de la duración: Fructificación deja **32 días ciegos**), `16.43` (una foto sin alerta no la mira nadie), `B.17` (falta la capa de tendencia). Los tres son lo mismo visto de costado: **el sistema solo observa cuando sospecha, y sospecha por un único criterio.**
+- **Observabilidad de la planta:** `16.65` (la ventana de evaluación es el 80 % de la duración: Fructificación deja **32 días ciegos**), ~~`16.43`~~ ✅ 19/11 (una foto sin alerta no la miraba nadie: ahora WF4), `B.17` (falta la capa de tendencia). Los tres son lo mismo visto de costado: **el sistema solo observa cuando sospecha, y sospecha por un único criterio.**
 - **Resto:** ~~`16.8`~~ ✅ (04/11, paso 3: una MAC desconocida y una placa sin cultivo activo se rechazan y se registran), `16.9`, `16.21`, `16.29`, `B.2`–`B.6`, `B.8`, `B.10`–`B.12`, `B.15`, `B.16`, `B.18`.
 
 ### Reglas que salieron de las últimas rondas
@@ -607,7 +618,7 @@ La lista de abajo es el orden general del proyecto, sin la fecha.
 2. ~~**Entrega de órdenes a la placa** (16.63)~~ ✅ 10/11 (sesión 22, WF8). Queda una clave por placa (B.23).
 3. ~~16.38~~ ✅ 20/10. Lo que queda del hueco de umbrales (etapa sin fila) se resuelve juntando las dos tablas: trabajo futuro.
 4. **Endurecer WF5**: ~~16.51~~ ✅ (27/10), 16.55, 16.53, 16.56 (16.52 se cerró en la puerta de WF1).
-5. **No encender WF4** hasta resolver 16.57, 16.58, 16.59, 16.49, 16.60 y 16.30.
+5. ~~**No encender WF4**~~ ✅ 19/11: WF4 reconvertido en el análisis de rutina de la foto (16.43).
 6. **Pendientes chicos:** copia de la clave de n8n y del respaldo fuera de la laptop (los hace Agustín); verificar las referencias BBCH antes de citarlas (17.3).
 
 > **La ventana de evaluación de WF3 está abierta desde el 25/10** (16.65). WF3 solo corre si n8n está levantado en un turno (cada 8 h): si no, la corrida no ocurre y no deja rastro (16.64, pasó el 25/10). Para la demo, ejecutarlo a mano.

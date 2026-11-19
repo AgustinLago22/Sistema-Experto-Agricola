@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v76)
+# Sistema Experto Agrícola — Plan de Implementación (v77)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -46,14 +46,14 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 |---|---|---|---|---|
 | **WF1** — Pipeline Telemetría | ✅ `true` | 04/11 | ~~16.8~~ ✅ (04/11) · ~~16.39~~ ✅ (27/10) · ~~16.48~~ ✅ · ~~16.47~~ ✅ (03/11) · ~~sin número~~ ✅ (04/11, Storage caído ya no frena Telegram ni riego) · ~~16.33~~ ✅ (11/11, en la base) · 16.37 🟡 (sin ejercitar) · ~~16.52~~ ✅ (20/10) | **19/10: 13.7.2 aplicado** (Motor con recheck y freno, `Consolidar datos`, nodo `Registrar Recheck de Riego`), 19 nodos. **20/10: la puerta del contrato aplicada y verificada en vivo** (Fase 18.2), 26 nodos. Cierra 16.52. **20/10 (sesión 18): una medición que decide, en `null`, ya avisa** ("Lectura Incompleta - Revisar Sensor", solo en el Motor), y el Telegram muestra "sin dato". **27/10 (sesión 20, 16.51):** `Dispara WF5` lee `riego_automatico_disponible` (de la vista) en vez de `tiene_actuador_riego`, y el Motor avisa si hay sequía, bomba y falta un dato. **27/10 (sesión 20, 16.39):** las dos guardas del Motor pasan la foto y `Preparar Foto binaria` corta con nombre si le llega sin foto. **27/10 (Telegram):** pH con un decimal como mínimo y hora de Argentina. **03/11 (sesión 21, 16.48):** `Consolidar datos` manda temperatura y conductividad a `fn_registrar_telemetria` (se guardan, no deciden). **03/11 (sesión 21, 16.47):** la lectura se registra con su DNI **antes** de la foto (orden nuevo: Motor → `Consolidar datos` → `fn_registrar_telemetria` → foto → recheck); un reintento lo rechaza la base y WF1 se detiene ahí. **04/11 (sesión 21, Storage):** `Subir Foto a Storage` sale por su salida de error; `Resultado de la foto` (nuevo) junta los tres caminos y decide si la foto se guardó; `Foto no guardada?` → `Aviso Foto no Guardada` (Telegram aparte); `Trigger a WF2` manda la ruta solo si la foto se guardó. **04/11 (sesión 21, paso 3):** responde después de guardar; `Lectura Duplicada?` → `Responder Duplicada` o `Responder Aceptada`. 31 nodos |
 | **WF7** — Registro de arranque | ✅ `true` | 20/10 | — | **20/10: importado, activado y probado** (Fase 18.1): `/webhook/arranque`, 8 nodos. |
-| **WF6** — Comandos por Telegram | ✅ `true` | 16/11 | — | **15 y 16/11: primera parte importada, activada y probada en vivo** (13.13.7): `/estado`, `/pausar`, `/reanudar`, `/ayuda`. **16/11: `/diagnostico` probado en vivo**, 20 nodos. Falta, opcional, el menú de comandos |
+| **WF6** — Comandos por Telegram | ✅ `true` | 16/11 | — | **15 y 16/11: primera parte importada, activada y probada en vivo** (13.13.7): `/estado`, `/pausar`, `/reanudar`, `/ayuda`. **16/11: `/diagnostico` probado en vivo**, 20 nodos. **18/11 (v77):** `/diagnostico` manda `origen: 'consulta'` a WF2; el rechazo de los 10 minutos, visto en vivo. Falta, opcional, el menú de comandos |
 | **WF8** — Entrega de Ordenes | ✅ `true` | 10/11 | — | **10/11 (sesión 22, 16.63): importado, activado y probado en vivo.** Dos webhooks con la clave de la placa (`ESP32 Telemetra Key`): `/webhook/ordenes` (`Validar Pedido` → `fn_tomar_ordenes`) y `/webhook/orden-acuse` (`Validar Acuse` → `fn_acusar_orden`), las dos con `Sup S`. 14 nodos. Diseño en 13.6 |
-| **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 16/11 | 16.15 🟠 (aplicado acá, falta en WF3) · ~~`undefined%`~~ ✅ (26/10) · **sin número** 🟢 (el respaldo lite es menos preciso) | **16/11 (v76): sin diagnóstico, avisa por Telegram** (`Explicar fallo` → `Avisar fallo`, antes del corte), 10 nodos, probado en vivo. **Principal `gemini-3.6-flash`** desde el 16/11 (el 3.8 estaba saturado). **26/10 (sesión 19): respaldo de Gemini** — `IA Vision Gemini` (`gemini-3.8-flash`) sale por la salida de error a `IA Vision Gemini Respaldo` (`gemini-3.5-flash-lite`); tope de 60 s en los dos; 8 nodos. Probado forzado (`404`) y con `503` real. El prompt dice "sin dato" en vez de `undefined%` y lleva los **rangos de la etapa** |
+| **WF2** — Diagnóstico IA Emergencia | ✅ `true` | 19/11 | 16.15 🟠 (aplicado acá, falta en WF3) · ~~`undefined%`~~ ✅ (26/10) · **sin número** 🟢 (el respaldo lite es menos preciso) | **18 y 19/11 (v77, 16.43):** sabe quién pidió el diagnóstico (`origen`: `alerta` si no viene, `consulta` desde WF6, `proactivo` desde WF4) y lo guarda en `seguimiento_fenologico.origen`. "VALORES CRÍTICOS DETECTADOS" solo en las alertas; la tarea de rutina busca malezas, plagas, hongos y deficiencias; el formato pide `malezas_detectadas`. La de rutina avisa solo si encuentra algo (`Avisar?`) y su falla no va a Telegram (`Avisar el fallo?`). `Diagnostico Fallido` sin el `==`. 12 nodos, probado en vivo. **16/11 (v76): sin diagnóstico, avisa por Telegram** (`Explicar fallo` → `Avisar fallo`, antes del corte), 10 nodos, probado en vivo. **Principal `gemini-3.6-flash`** desde el 16/11 (el 3.8 estaba saturado). **26/10 (sesión 19): respaldo de Gemini** — `IA Vision Gemini` (`gemini-3.8-flash`) sale por la salida de error a `IA Vision Gemini Respaldo` (`gemini-3.5-flash-lite`); tope de 60 s en los dos; 8 nodos. Probado forzado (`404`) y con `503` real. El prompt dice "sin dato" en vez de `undefined%` y lleva los **rangos de la etapa** |
 | **WF3** — Validación Fenológica | ✅ `true` | 26/10 (modelo: 16/11) | 16.31 🟠 (**confirmado en producción**) · ~~16.42~~ ✅ (01/10) · 16.21 🟡 (a medias) · **sin número** 🟢 (`duplicado` miente) · **sin número** 🟢 (respaldo con 2 o más cultivos mezclados corta la corrida) | **26/10 (sesión 19): ejercido con `gemini-3.8-flash`** (evaluación 14, `no_avanza`, a mano: el 25/10 n8n estaba apagado) y **respaldo de Gemini** igual que WF2 (`IA Vision Fenologica Respaldo`, lee de `Foto Descargada`), 18 nodos. **16/11: principal `gemini-3.6-flash`**, como WF2, todavía sin correr con él; probado forzado (evaluación 15, `no_avanza`, por el lite). Tiene foto nueva sin evaluar. **23/09: primer `avanza` de punta a punta** (evaluación id 12) |
-| **WF4** — Análisis Preventivo | ⬜ `false` **a propósito** | parcial (16.3/16.4, 05/08) | 16.30 🟢 | Sin ESP32 no hay telemetría fresca. Es una decisión, no un pendiente |
+| **WF4** — Análisis Preventivo | ✅ `true` | 19/11 | — | **19/11 (v77, 16.43): reconvertido en el análisis de rutina de la foto.** Cada 6 h lee `vista_fotos_para_analizar`, baja la foto y la manda a WF2 con `origen: 'proactivo'`. No llama a Gemini. 7 nodos (mismo id). El WF4 viejo (promedios de 6 h evaluados con otra regla y una tendencia inventada) se reemplazó: sus hallazgos se cerraron por reemplazo, no por arreglo. Detalle en 16.43 |
 | **WF5** — Control de Riego | ✅ `true` | 19/09 (primera auditoría) · 19/10 (13.7.2) · 27/10 (16.51) | ~~16.51~~ ✅ · 16.55 🟠 · 16.53 · 16.56 · 16.62 🟡 · ~~dosis entregada~~ ✅ | **19/10: tope duro en la base + `Riego Registrado?` + `Aviso Tope de Riego`**, 9 nodos. **27/10 (sesión 20):** `Calcular Dosis` ya no inventa volumen ni caudal (corta con error) y `dosis_ml` es la entregada. Endurecer: 16.55 |
 
-**Verificado en los exports (WF1 y WF5 del 27/10, sesión 20; WF2 y WF3 del 26/10, al cierre de la sesión 19; WF7 del 20/10; WF4 del 24/08):** WF1 26 nodos · WF2 8 · WF3 18 · WF4 10 · WF5 9 · WF7 8. **WF8 (export del 10/11, sesión 22): 14 nodos**, idéntico al JSON importado (parámetros y conexiones comparados). Gemini: `gemini-3.8-flash` con respaldo `gemini-3.5-flash-lite` en WF2 y WF3 desde el 26/10; **desde el 16/11 el principal es `gemini-3.6-flash`** (export del 16/11: WF2 10 nodos, WF3 18, WF6 20, iguales a n8n); **WF4 quedó en `2.5`, sin respaldo** (16.30).
+**Verificado en los exports (WF1 y WF5 del 27/10, sesión 20; WF2 y WF3 del 26/10, al cierre de la sesión 19; WF7 del 20/10; WF4 del 24/08):** WF1 26 nodos · WF2 8 · WF3 18 · WF4 10 · WF5 9 · WF7 8. **WF8 (export del 10/11, sesión 22): 14 nodos**, idéntico al JSON importado (parámetros y conexiones comparados). Gemini: `gemini-3.8-flash` con respaldo `gemini-3.5-flash-lite` en WF2 y WF3 desde el 26/10; **desde el 16/11 el principal es `gemini-3.6-flash`** (export del 16/11: WF2 10 nodos, WF3 18, WF6 20, iguales a n8n); ~~**WF4 quedó en `2.5`, sin respaldo** (16.30).~~ **Exports del 18 y 19/11 (v77): WF2 12 nodos, WF4 7, WF6 20**, comparados contra lo entregado (parámetros, credenciales y conexiones). WF4 ya no llama a Gemini.
 
 | Fase | Estado |
 |---|---|
@@ -81,10 +81,10 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | ~~**16.40**~~ | ✅ | Seguridad | Un JWT `service_role` estaba en texto plano en el plan | **Cerrado 01/10 (v54):** claves JWT heredadas deshabilitadas, verificado |
 | **16.64** | 🟠 | Infra · Producto | El orquestador apagado es monitoreo apagado, y no deja señal | n8n no recupera corridas perdidas. Causa del silencio de WF3. **Indicio 06/10:** ~5 días apagado (01/10 → 06/10), ver v57. **Otra vez el 25/10:** Docker apagado, WF3 no evaluó en la ventana. **Decisión del autor (26/10):** Docker a mano mientras se desarrolla; un VPS si pasa a producto |
 | ~~**16.42**~~ | ✅ | WF3 | El prompt no nombraba las transiciones hacia Fructificación ni Cosecha | **Cerrado 01/10 (v54–v55):** el criterio visual vive en `etapas_especie.criterio_visual` y el prompt lo toma de ahí. Test en vivo `no_avanza` ✅ |
-| **16.43** | 🟠 | WF1·WF2 | Una foto sin alerta de umbral no la analiza nadie | Falta un consumidor disparado por foto nueva |
+| ~~**16.43**~~ | ✅ | WF4·WF2·BD | Una foto sin alerta de umbral no la analiza nadie | **Cerrado 19/11 (v77):** WF4 reconvertido revisa cada 6 h la última foto que nadie analizó (entre 10 min y 48 h) y la manda a WF2. Verificado en vivo: foto sana sin alerta → analizada, sin Telegram; la segunda corrida no la repite |
 | **16.44** | 🟠 | Todos | El silencio del dispositivo no existe como estado | 29 días sin lecturas y cero avisos |
 | **B.17** | 🟠 | Arquitectura | Falta la capa de tendencia: el sistema ve estados, no procesos | Los datos ya existen; falta quien los lea |
-| **16.45** | 🟡 | WF4 | El prompt le pide al modelo que invente la tendencia | Corregir al reactivar WF4 |
+| ~~**16.45**~~ | ✅ | WF4 | El prompt le pide al modelo que invente la tendencia | **Cerrado por reemplazo 19/11 (v77):** ese prompt ya no existe. La tendencia sigue sin hacerse (B.17) |
 | **B.15 · B.16** | 🟡 | BD | No existe cierre de ciclo ni reinicio de maceta | Diferidos |
 | **B.18** | 🟢 | Hardware | Sin temperatura, humedad ambiente ni luz | Diferido, bloqueado por hardware |
 | ~~**16.46**~~ | ✅ | WF5·WF1 | Riegos consecutivos sin tope; el circuit breaker era inalcanzable | **Cerrado 19/10 (13.7.2, v60):** tope en `fn_registrar_riego` + recheck en el Motor, verificados en vivo |
@@ -96,7 +96,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | ~~**sin número**~~ | ✅ | WF1 | Con Storage caído, `Subir Foto a Storage` detiene el workflow: no llegan el Telegram ni el riego (y hasta el 03/11 tampoco se guardaba la lectura) | **Resuelto 04/11 (sesión 21, v69).** Ejercido el 03/11 (sequía 55 % + foto con la URL rota → `200 "aceptada"` y nada más). La lectura ya se guardaba antes de la foto (v68); ahora `Subir Foto a Storage` sale por su salida de error, el resto sigue y llega un Telegram aparte, "FOTO NO GUARDADA". Verificado en vivo con Storage roto (lectura 9: alerta, aviso, riego y diagnóstico de WF2 sin foto guardada) y sano (lectura 10: foto guardada, sin avisos). **Queda fuera, a propósito:** si falla `Actualizar Ultima Foto Cultivo` (la base, no Storage) el workflow se sigue deteniendo |
 | ~~**16.52**~~ | ✅ | WF1 | El Motor decidía sobre el valor crudo: `""` → sequía | **Cerrado 20/10 (Fase 18):** confirmado en vivo el 19/10 (T0: sequía falsa; el riego solo no ocurrió porque 16.56 rompía WF5) y verificado el 20/10: el mismo `""` vuelve `400` y no llega al Motor |
 | ~~**sin número**~~ | ✅ | WF1 | Una medición que decide, en `null`, se salteaba sin aviso: con solo la humedad en `null` la lectura salía `OK` y no se regaba | **Resuelto 20/10 (sesión 18, v63):** ejercido antes y después del arreglo. Costo aceptado: avisa en cada lectura mientras el sensor no mida (B.7) |
-| **sin número** | 🟡 | WF2 · WF3 · WF4 | Un solo modelo de Gemini, sin alternativa: un `503` o un modelo retirado deja la lectura sin diagnóstico, y el cambio es manual en cada workflow | **Respaldo aplicado en WF2 y WF3 (26/10, sesión 19, v64):** `gemini-3.5-flash-lite` por la salida de error, tope de 60 s, probado forzado y con `503` real. **Sigue abierto:** WF4 sin respaldo (apagado), y el nombre de cada modelo escrito en la URL de cada nodo (6 lugares): cuando Google da de baja un modelo, ese nodo pasa a `404` sin aviso. Falta tenerlos en un solo lugar y revisar las fechas de baja |
+| **sin número** | 🟡 | WF2 · WF3 · WF4 | Un solo modelo de Gemini, sin alternativa: un `503` o un modelo retirado deja la lectura sin diagnóstico, y el cambio es manual en cada workflow | **Respaldo aplicado en WF2 y WF3 (26/10, sesión 19, v64):** `gemini-3.5-flash-lite` por la salida de error, tope de 60 s, probado forzado y con `503` real. **Sigue abierto:** el nombre de cada modelo escrito en la URL de cada nodo (4 lugares desde el 19/11, cuando WF4 dejó de llamar a Gemini): cuando Google da de baja un modelo, ese nodo pasa a `404` sin aviso. Falta tenerlos en un solo lugar y revisar las fechas de baja |
 | ~~**sin número**~~ | ✅ | WF2 | El prompt mandaba `undefined%` a Gemini cuando un valor llegaba en `null`, y también con `0` (el `\|\|` trata el 0 como falta) | **Resuelto 26/10 (sesión 19, v64):** ejercido antes (`undefined%` en la vista previa) y después (`sin dato`); `??` en lugar de `\|\|` |
 | **sin número** | 🟢 | WF3 | Con 2 o más cultivos, si a uno le responde el principal y a otro el respaldo, `Parsear y decidir` corre dos veces con la mitad de los ítems y corta con "Desalineación" | Seguro (no guarda nada mal y reintenta en el próximo turno), inalcanzable con un solo cultivo. Aceptado a sabiendas el 26/10 |
 | **sin número** | 🟢 | WF2 · WF3 | El respaldo `gemini-3.5-flash-lite` es menos preciso | Visto el 26/10: dijo "elevar la acidez" con pH 5.2 (es al revés) e inventó un síntoma en las hojas que la foto no muestra. Mantiene el servicio con menos calidad |
@@ -105,7 +105,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | ~~**B.22**~~ | ✅ | Contrato | El contrato del webhook no estaba escrito | **Escrito 13/10 (v58):** `docs/contrato_telemetria.md`. Hacerlo cumplir son 6 pasos aparte (sección 9 del contrato) |
 | ~~**16.48**~~ | ✅ | Contrato·BD | Temperatura y conductividad descartadas | **Cerrado 03/11 (sesión 21, v67):** paso 5 del contrato. Se guardan, no deciden. Verificado en vivo: 7 filas con las dos, 5 con las dos en `null` |
 | **16.53 · 16.54 · 16.56 · 16.61 · 16.62** | 🟡 | varios | Ver Fase 16 | — |
-| **16.57 · 16.58 · 16.59 · 16.49 · 16.60** | 🟡·🟢 | WF4 | Cardinalidad, ruteo, degradación silenciosa, criterios | **No encender WF4** hasta resolverlos |
+| ~~**16.57 · 16.58 · 16.59 · 16.49 · 16.60**~~ | ✅ | WF4 | Cardinalidad, ruteo, degradación silenciosa, criterios | **Cerrados por reemplazo 19/11 (v77):** el código del WF4 viejo ya no existe. `vista_promedios_recientes` (16.49) sigue en la base, sin quien la lea |
 | **B.19 · B.20 · B.21 · B.23** | 🟡·🟢 | varios | Cadencia, trazabilidad, retención, separación de credenciales | Diferidos |
 | ~~**16.39**~~ | ✅ | WF1 | Sensor desconectado + foto: la lectura se pierde entera y sin aviso | **Cerrado 27/10 (sesión 20, v65):** fix de 2 capas aplicado. En vivo, todo en 0 + foto: Telegram "LECTURA SOSPECHOSA", lecturas 482 a 486 guardadas, foto subida, sin WF2 ni riego |
 | **16.31** | 🟠 | WF3 | `etapa_no_coincide` es un estado absorbente y nadie se entera | Sin aplicar. Depende de decidir el canal del aviso operativo |
@@ -124,7 +124,7 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 | ~~**16.8**~~ | ✅ | WF1 | Sin registro ante dispositivo desconocido | **Cerrado 04/11 (sesión 21, v70):** una MAC desconocida y una placa sin cultivo activo reciben 400 y quedan en `lectura_rechazada`. La placa sin cultivo, verificada en el test de la base, no en vivo |
 | **16.9** | 🟢 | WF1 · WF4 | Limpieza cosmética | Resto en B.4 |
 | **16.29** | 🟢 | WF3 | `"condition": "=eq"` sin reintento | Sin aplicar |
-| **16.30** | 🟢 | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | Aplicar al reactivar WF4 |
+| ~~**16.30**~~ | ✅ | WF4 | Deriva de modelo: quedó en `gemini-2.5-flash` | **Cerrado por reemplazo 19/11 (v77):** WF4 ya no llama a Gemini |
 | **B.2 · B.3 · B.4 · B.5 · B.6 · B.8 · B.11 · B.12** | 🟢 | varios | Ver Backlog | Diferidos a propósito |
 
 **Bloqueantes reales, en orden:** ~~`13.7.2` + `16.46`~~ ✅ 19/10 → ~~`16.63`~~ ✅ 10/11 (la entrega, por WF8) → ~~`16.33`~~ ✅ 11/11 (la base impide dos cultivos activos por placa). ~~`16.38`~~ ✅ 20/10.
@@ -134,6 +134,17 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 ---
 
 ### Cierre de sesión y próximos pasos
+> [!IMPORTANT]
+> **Sesión 24 (18 y 19/11): análisis de rutina de la foto (16.43 ✅), con el WF4 reconvertido.** Detalle en el changelog **v77** y en **16.43**.
+>
+> - **Decisión del autor (18/11):** reconvertir WF4 en vez de crear un WF9. El WF4 viejo leía los mismos datos que WF1 ya evalúa (promedios de 6 h de `lectura_sensores`) con otra regla, y le pedía a Gemini una tendencia sin historial. Se reemplazó entero: sus hallazgos (16.30, 16.45, 16.49, 16.57 a 16.60) se cierran por reemplazo, no por arreglo.
+> - **Base** (`SQL/sesion24_16.43_fotos_para_analizar.sql`): `vista_fotos_para_analizar` y `seguimiento_fenologico.origen`. Test: FALLÓ 0 de 16 antes, OK 16 de 16 después; probado antes en PGlite con 14 defectos a propósito (los detectó todos). Verificado por MCP.
+> - **WF2, WF4 y WF6** exportados y comparados contra lo entregado. En vivo: `/diagnostico` guarda `consulta`; foto sana sin alerta → WF4 → WF2 guarda `proactivo` sin Telegram; la segunda corrida de WF4 no la repite. El rechazo de los 10 minutos de `/diagnostico`, visto en vivo.
+> - **Gemini:** el 18/11 contestó el 3.6 o el respaldo sin anotar cuál; el 19/11 (análisis de rutina) contestó el **respaldo**: el 3.6 falló esa vez, causa sin registrar. Un dato, no una tendencia.
+> - **Datos de prueba nuevos, sin limpiar a propósito (#28):** arranque 30, lectura 39 (seq 0, sana) y su foto `…/1795114827481.jpg`; diagnósticos del 18/11 (`consulta`, 2) y del 19/11 (`proactivo`, 1).
+> - **Visto al pasar, sin revisar:** el riego 33 (15/11) sigue en `pendiente` después de la lectura 39 (humedad 68). Probablemente porque el control vence a los 60 min (`recheck_vencido`); no verificado.
+> - **Lo que sigue:** la Fase 17 corta → el informe → el servidor. Pendientes chicos: borrar de n8n el WF6 viejo (`ktGlXmvgaM7KazJu`, apagado, ya en git: se editó por error en esta sesión), el menú de comandos (opcional), la `X-Device-Key` de la placa de demo, la limpieza (#28).
+>
 > [!IMPORTANT]
 > **Sesión 23 (11/11): una placa, un solo cultivo activo (16.33 ✅).** Detalle en el changelog **v72** y en **16.33**.
 >
@@ -829,6 +840,7 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v77 | 18/11 → 19/11 | **Sesión 24: análisis de rutina de la foto (16.43 ✅), con WF4 reconvertido.** **(1) Decisión del autor:** reconvertir WF4 en vez de crear un WF9 (el agente lo había propuesto sin mirar WF4; quedó como regla: revisar lo que existe antes de proponer algo nuevo). **(2) Base** (`SQL/sesion24_16.43_fotos_para_analizar.sql`): `vista_fotos_para_analizar` = las filas de `vista_estado_cultivo` cuya última foto está en Storage, tiene entre 10 min y 48 h, nadie la analizó (ninguna fila de `seguimiento_fenologico` con esa foto) y el cultivo no está en pausa; `seguimiento_fenologico.origen` (`alerta`, `consulta`, `proactivo`; null en las filas viejas). Solo `service_role`. Test: FALLÓ 0 de 16 antes, OK 16 de 16 después; en PGlite detectó 14 defectos a propósito. **(3) WF2** (12 nodos): `origen` decide el título de los sensores del prompt ("VALORES CRÍTICOS DETECTADOS" solo en alertas), la tarea (la de rutina busca malezas, plagas, hongos y deficiencias, "no inventes problemas"), si avisa (`Avisar?`: la de rutina solo con severidad media o más, o plagas o malezas) y si la falla va a Telegram (`Avisar el fallo?`: la de rutina no). El formato pide `malezas_detectadas`. `Diagnostico Fallido` sin el `==` ni el doble punto. Probado fuera de n8n (104 casos; una alerta sin detecciones sale igual que antes). **(4) WF6:** `Elegir cultivo` manda `origen: 'consulta'`. **(5) WF4** (7 nodos, mismo id): cada 6 h `Fotos para analizar` → `Descargar foto` → `Foto a base64` → `Armar pedido` → `Foto lista?` → `Pedir análisis` (WF2, `n8n interno`). Probado fuera de n8n (14 casos; encontró la hora en formato de 12 h). **(6) En vivo:** dos `/diagnostico` → `consulta`; un tercero a los 4 min → rechazo de los 10 minutos; lectura sana con foto (lectura 39) → sin Telegram ni WF2; la vista la mostró recién a los 10 min; WF4 a mano → `proactivo`, severidad baja, sin Telegram; WF4 otra vez → corta sin filas. **(7) Gemini:** en la corrida del 19/11 contestó el respaldo. En los `/diagnostico` del 18/11 Gemini no devolvió `malezas_detectadas`; con el prompt de rutina, sí. **(8) Cierra por reemplazo** 16.30, 16.45, 16.49, 16.57, 16.58, 16.59 y 16.60. **No cierra** 16.65 (la ventana de etapa de WF3) ni B.17 (tendencia). **Límites:** el aviso con detecciones solo está probado fuera de n8n; con varios cultivos, WF4 pide todos a la vez (cupo de Flash: 5 por minuto); un análisis de rutina hace esperar 10 minutos a un `/diagnostico`. |
 | v76 | 16/11 | **Sesión 23: WF6 completo (`/diagnostico`), WF2 avisa cuando no hay diagnóstico, y Gemini 3.6.** **(1) `/diagnostico`:** 7 nodos nuevos en WF6 (20 en total, 13.13.3). Probado en vivo: la foto se mandó a WF2 y llegó el diagnóstico. **Encontrado al probar:** el límite de 10 minutos no ve un pedido mientras WF2 trabaja (hasta 90 s), y un segundo `/diagnostico` gastaba otro pedido. Se agregó un freno de 3 minutos en la memoria del workflow, probado en vivo. **(2) WF2:** cuando no hay diagnóstico, `Explicar fallo` y `Avisar fallo` mandan el motivo por Telegram antes del corte (10 nodos). Probado con nombres de modelo falsos (corrida 1624). **(3) Gemini:** el 16/11 el principal `gemini-3.8-flash` falló en las 4 corridas de WF2 (3 por `503` "high demand", 1 sin respuesta en 60 s), y en una falló también el respaldo. Agustín cambió el principal a **`gemini-3.6-flash`** en WF2 y WF3; primera corrida (1644): contestó el principal en 24 s. Según AI Studio, cupo gratis: Flash 5 por minuto y 20 por día; Flash Lite 15 y 500; los Pro, 0. No se usa `-latest`: apunta al modelo más nuevo, que es el más saturado. **(4) Pendiente:** el rechazo de los 10 minutos en vivo, el menú de comandos (opcional) y ver si el 3.6 se mantiene. Un detalle viejo: el mensaje de `Diagnostico Fallido` empieza con `==` y se ve "= Gemini no devolvió…". |
 | v75 | 16/11 | **Sesión 23: WF6, primera parte construida y probada en vivo (13.13.7, pasos 3 y 4).** **(1) Qué hay:** `WORKFLOWS/WF6.json`, 13 nodos: `/estado`, `/pausar`, `/reanudar`, `/ayuda`, texto no entendido y mensaje tarde. `/diagnostico` contesta que todavía no está listo. Cambios contra el diseño: un IF (`Es pausa?`) en vez del `Switch`, y los textos se arman en `Elegir cultivo` (13.13.3). **(2) Probado:** los nodos de código fuera de n8n (66 casos; uno encontró el "4/11" de `es-AR`), y en vivo cada comando contra la base. La pausa frena a WF1: dos sequías en pausa se guardaron sin aviso ni riego, y la misma sequía después de `/reanudar` avisó y regó (riego 33). Un `/estado` mandado con n8n apagado se contestó como tarde. **(3) Encontrado:** pegar el JSON en el lienzo no trae la configuración del workflow; al apagar n8n queda una corrida *crashed* que no hace daño; una corrida exitosa no guardada queda `running` con `deletedAt` en la base de n8n (13.13.3). "Riego automático: disponible" no dice si el freno está puesto (13.13.5). **(4) Datos de prueba:** arranque 29, lecturas 35 a 38, riego 33, orden 41. **(5) Pendiente:** cambiar la `X-Device-Key` de la placa de demo, que se compartió fuera de n8n. |
 | v74 | 12/11 | **Sesión 23: diseño v2 de WF6, comandos por Telegram (13.13), sin construir.** **(1) Comandos v1:** `/estado` y `/diagnostico` (la inspección bajo demanda que promete la propuesta), `/pausar` y `/reanudar` (modo mantenimiento, que WF1 ya respeta desde 13.12), `/ayuda`. Fuera de v1: `/calibrar` (necesita la bomba real), `/regar` (16.55 primero) y el aviso de fin de pausa. **(2) Reglas:** solo el chat del autor; un comando de más de 10 minutos no se ejecuta; cada comando como mucho una vez (se confirma a Telegram antes de procesar); toda falla contesta. **(3) Entrada:** por consulta (`getUpdates` cada 30 s, abierta hasta 25 s) mientras n8n corra en la laptop; la lógica empieza en `Normalizar mensaje`, así pasar a webhook (servidor o ngrok) cambia solo la entrada. **(4) Base (sin aplicar):** `vista_estado_cultivo` y `fn_pausar_cultivo` (tope 24 h). **(5) Encontrado:** la credencial de Telegram de n8n no sirve para `getUpdates` desde un nodo HTTP (sin `authenticate`, el token va en la ruta): Agustín eligió la opción A: el token en `.env`, pasado al contenedor y leído con `$env` (compose y `.env.example` cambiados; probado con `getMe` desde un nodo, 13.13.6). Diseño de agosto plegado al final de 13.13. |
@@ -2308,6 +2320,9 @@ Escenario: se creó un **cultivo B de test en Vegetativo** (no en Floración) co
 ---
 
 ## Fase 10 · WF4 — Análisis Preventivo de Rutina (Nodo por Nodo)
+
+> [!NOTE]
+> **Historia.** Esta fase describe el WF4 original (promedios de 6 h de los sensores). **El 19/11/2026 (v77) se reemplazó** por el análisis de rutina de la foto: ver **16.43**. Lo de abajo se conserva como registro, no describe lo que corre.
 
 ### 10.1 — Crear Workflow 4
 
@@ -3905,7 +3920,7 @@ Cada 30 s → Pedir mensajes → Hay mensajes? → Confirmar lectura → Normali
   - **ayuda / no entendido** → `Responder`.
 - **`Responder`** (Telegram, credencial `Telegram bot Agricola`, al chat del mensaje).
 
-**El cuerpo que recibe WF2 desde `/diagnostico`** tiene los mismos campos que le manda WF1, sacados de `vista_estado_cultivo`: `cultivo_id`, `etapas_especie_id`, `planta`, `etapa`, `mac_address`, `humedad`, `ph`, `n`, `p`, `k`, `umbrales` (`{ humedad: {min, max}, ph: {min, max}, n_ideal, p_ideal, k_ideal }`), `estado: "CONSULTA A PEDIDO"`, `observaciones: ["Pedido por el usuario desde Telegram (/diagnostico), no por una alerta."]`, `path_foto_evento` (la ruta de la foto) y `foto_base64`. Las observaciones llevan además la fecha de la foto y la de la lectura. WF2 no necesitó cambios para recibirlo (sí el aviso de falla, más abajo). Limitación conocida: su prompt titula los valores como "críticos detectados" aunque sea una consulta a pedido; se corrige junto con 16.43, que necesita lo mismo.
+**El cuerpo que recibe WF2 desde `/diagnostico`** tiene los mismos campos que le manda WF1, sacados de `vista_estado_cultivo`: `cultivo_id`, `etapas_especie_id`, `planta`, `etapa`, `mac_address`, `humedad`, `ph`, `n`, `p`, `k`, `umbrales` (`{ humedad: {min, max}, ph: {min, max}, n_ideal, p_ideal, k_ideal }`), `estado: "CONSULTA A PEDIDO"`, `observaciones: ["Pedido por el usuario desde Telegram (/diagnostico), no por una alerta."]`, `path_foto_evento` (la ruta de la foto) y `foto_base64`. Las observaciones llevan además la fecha de la foto y la de la lectura. WF2 no necesitó cambios para recibirlo (sí el aviso de falla, más abajo). ~~Limitación conocida: su prompt titula los valores como "críticos detectados" aunque sea una consulta a pedido; se corrige junto con 16.43, que necesita lo mismo.~~ **Corregido el 18/11 (v77):** el pedido lleva `origen: 'consulta'` y WF2 titula "ÚLTIMA LECTURA REGISTRADA"; la fila se guarda con `origen = 'consulta'`.
 
 **Límite de un diagnóstico cada 10 minutos por cultivo:** cuida la cuota gratuita de Gemini. Se mide con el último registro en `seguimiento_fenologico`. Si WF2 falla, no deja registro y se puede volver a pedir.
 
@@ -4160,6 +4175,8 @@ SEÑAL QUÍMICA: {{ $json.anticipacion_temprana ? ('Los valores de NPK/pH ya se 
 Esto le da a Gemini un dato adicional (no visual) para ponderar en su `confianza`, sin que la señal química por sí sola alcance para confirmar el cambio — sigue siendo la IA de visión la que decide.
 
 ### 14.5 — Extensión Opcional a WF4 (Aviso Preventivo Temprano)
+
+> **Nota (19/11/2026, v77):** el WF4 al que se refiere esta extensión ya no existe (ver 16.43). La Fase 14 está fuera de alcance (issue #31).
 
 WF4 ya corre cada 6 horas y ya trae `vista_promedios_recientes` + `vista_conocimiento_experto` (Fase 10.3-10.4). Agregar el mismo cálculo de 14.2 y, si `anticipacion_temprana=true`, sumar una línea al prompt de WF4 (Fase 10.5): *"Los valores químicos sugieren un posible adelanto de etapa — considerá una inspección visual antes del chequeo diario de las 8 AM."* Así el agricultor se entera el mismo día en vez de esperar al schedule de WF3.
 
@@ -4454,7 +4471,7 @@ Un hallazgo entra acá cuando fue **verificado contra el artefacto** (el JSON ex
 | 16.27.1 | — | Corrección: el `Stop and Error` era el fix equivocado | ✅ Verificado en vivo (24/08) |
 | 16.28 | 🟡 | `etapa_detectada_cruda` se calcula y se tira | ✅ Resuelto (23/08) |
 | 16.29 | 🟢 | `"condition": "=eq"` no admite reintento | 🟢 **Abierto** |
-| 16.30 | 🟢 | Deriva de modelo: WF4 quedó en `gemini-2.5-flash` | 🟢 **Abierto** — confirmado en el export |
+| 16.30 | 🟢 | Deriva de modelo: WF4 quedó en `gemini-2.5-flash` | ✅ **Cerrado por reemplazo** (19/11, v77) |
 | 16.31 | 🟠 | `etapa_no_coincide` es un estado absorbente | 🟠 **Abierto** |
 | 16.32 | ❌ | "Un fallo de Telegram impide el riego" | ❌ **Descartado** — refutado por el test y la topología |
 | 16.33 | 🟠 | Dos cultivos activos por dispositivo: uno se pierde en silencio | ✅ **Cerrado en la base** (11/11) |
@@ -4466,23 +4483,23 @@ Un hallazgo entra acá cuando fue **verificado contra el artefacto** (el JSON ex
 | 16.40 | 🔴 | Un JWT `service_role` quedó en texto plano dentro del plan | 🔴 **Abierto** — redactado; falta verificar y rotar |
 | 16.41 | 🔴 | Cosecha: 30 días sin riego automático y una alerta por lectura | 🔴 **Abierto** — se cierra con dato, no con código |
 | 16.42 | 🟠 | La transición Floración → Cosecha es inalcanzable por el prompt | 🟠 **Abierto** — prompt verificado, modelo sin ejercer |
-| 16.43 | 🟠 | Una foto con lecturas normales no la mira nadie | 🟠 **Abierto** |
+| 16.43 | 🟠 | Una foto con lecturas normales no la mira nadie | ✅ **Cerrado** (19/11, v77): WF4 reconvertido |
 | 16.44 | 🟠 | El silencio del dispositivo no existe como estado | 🟠 **Abierto** |
-| 16.45 | 🟡 | El análisis preventivo le pide al modelo que invente la tendencia | 🟡 **Abierto** — corregir al reactivar WF4 |
+| 16.45 | 🟡 | El análisis preventivo le pide al modelo que invente la tendencia | ✅ **Cerrado por reemplazo** (19/11, v77) |
 | 16.46 | 🔴 | Riegos consecutivos sin tope: el cooldown de 15 min es el único freno | 🔴 **Abierto** — precondición de conectar una bomba |
 | 16.47 | 🟠 | Sin tiempo de dispositivo ni secuencia en la telemetría | ✅ **Cerrado 03/11 (v68)** — desde esa fecha; lo anterior no se recupera |
 | 16.48 | 🟡 | Temperatura y conductividad en el catálogo, descartadas en el borde | ✅ **Cerrado 03/11 (v67)** — se guardan desde esa fecha; lo anterior no se recupera |
-| 16.49 | 🟢 | `vista_promedios_recientes` cuenta filas (×5) y promedia 6 h | 🟢 **Abierto** — al reactivar WF4 |
+| 16.49 | 🟢 | `vista_promedios_recientes` cuenta filas (×5) y promedia 6 h | ✅ **Cerrado por reemplazo** (19/11, v77): la vista queda sin uso |
 | 16.51 | 🔴 | WF5 inventa volumen y caudal cuando faltan; el tope de 30 s hereda el invento | 🔴 **Abierto** |
 | 16.52 | 🟠 | El Motor decide sobre el valor crudo: un `""` se vuelve sequía | 🟠 **Abierto** — ejercitable |
 | 16.53 | 🟡 | WF5 no registra cooldown, fallos ni recortes; WF1 nunca se entera | 🟡 **Abierto** |
 | 16.54 | 🟡 | Ventana de carrera en el cooldown de WF5 | 🟡 **Abierto** |
 | 16.55 | 🟠 | WF5 ejecuta lo que le mandan sin verificar contra la base | 🟠 **Abierto** |
 | 16.56 | 🟡 | `Registrar Riego` arma el cuerpo por interpolación de texto | 🟡 **Abierto** — tercera aparición del patrón |
-| 16.57 | 🟡 | WF4 pierde cardinalidad: N informes del primer cultivo | 🟡 **Abierto** — WF4 apagado |
-| 16.58 | 🟡 | `skip: true` no se rutea: WF4 muere en verde con `planta = undefined` | 🟡 **Abierto** |
-| 16.59 | 🟡 | Si el modelo falla, WF4 informa "Tendencia: estable" | 🟡 **Abierto** |
-| 16.60 | 🟢 | WF1 y WF4 no coinciden en qué es una desviación | 🟢 **Abierto** |
+| 16.57 | 🟡 | WF4 pierde cardinalidad: N informes del primer cultivo | ✅ **Cerrado por reemplazo** (19/11, v77) |
+| 16.58 | 🟡 | `skip: true` no se rutea: WF4 muere en verde con `planta = undefined` | ✅ **Cerrado por reemplazo** (19/11, v77) |
+| 16.59 | 🟡 | Si el modelo falla, WF4 informa "Tendencia: estable" | ✅ **Cerrado por reemplazo** (19/11, v77) |
+| 16.60 | 🟢 | WF1 y WF4 no coinciden en qué es una desviación | ✅ **Cerrado por reemplazo** (19/11, v77) |
 | 16.61 | 🟡 | `duracion_estimada_dias` nulo abre la ventana el día cero | 🟡 **Abierto** |
 | 16.62 | 🟡 | Nada distingue "no tocaba" de "no corrió" en los planificadores | 🟡 **Abierto** |
 | 16.63 | ✅ | El lazo de riego está abierto en dos lugares, no en uno | ✅ **Cerrado** el 10/11 (sesión 22): el recheck el 19/10, la entrega por WF8 |
@@ -5559,7 +5576,7 @@ WF2 y WF3 pasaron a `gemini-3.5-flash` el 20/08; WF4 sigue en `gemini-2.5-flash`
 
 El fondo es que **el modelo está hardcodeado en la URL de cada nodo HTTP**, tres veces, mientras la API key sí está centralizada en una credencial compartida. O sea que el proyecto ya aprendió a centralizar el secreto y no centralizó el parámetro que decide la calidad y el costo de cada inferencia. Es la misma familia que los hardcodes de la Fase 12, y el mismo criterio de producto: cada cliente consume llamadas a Gemini, y el modelo es la variable que fija ese costo unitario — no debería requerir editar tres workflows para cambiarlo. Opciones cuando se retome: una variable de entorno de n8n, o una fila de configuración en Supabase leída al inicio de cada workflow (más caro, una consulta extra por corrida, pero cambiable sin tocar n8n).
 
-**Estado:** identificado, **sin aplicar**. Aplicar cuando se vaya a reactivar WF4, no antes.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr. El WF4 nuevo no llama a Gemini.
 
 ---
 
@@ -5968,7 +5985,21 @@ O sea: **una foto que llega con los sensores en rango se sube al almacenamiento 
 
 **Alternativa descartada: mandar toda foto al modelo.** Descartada por economía unitaria —el dispositivo puede mandar foto en cada lectura— y porque convierte un problema de diseño en un problema de costo. La deduplicación por imagen de 16.21 es la pieza que lo haría viable.
 
-**Estado:** identificado, **sin aplicar**.
+**Estado:** ✅ **cerrado el 19/11/2026 (sesión 24, v77).**
+
+**Cómo se resolvió.** El consumidor es **WF4, reconvertido** (decisión del autor: no crear un WF9 con el lugar de WF4 ocupado por un workflow apagado). Cada 6 h:
+
+1. Lee `vista_fotos_para_analizar`: las filas de `vista_estado_cultivo` cuya última foto **está en Storage**, tiene **más de 10 min** (deja terminar a un WF2 disparado por una alerta con esa foto) y **menos de 48 h**, **nadie la analizó** (ninguna fila de `seguimiento_fenologico` con esa `path_foto`: una alerta o un `/diagnostico` también cuentan) y el cultivo **no está en pausa**.
+2. Baja la foto, la pasa a base64 y la manda a WF2 con el mismo pedido que `/diagnostico`, con `origen: 'proactivo'`.
+3. WF2 la analiza con un prompt de rutina (malezas, plagas, enfermedades, deficiencias; "no inventes problemas"), guarda la fila con `origen = 'proactivo'` y **avisa solo si encontró algo**: severidad media o más, o una plaga o maleza. Si falla, no avisa; como no quedó fila, el turno siguiente la reintenta.
+
+**Por qué así.** El costo tiene techo por construcción: un pedido por foto nueva, como mucho uno por turno. El tope de 48 h corta los reintentos de una foto que siempre falla (como mucho 8), que es la lección de 16.21 y 16.27. Solo se analiza la última foto de cada cultivo: si llegan varias en 6 h, la más reciente describe a la planta. WF4 no llama a Gemini: no suma lugares con nombres de modelo (#26).
+
+**Alternativa descartada: dispararlo desde WF1 al llegar la foto.** Inmediato, pero suma otra consulta y otra rama al workflow más crítico, y le cobra un pedido a cada foto salvo que se agregue un freno con su propia lectura de la base. Para plagas que avanzan en días, 6 h no cambia nada.
+
+**Verificado.** Base: `SQL/sesion24_16.43_fotos_para_analizar.sql`, 16 casos (FALLÓ 0 antes, OK 16 después). En vivo (19/11): lectura 39 sana con foto → sin Telegram ni WF2 (el hueco, ejercido); la vista la mostró recién a los 10 min; WF4 a mano → WF2 guardó `proactivo`, severidad baja, sin Telegram; WF4 otra vez → sin filas.
+
+**Lo que no cierra.** 16.65 (WF3 sigue mirando la etapa solo en su ventana) y B.17 (tendencias). La validación de la respuesta es de formato, no de contenido: la IA puede no ver una plaga o inventar una. El aviso con detecciones está probado fuera de n8n, no en vivo (haría falta una foto con algo para encontrar). Con varios cultivos, WF4 manda todos los pedidos a la vez (cupo de Flash: 5 por minuto). Un análisis de rutina cuenta para el freno de 10 minutos de `/diagnostico`.
 
 ---
 
@@ -6009,7 +6040,7 @@ Y `vista_promedios_recientes` es un **promedio de seis horas**, no una pendiente
 
 Lo que lo vuelve interesante no es el defecto sino lo que revela: **es el único lugar del sistema donde alguien intentó hablar de tendencia**, y para hacerlo tuvo que pedírselo a un modelo que no tiene los datos. El diseño ya había sentido la falta de una capa temporal y la tapó con una alucinación autorizada por el prompt. Ver **B.17**.
 
-**Estado:** identificado, **sin aplicar**. Se corrige al reactivar WF4, junto con 16.30.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr. La tendencia sigue sin hacerse: es B.17.
 
 ---
 
@@ -6069,7 +6100,7 @@ Lo que lo vuelve interesante no es el defecto sino lo que revela: **es el único
 
 Desde el 03/11 (16.48) una lectura completa son **siete** filas, así que el número sale ×7. Hoy no daña nada porque la única consumidora es WF4, que está apagado. Importa al reactivarlo, junto con 16.30, 16.45, 16.57, 16.58 y 16.59.
 
-**Estado:** identificado, **sin aplicar**.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr. `vista_promedios_recientes` sigue en la base, sin quien la lea.
 
 ---
 ### 16.51 — 🔴 Cuando falta volumen o caudal, WF5 inventa el número, y el tope de 30 s hereda el invento
@@ -6168,7 +6199,7 @@ Es exactamente la forma que **16.34 corrigió en WF1 y 16.25 en WF3**: el cuerpo
 
 Con un solo cultivo es invisible: N=1 es el caso donde todas las formas de romper la iteración dan el mismo resultado correcto.
 
-**Estado:** identificado, **sin aplicar**. No urgente: WF4 está apagado.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr.
 
 ---
 
@@ -6180,7 +6211,7 @@ Con un solo cultivo es invisible: N=1 es el caso donde todas las formas de rompe
 
 Es la contracara de 16.37: allá `alwaysOutputData` convertía "no hay dato" en "no hay problema"; acá su ausencia convierte "no hay dato" en "no pasó nada". **Las dos configuraciones producen silencio; lo que falta en ambos casos es la validación positiva del contenido.**
 
-**Estado:** identificado, **sin aplicar**.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr.
 
 ---
 
@@ -6192,7 +6223,7 @@ Es la contracara de 16.37: allá `alwaysOutputData` convertía "no hay dato" en 
 
 Es **16.14 otra vez** —el error del modelo guardado como si fuera un diagnóstico— en el workflow que no se auditó. Y compone con 16.45: el único lugar donde el sistema habla de tendencia la inventa dos veces, una por diseño del prompt y otra por degradación silenciosa.
 
-**Estado:** identificado, **sin aplicar**.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr.
 
 ---
 
@@ -6204,7 +6235,7 @@ El Motor usa una tolerancia de ±30 % para NPK y cualquier valor fuera de rango 
 
 Es el principio de *la definición vive en el productor* violado entre componentes: el mismo cultivo puede estar "en rango" para uno y "leve" para el otro, y el productor recibe dos mensajes que se contradicen. Con lente de producto pesa más que 🟢 — la coherencia de lo que el sistema dice es parte de su credibilidad.
 
-**Estado:** identificado, **sin aplicar**.
+**Estado:** ✅ **Cerrado por reemplazo el 19/11/2026 (v77):** el WF4 viejo se reemplazó por el análisis de rutina de la foto (16.43) y este código ya no existe. No se arregló: dejó de correr. Si hiciera falta avisar un NPK dentro de la tolerancia, el lugar es la regla de WF1 (Fase 17), no una segunda regla.
 
 ---
 

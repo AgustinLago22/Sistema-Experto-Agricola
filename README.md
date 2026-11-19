@@ -41,9 +41,9 @@ WF3 (cada 8 h) ──► última foto ──► visión artificial ──► ¿a
 | # | Nombre | Disparador | Función |
 |---|---|---|---|
 | WF1 | Orquestación | Webhook `/telemetria` | Valida el contrato, evalúa la lectura contra los umbrales, la persiste y decide |
-| WF2 | Diagnóstico de emergencia | Llamado por WF1 y WF6 | Análisis de imagen ante una alerta de umbral o a pedido; si no logra el diagnóstico, avisa el motivo |
+| WF2 | Diagnóstico por imagen | Llamado por WF1, WF4 y WF6 | Análisis de imagen ante una alerta de umbral, a pedido o de rutina; guarda quién lo pidió y, si no logra el diagnóstico, avisa el motivo |
 | WF3 | Validación fenológica | Programado, cada 8 h | Confirma por imagen el avance de etapa del cultivo |
-| WF4 | Análisis preventivo | Programado, cada 6 h | Informe periódico de tendencia. **Inactivo por decisión** hasta contar con telemetría real |
+| WF4 | Análisis preventivo | Programado, cada 6 h | Manda a WF2 la última foto que nadie analizó, aunque los sensores estén en rango, para buscar malezas, plagas o enfermedades; avisa solo si encuentra algo |
 | WF5 | Control de riego | Llamado por WF1 | Calcula la dosis con el volumen de la maceta y el caudal de la bomba, y registra la orden |
 | WF6 | Comandos por Telegram | Programado, cada 30 s | Responde los comandos del autor: el estado del cultivo, un diagnóstico de la última foto a pedido, y pausar o reanudar el riego y los avisos |
 | WF7 | Registro de arranque | Webhook `/arranque` | Asigna a cada encendido de la placa un número que no se repite |
@@ -89,8 +89,8 @@ El sistema no riega solo si falta el volumen de la maceta o el caudal de la bomb
 
 1. Crear un archivo `.env` junto a `docker-compose.yaml` con `N8N_ENCRYPTION_KEY`, la clave que cifra las credenciales de n8n, y `TELEGRAM_BOT_TOKEN`, que WF6 usa para leer los mensajes (modelo en `.env.example`). Está fuera del repositorio, y sin esas dos el contenedor no arranca.
 2. Levantar el orquestador: `docker compose up -d`. Queda en `http://localhost:5678`.
-3. Importar los JSON de `WORKFLOWS/` y crear las credenciales que referencian por nombre: la clave del dispositivo (Header Auth, cabecera `X-Device-Key`), el acceso a Supabase, la clave interna con la que WF1 llama a WF2 y WF5 (y WF6 a WF2), Telegram y Gemini. Ningún secreto está en el repositorio.
-4. Activar WF1, WF2, WF3, WF5, WF6, WF7 y WF8. WF4 queda apagado. La configuración de WF6 (zona horaria, no guardar las corridas exitosas) se pone a mano después de importar.
+3. Importar los JSON de `WORKFLOWS/` y crear las credenciales que referencian por nombre: la clave del dispositivo (Header Auth, cabecera `X-Device-Key`), el acceso a Supabase, la clave interna con la que WF1 llama a WF2 y WF5 (y WF4 y WF6 a WF2), Telegram y Gemini. Ningún secreto está en el repositorio.
+4. Activar los ocho workflows. La configuración de WF6 (zona horaria, no guardar las corridas exitosas) se pone a mano después de importar.
 
 Para probar sin hardware, abrir `test/simulador.html` en el navegador, escribir la clave del dispositivo y empezar por "Encender placa".
 
@@ -108,7 +108,7 @@ El sistema está construido sobre un conjunto de principios que el documento de 
 
 ## Estado
 
-- **Implementado y verificado en vivo** contra la base: la recepción con el contrato (arranque, validación y registro de rechazos), el diagnóstico por umbrales, el aviso de mediciones faltantes, el diagnóstico por imagen con modelo de respaldo, la validación fenológica y el lazo de riego completo con el nodo sensor simulado: la orden, su entrega a la placa, el aviso de que regó y la confirmación por la humedad.
+- **Implementado y verificado en vivo** contra la base: la recepción con el contrato (arranque, validación y registro de rechazos), el diagnóstico por umbrales, el aviso de mediciones faltantes, el diagnóstico por imagen con modelo de respaldo, el análisis de rutina de las fotos que llegan sin alerta, la validación fenológica y el lazo de riego completo con el nodo sensor simulado: la orden, su entrega a la placa, el aviso de que regó y la confirmación por la humedad.
 - **Pendiente:** una clave distinta para cada placa (hoy todas comparten la misma).
 - **El nodo sensor todavía no existe.** Se simula con el formato del contrato, y nada del sistema depende de él.
 - **El orquestador corre en una computadora personal.** Un servidor accesible es el paso siguiente del despliegue.

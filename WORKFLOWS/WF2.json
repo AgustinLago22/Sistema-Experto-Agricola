@@ -11,10 +11,10 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -992,
-        384
+        -1792,
+        800
       ],
-      "id": "086293c8-9c03-4133-8900-2338936b5b59",
+      "id": "f2687bc1-a324-4695-8ed4-37a4ce84f36b",
       "name": "Webhook",
       "webhookId": "120558ac-a9e1-436a-8405-395db1806633",
       "credentials": {
@@ -27,7 +27,7 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "=🚨 {{ $json.diagnostico_ia.severidad }} — {{ $('Parsear Respuesta IA').item.json.planta }} ({{ $('Parsear Respuesta IA').item.json.etapa }})\n\n{{ $json.diagnostico_ia.explicacion_agricultor }}\n\n👉 Hacer ahora:\n{{ [].concat($json.diagnostico_ia.acciones_inmediatas || []).map(a => '• ' + a).join('\\n') }}\n\n🎯 Confianza {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%",
+        "text": "={{ $('Parsear Respuesta IA').item.json.origen === 'proactivo' ? '🔎 Revisión de rutina · ' + $json.diagnostico_ia.severidad : '🚨 ' + $json.diagnostico_ia.severidad }} — {{ $('Parsear Respuesta IA').item.json.planta }} ({{ $('Parsear Respuesta IA').item.json.etapa }}){{ (d => d.length ? '\\n🔍 Detectado: ' + d.join(', ') : '')([].concat($json.diagnostico_ia.plagas_detectadas || [], $json.diagnostico_ia.malezas_detectadas || []).map(String)) }}\n\n{{ $json.diagnostico_ia.explicacion_agricultor }}\n\n👉 Hacer ahora:\n{{ [].concat($json.diagnostico_ia.acciones_inmediatas || []).map(a => '• ' + a).join('\\n') }}\n\n🎯 Confianza {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -35,10 +35,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        144,
-        224
+        -432,
+        640
       ],
-      "id": "32e5fe94-67dd-4bf1-b291-fe15d1de2115",
+      "id": "40cd972c-2a10-4a12-bbd6-6da8313ccdab",
       "name": "Telegram Diagnostico IA",
       "webhookId": "d30a7590-7137-4cfd-89f5-f186ac2d81be",
       "credentials": {
@@ -65,7 +65,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{\n    JSON.stringify({\n      \"contents\": [\n        {\n          \"parts\": [\n            {\n              \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\n  CONTEXTO DEL CULTIVO:\n  - Planta: ${$json.body?.planta || $json.planta}\n  - Etapa fenológica: ${$json.body?.etapa || $json.etapa}\n  - Dispositivo: ${$json.body?.mac_address || $json.mac_address}\n\n  DATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n  (\"sin dato\" = el sensor no reportó esa medición; no la supongas ni la infieras.)\n  - Humedad del suelo: ${(x => x == null ? 'sin dato' : x + '%')($json.body?.humedad ?? $json.humedad)}\n  - pH: ${(x => x == null ? 'sin dato' : x)($json.body?.ph ?? $json.ph)}\n  - Nitrógeno (N): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.n ?? $json.n)}\n  - Fósforo (P): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.p ?? $json.p)}\n  - Potasio (K): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.k ?? $json.k)}\nRANGOS SANOS PARA ESTA ETAPA (los mismos que usa el sistema de reglas):\n ${(u => u ? [\n   '- Humedad del suelo: ' + (u.humedad?.min ?? '?') + ' – ' + (u.humedad?.max ?? '?') + ' %',\n   '- pH: ' + (u.ph?.min ?? '?') + ' – ' + (u.ph?.max ?? '?'),\n   '- N · P · K ideal: ' + (u.n_ideal ?? '?') + ' · ' + (u.p_ideal ?? '?') + ' · ' + (u.k_ideal ?? '?') + ' mg/kg (se acepta ±30 %)'\n ].join('\\n') : '- No informados: no supongas rangos.')($json.body?.umbrales ?? $json.umbrales)}\n\n  DIAGNÓSTICO DEL SISTEMA DE REGLAS:\n  - Estado: ${$json.body?.estado || $json.estado}\n  - Observaciones: ${(Array.isArray($json.body?.observaciones) ? $json.body.observaciones : ($json.observaciones || [])).join('. ')}\n\n  TAREA:\n  1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n  2. Correlacioná los signos visuales con los datos de sensores.\n  3. Generá un plan de acción inmediato.\n\n  RESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n  {\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [],\n  \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n            },\n            {\n              \"inline_data\": {\n                \"mime_type\": \"image/jpeg\",\n                \"data\": $json.body.foto_base64\n              }\n            }\n          ]\n        }\n      ],\n      \"generationConfig\": {\n        \"temperature\": 0,\n        \"responseMimeType\": \"application/json\"\n      }\n    })\n  }}",
+        "jsonBody": "={{\n    JSON.stringify({\n      \"contents\": [\n        {\n          \"parts\": [\n            {\n              \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\n  CONTEXTO DEL CULTIVO:\n  - Planta: ${$json.body?.planta || $json.planta}\n  - Etapa fenológica: ${$json.body?.etapa || $json.etapa}\n  - Dispositivo: ${$json.body?.mac_address || $json.mac_address}\n\n  DATOS DE SENSORES (${['consulta', 'proactivo'].includes(($json.body ?? $json).origen) ? 'ÚLTIMA LECTURA REGISTRADA' : 'VALORES CRÍTICOS DETECTADOS'}):\n  (\"sin dato\" = el sensor no reportó esa medición; no la supongas ni la infieras.)\n  - Humedad del suelo: ${(x => x == null ? 'sin dato' : x + '%')($json.body?.humedad ?? $json.humedad)}\n  - pH: ${(x => x == null ? 'sin dato' : x)($json.body?.ph ?? $json.ph)}\n  - Nitrógeno (N): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.n ?? $json.n)}\n  - Fósforo (P): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.p ?? $json.p)}\n  - Potasio (K): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($json.body?.k ?? $json.k)}\nRANGOS SANOS PARA ESTA ETAPA (los mismos que usa el sistema de reglas):\n ${(u => u ? [\n   '- Humedad del suelo: ' + (u.humedad?.min ?? '?') + ' – ' + (u.humedad?.max ?? '?') + ' %',\n   '- pH: ' + (u.ph?.min ?? '?') + ' – ' + (u.ph?.max ?? '?'),\n   '- N · P · K ideal: ' + (u.n_ideal ?? '?') + ' · ' + (u.p_ideal ?? '?') + ' · ' + (u.k_ideal ?? '?') + ' mg/kg (se acepta ±30 %)'\n ].join('\\n') : '- No informados: no supongas rangos.')($json.body?.umbrales ?? $json.umbrales)}\n\n  DIAGNÓSTICO DEL SISTEMA DE REGLAS:\n  - Estado: ${$json.body?.estado || $json.estado}\n  - Observaciones: ${(Array.isArray($json.body?.observaciones) ? $json.body.observaciones : ($json.observaciones || [])).join('. ')}\n\n  TAREA:\n${($json.body ?? $json).origen === 'proactivo' ? `Revisión de rutina de la foto: no la pidió ninguna alerta.\n 1. Buscá en la imagen lo que los sensores de suelo no detectan: malezas, plagas (pulgón, mosca blanca, ácaros, orugas), enfermedades (hongos, manchas, oídio) y deficiencias visibles en hojas o frutos.\n 2. Si no ves nada de eso, decilo: severidad \"baja\", listas vacías y sin acciones inmediatas. No inventes problemas.\n 3. Si ves algo, correlacionalo con los datos de sensores y generá un plan de acción.` : ` 1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés, plagas, enfermedades o malezas.\n 2. Correlacioná los signos visuales con los datos de sensores.\n 3. Generá un plan de acción inmediato.`}\n\n  RESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n  {\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [], \"malezas_detectadas\": [],\n  \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n            },\n            {\n              \"inline_data\": {\n                \"mime_type\": \"image/jpeg\",\n                \"data\": $json.body.foto_base64\n              }\n            }\n          ]\n        }\n      ],\n      \"generationConfig\": {\n        \"temperature\": 0,\n        \"responseMimeType\": \"application/json\"\n      }\n    })\n  }}",
         "options": {
           "timeout": 60000
         }
@@ -73,10 +73,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -720,
-        272
+        -1520,
+        688
       ],
-      "id": "fb173e3f-36e6-4287-8be9-0bc20039a5ae",
+      "id": "cec4c1e3-0ce3-4ded-8d10-0fc780fe5e18",
       "name": "IA Vision Gemini",
       "retryOnFail": true,
       "waitBetweenTries": 5000,
@@ -91,15 +91,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// 1. Respuesta del nodo anterior (Gemini)\nconst geminiResponse = $input.first().json;\n\n// 2. Datos del cultivo (del Webhook que mandó WF1)\nconst cultivoData = $('Webhook').first().json.body || $('Webhook').first().json;\n\n// 3. Validación POSITIVA: verificamos que la respuesta contenga lo que esperamos,\n//    en vez de asumir que \"no falló\" equivale a \"es un diagnóstico\" (ver 16.14).\nlet diagnosis;\nconst rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;\n\nif (!rawText) {\n  // Gemini no devolvió diagnóstico (503, cuota agotada, error de red).\n  // NO guardamos el error como si fuera un diagnóstico.\n  diagnosis = {\n    diagnostico_visual: null,\n    diagnostico_tecnico: 'La IA no pudo analizar la foto en este intento.',\n    severidad: 'desconocida',\n    plagas_detectadas: [],\n    acciones_inmediatas: ['Reintentar el diagnóstico más tarde.'],\n    recomendaciones_mediano_plazo: [],\n    explicacion_agricultor: 'No se pudo generar el diagnóstico visual. La alerta del sistema experto sigue siendo válida.',\n    confianza: 0,\n    diagnostico_fallido: true\n  };\n} else {\n  try {\n    const cleaned = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n    diagnosis = JSON.parse(cleaned);\n    diagnosis.diagnostico_fallido = false;\n  } catch (e) {\n    // La IA respondió, pero no con el JSON pedido.\n    diagnosis = {\n      diagnostico_visual: null,\n      diagnostico_tecnico: 'La IA respondió en un formato inesperado.',\n      severidad: 'desconocida',\n      plagas_detectadas: [],\n      acciones_inmediatas: ['Revisar manualmente el cultivo.'],\n      recomendaciones_mediano_plazo: [],\n      explicacion_agricultor: 'No se pudo interpretar la respuesta de la IA.',\n      confianza: 0,\n      diagnostico_fallido: true\n    };\n  }\n}\n\n// 4. Unimos los datos del cultivo con el diagnóstico\nreturn [{ json: { ...cultivoData, diagnostico_ia: diagnosis } }];"
+        "jsCode": "// 1. Respuesta del nodo anterior (Gemini)\nconst geminiResponse = $input.first().json;\n\n// 2. Datos del cultivo (del Webhook: WF1, WF6 o WF4)\nconst cultivoData = $('Webhook').first().json.body || $('Webhook').first().json;\n\n// Sin origen = alerta de WF1 (WF1 no lo manda).\nconst origen = ['consulta', 'proactivo'].includes(cultivoData.origen) ? cultivoData.origen : 'alerta';\n\n// 3. Validación POSITIVA: verificamos que la respuesta contenga lo que esperamos,\n//    en vez de asumir que \"no falló\" equivale a \"es un diagnóstico\" (ver 16.14).\nlet diagnosis;\nconst rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text;\n\nif (!rawText) {\n  // Gemini no devolvió diagnóstico (503, cuota agotada, error de red).\n  // NO guardamos el error como si fuera un diagnóstico.\n  diagnosis = {\n    diagnostico_visual: null,\n    diagnostico_tecnico: 'La IA no pudo analizar la foto en este intento.',\n    severidad: 'desconocida',\n    plagas_detectadas: [],\n    malezas_detectadas: [],\n    acciones_inmediatas: ['Reintentar el diagnóstico más tarde.'],\n    recomendaciones_mediano_plazo: [],\n    explicacion_agricultor: 'No se pudo generar el diagnóstico visual. La alerta del sistema experto sigue siendo válida.',\n    confianza: 0,\n    diagnostico_fallido: true\n  };\n} else {\n  try {\n    const cleaned = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n    diagnosis = JSON.parse(cleaned);\n    diagnosis.diagnostico_fallido = false;\n  } catch (e) {\n    // La IA respondió, pero no con el JSON pedido.\n    diagnosis = {\n      diagnostico_visual: null,\n      diagnostico_tecnico: 'La IA respondió en un formato inesperado.',\n      severidad: 'desconocida',\n      plagas_detectadas: [],\n      malezas_detectadas: [],\n      acciones_inmediatas: ['Revisar manualmente el cultivo.'],\n      recomendaciones_mediano_plazo: [],\n      explicacion_agricultor: 'No se pudo interpretar la respuesta de la IA.',\n      confianza: 0,\n      diagnostico_fallido: true\n    };\n  }\n}\n\n// La revisión de rutina avisa solo si encontró algo (16.43).\nconst lista = x => [].concat(x ?? []).map(String).filter(s => s.trim() !== '');\nconst encontro = ['media', 'alta', 'critica', 'crítica'].includes(String(diagnosis.severidad).toLowerCase())\n  || lista(diagnosis.plagas_detectadas).length > 0\n  || lista(diagnosis.malezas_detectadas).length > 0;\nconst avisar = origen !== 'proactivo' || encontro;\n\n// 4. Unimos los datos del cultivo con el diagnóstico\nreturn [{ json: { ...cultivoData, origen, avisar, diagnostico_ia: diagnosis } }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -384,
-        384
+        -1184,
+        800
       ],
-      "id": "c87197ff-8856-4543-abfb-56594adf591f",
+      "id": "60841397-de70-4316-af42-f2bebe508d3e",
       "name": "Parsear Respuesta IA"
     },
     {
@@ -126,6 +126,10 @@
             {
               "fieldId": "etapas_especie_id",
               "fieldValue": "={{ $json.etapas_especie_id }}"
+            },
+            {
+              "fieldId": "origen",
+              "fieldValue": "={{ $json.origen }}"
             }
           ]
         }
@@ -133,10 +137,10 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -32,
-        272
+        -832,
+        688
       ],
-      "id": "f4d40470-ce8f-4944-9130-d963728be3c1",
+      "id": "151ae2d8-c0f6-43e2-b352-ee2242674dc7",
       "name": "Persistir Diagnotico",
       "credentials": {
         "supabaseApi": {
@@ -173,23 +177,23 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -240,
-        384
+        -1040,
+        800
       ],
-      "id": "91aba6b2-6b94-4700-b847-c13cfcf2c193",
+      "id": "ff3bc786-0db7-4535-8226-62ceb0c5bf7c",
       "name": "Diagnostico Valido"
     },
     {
       "parameters": {
-        "errorMessage": "== Gemini no devolvió un diagnóstico válido para el cultivo {{ $('Explicar fallo').item.json.cultivo_id }}. Motivo: {{ $('Explicar fallo').item.json.diagnostico_ia.diagnostico_tecnico }}. La alerta del sistema experto y el riego NO se vieron afectados — solo falta el diagnóstico visual de esta lectura. (16.15)"
+        "errorMessage": "=Gemini no devolvió un diagnóstico válido para el cultivo {{ $('Explicar fallo').item.json.cultivo_id }} (origen: {{ $('Explicar fallo').item.json.origen }}). Motivo: {{ String($('Explicar fallo').item.json.diagnostico_ia.diagnostico_tecnico).replace(/\\.?$/, '.') }} La alerta del sistema experto y el riego NO se vieron afectados — solo falta el diagnóstico visual de esta foto. (16.15)"
       },
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
       "position": [
-        416,
-        480
+        -208,
+        896
       ],
-      "id": "f97137f5-41c3-4ff5-9664-e5fab3c94cfb",
+      "id": "6ac2dab9-046b-4d95-88b6-26a47889d9dc",
       "name": "Diagnostico Fallido"
     },
     {
@@ -209,7 +213,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{\n   JSON.stringify({\n     \"contents\": [\n       {\n         \"parts\": [\n           {\n             \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\n CONTEXTO DEL CULTIVO:\n - Planta: ${$('Webhook').first().json.body?.planta || $('Webhook').first().json.planta}\n - Etapa fenológica: ${$('Webhook').first().json.body?.etapa || $('Webhook').first().json.etapa}\n - Dispositivo: ${$('Webhook').first().json.body?.mac_address || $('Webhook').first().json.mac_address}\n\n DATOS DE SENSORES (VALORES CRÍTICOS DETECTADOS):\n (\"sin dato\" = el sensor no reportó esa medición; no la supongas ni la infieras.)\n - Humedad del suelo: ${(x => x == null ? 'sin dato' : x + '%')($('Webhook').first().json.body?.humedad ?? $('Webhook').first().json.humedad)}\n - pH: ${(x => x == null ? 'sin dato' : x)($('Webhook').first().json.body?.ph ?? $('Webhook').first().json.ph)}\n - Nitrógeno (N): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.n ?? $('Webhook').first().json.n)}\n - Fósforo (P): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.p ?? $('Webhook').first().json.p)}\n - Potasio (K): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.k ?? $('Webhook').first().json.k)}\nRANGOS SANOS PARA ESTA ETAPA (los mismos que usa el sistema de reglas):\n  ${(u => u ? [\n    '- Humedad del suelo: ' + (u.humedad?.min ?? '?') + ' – ' + (u.humedad?.max ?? '?') + ' %',\n    '- pH: ' + (u.ph?.min ?? '?') + ' – ' + (u.ph?.max ?? '?'),\n    '- N · P · K ideal: ' + (u.n_ideal ?? '?') + ' · ' + (u.p_ideal ?? '?') + ' · ' + (u.k_ideal ?? '?') + ' mg/kg (se acepta ±30 %)'\n  ].join('\\n') : '- No informados: no supongas rangos.')($('Webhook').first().json.body?.umbrales ?? $('Webhook').first().json.umbrales)}\n\n DIAGNÓSTICO DEL SISTEMA DE REGLAS:\n - Estado: ${$('Webhook').first().json.body?.estado || $('Webhook').first().json.estado}\n - Observaciones: ${(Array.isArray($('Webhook').first().json.body?.observaciones) ? $('Webhook').first().json.body.observaciones :\n ($('Webhook').first().json.observaciones || [])).join('. ')}\n\n TAREA:\n 1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés.\n 2. Correlacioná los signos visuales con los datos de sensores.\n 3. Generá un plan de acción inmediato.\n\n RESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n {\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [],\n \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n           },\n           {\n             \"inline_data\": {\n               \"mime_type\": \"image/jpeg\",\n               \"data\": $('Webhook').first().json.body.foto_base64\n             }\n           }\n         ]\n       }\n     ],\n     \"generationConfig\": {\n       \"temperature\": 0,\n       \"responseMimeType\": \"application/json\"\n     }\n   })\n }}",
+        "jsonBody": "={{\n   JSON.stringify({\n     \"contents\": [\n       {\n         \"parts\": [\n           {\n             \"text\": `Actuá como un ingeniero agrónomo experto en fisiología vegetal y diagnóstico de cultivos.\n\n CONTEXTO DEL CULTIVO:\n - Planta: ${$('Webhook').first().json.body?.planta || $('Webhook').first().json.planta}\n - Etapa fenológica: ${$('Webhook').first().json.body?.etapa || $('Webhook').first().json.etapa}\n - Dispositivo: ${$('Webhook').first().json.body?.mac_address || $('Webhook').first().json.mac_address}\n\n DATOS DE SENSORES (${['consulta', 'proactivo'].includes(($('Webhook').first().json.body ?? $('Webhook').first().json).origen) ? 'ÚLTIMA LECTURA REGISTRADA' : 'VALORES CRÍTICOS DETECTADOS'}):\n (\"sin dato\" = el sensor no reportó esa medición; no la supongas ni la infieras.)\n - Humedad del suelo: ${(x => x == null ? 'sin dato' : x + '%')($('Webhook').first().json.body?.humedad ?? $('Webhook').first().json.humedad)}\n - pH: ${(x => x == null ? 'sin dato' : x)($('Webhook').first().json.body?.ph ?? $('Webhook').first().json.ph)}\n - Nitrógeno (N): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.n ?? $('Webhook').first().json.n)}\n - Fósforo (P): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.p ?? $('Webhook').first().json.p)}\n - Potasio (K): ${(x => x == null ? 'sin dato' : x + ' mg/kg')($('Webhook').first().json.body?.k ?? $('Webhook').first().json.k)}\nRANGOS SANOS PARA ESTA ETAPA (los mismos que usa el sistema de reglas):\n  ${(u => u ? [\n    '- Humedad del suelo: ' + (u.humedad?.min ?? '?') + ' – ' + (u.humedad?.max ?? '?') + ' %',\n    '- pH: ' + (u.ph?.min ?? '?') + ' – ' + (u.ph?.max ?? '?'),\n    '- N · P · K ideal: ' + (u.n_ideal ?? '?') + ' · ' + (u.p_ideal ?? '?') + ' · ' + (u.k_ideal ?? '?') + ' mg/kg (se acepta ±30 %)'\n  ].join('\\n') : '- No informados: no supongas rangos.')($('Webhook').first().json.body?.umbrales ?? $('Webhook').first().json.umbrales)}\n\n DIAGNÓSTICO DEL SISTEMA DE REGLAS:\n - Estado: ${$('Webhook').first().json.body?.estado || $('Webhook').first().json.estado}\n - Observaciones: ${(Array.isArray($('Webhook').first().json.body?.observaciones) ? $('Webhook').first().json.body.observaciones :\n ($('Webhook').first().json.observaciones || [])).join('. ')}\n\n TAREA:\n${($('Webhook').first().json.body ?? $('Webhook').first().json).origen === 'proactivo' ? `Revisión de rutina de la foto: no la pidió ninguna alerta.\n 1. Buscá en la imagen lo que los sensores de suelo no detectan: malezas, plagas (pulgón, mosca blanca, ácaros, orugas), enfermedades (hongos, manchas, oídio) y deficiencias visibles en hojas o frutos.\n 2. Si no ves nada de eso, decilo: severidad \"baja\", listas vacías y sin acciones inmediatas. No inventes problemas.\n 3. Si ves algo, correlacionalo con los datos de sensores y generá un plan de acción.` : ` 1. Analizá la imagen adjunta del cultivo para detectar signos visuales de estrés, plagas, enfermedades o malezas.\n 2. Correlacioná los signos visuales con los datos de sensores.\n 3. Generá un plan de acción inmediato.`}\n\n RESPONDÉ EXCLUSIVAMENTE en este formato JSON:\n {\"diagnostico_visual\": \"descripción\", \"diagnostico_tecnico\": \"correlación\", \"severidad\": \"critica|alta|media|baja\", \"plagas_detectadas\": [], \"malezas_detectadas\": [],\n \"acciones_inmediatas\": [\"acción 1\"], \"recomendaciones_mediano_plazo\": [\"rec 1\"], \"explicacion_agricultor\": \"mensaje simple\", \"confianza\": 0.85}`\n           },\n           {\n             \"inline_data\": {\n               \"mime_type\": \"image/jpeg\",\n               \"data\": $('Webhook').first().json.body.foto_base64\n             }\n           }\n         ]\n       }\n     ],\n     \"generationConfig\": {\n       \"temperature\": 0,\n       \"responseMimeType\": \"application/json\"\n     }\n   })\n }}",
         "options": {
           "timeout": 60000
         }
@@ -217,10 +221,10 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        -608,
-        544
+        -1408,
+        960
       ],
-      "id": "c0ecdeb0-bef8-45e1-b125-2ac5fe7accb0",
+      "id": "2653c698-0321-45e9-a46e-7d1100f3ef5b",
       "name": "IA Vision Gemini Respaldo",
       "retryOnFail": true,
       "waitBetweenTries": 5000,
@@ -236,15 +240,15 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// WF2 · Explicar fallo (Code, una vez por cada ítem)\n// Arma el aviso de Telegram cuando no hubo diagnóstico. La causa sale del\n// último intento (el respaldo); si no corrió, del texto de Parsear Respuesta IA.\n\nlet error = '';\ntry { error = String($('IA Vision Gemini Respaldo').first().json.error?.message ?? ''); } catch (e) { /* no corrió */ }\n\nconst causa =\n  /^503|high demand/i.test(error) ? 'Gemini está saturado' :\n  /^429|quota/i.test(error)       ? 'se agotó el cupo de Gemini por ahora' :\n  /timeout/i.test(error)          ? 'Gemini no respondió a tiempo' :\n  /formato/.test($json.diagnostico_ia?.diagnostico_tecnico ?? '') ? 'la IA respondió en un formato que no se entiende' :\n  'Gemini devolvió un error';\n\nconst texto_fallo = $json.estado === 'CONSULTA A PEDIDO'\n  ? `⚠️ No llegó el diagnóstico de ${$json.planta}: ${causa}. Probá /diagnostico de nuevo en unos minutos.`\n  : `⚠️ No hubo diagnóstico de la foto de ${$json.planta}: ${causa}. La alerta y el riego siguen igual.`;\n\nreturn { json: { ...$json, texto_fallo } };\n"
+        "jsCode": "// WF2 · Explicar fallo (Code, una vez por cada ítem)\n// Arma el aviso de Telegram cuando no hubo diagnóstico. La causa sale del\n// último intento (el respaldo); si no corrió, del texto de Parsear Respuesta IA.\n\nlet error = '';\ntry { error = String($('IA Vision Gemini Respaldo').first().json.error?.message ?? ''); } catch (e) { /* no corrió */ }\n\nconst causa =\n  /^503|high demand/i.test(error) ? 'Gemini está saturado' :\n  /^429|quota/i.test(error)       ? 'se agotó el cupo de Gemini por ahora' :\n  /timeout/i.test(error)          ? 'Gemini no respondió a tiempo' :\n  /formato/.test($json.diagnostico_ia?.diagnostico_tecnico ?? '') ? 'la IA respondió en un formato que no se entiende' :\n  'Gemini devolvió un error';\n\n// Una de rutina (proactivo) no llega a Telegram: la frena Avisar el fallo?.\nconst texto_fallo = $json.origen === 'consulta'\n  ? `⚠️ No llegó el diagnóstico de ${$json.planta}: ${causa}. Probá /diagnostico de nuevo en unos minutos.`\n  : `⚠️ No hubo diagnóstico de la foto de ${$json.planta}: ${causa}. La alerta y el riego siguen igual.`;\n\nreturn { json: { ...$json, texto_fallo } };\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -32,
-        480
+        -832,
+        896
       ],
-      "id": "5f84073b-9353-4090-89bd-827e31fb2995",
+      "id": "ab270827-4718-446b-b2d9-a432afa3ba2c",
       "name": "Explicar fallo"
     },
     {
@@ -258,10 +262,10 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        192,
-        480
+        -432,
+        816
       ],
-      "id": "0b099df3-d93a-4dc6-9587-848984792da5",
+      "id": "50e43eeb-6a8f-413d-9c98-92337f7f4347",
       "name": "Avisar fallo",
       "webhookId": "d2a09427-4c3c-4880-8582-e53cf02c9377",
       "credentials": {
@@ -271,6 +275,73 @@
         }
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "21950508-8b68-4e73-affd-e5530f897355",
+              "leftValue": "={{ $('Parsear Respuesta IA').item.json.avisar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -656,
+        688
+      ],
+      "id": "71b8c536-3e14-47c2-abec-930c067e8e41",
+      "name": "Avisar?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "87183f2b-973c-4c8a-ac8d-a623238a18a3",
+              "leftValue": "={{ $json.origen }}",
+              "rightValue": "proactivo",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -656,
+        896
+      ],
+      "id": "322149cb-e7fc-4cc1-8678-180f5b044605",
+      "name": "Avisar el fallo?"
     }
   ],
   "pinData": {},
@@ -319,7 +390,7 @@
       "main": [
         [
           {
-            "node": "Telegram Diagnostico IA",
+            "node": "Avisar?",
             "type": "main",
             "index": 0
           }
@@ -359,7 +430,7 @@
       "main": [
         [
           {
-            "node": "Avisar fallo",
+            "node": "Avisar el fallo?",
             "type": "main",
             "index": 0
           }
@@ -376,6 +447,35 @@
           }
         ]
       ]
+    },
+    "Avisar?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Diagnostico IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avisar el fallo?": {
+      "main": [
+        [
+          {
+            "node": "Avisar fallo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Diagnostico Fallido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -383,7 +483,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "9667be50-7333-46f2-8f1b-f6bdecbd66cf",
+  "versionId": "66dac8d5-6bef-4423-8318-49d6ce092a9d",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
