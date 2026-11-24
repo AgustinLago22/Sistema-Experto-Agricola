@@ -1,4 +1,4 @@
-# Sistema Experto Agrícola — Plan de Implementación (v77)
+# Sistema Experto Agrícola — Plan de Implementación (v78)
 
 > [!NOTE]
 > Enfoque híbrido: nodos **Supabase nativos** para consultas simples y **HTTP Request** para RPC y vistas filtradas. Todas las referencias corresponden al esquema **real** auditado en Supabase y en los workflows exportados de n8n.
@@ -134,6 +134,16 @@ Este archivo es la **fuente de verdad** del proyecto. Está organizado en cinco 
 ---
 
 ### Cierre de sesión y próximos pasos
+> [!IMPORTANT]
+> **Sesión 25 (24/11): Fase 17 corta, los umbrales con unidad, fuente y sensibilidad.** Detalle en el changelog **v78** y en la **Fase 17**.
+>
+> - **Base** (`SQL/sesion25_fase17_umbrales.sql`): `parametro_etapa.fuente` y `criterio`, NOT NULL y sin texto vacío, cargadas en las 6 etapas; comentarios de unidad en `humedad_min/max` e `ideal_n/p/k`; **Floración sube de 50–65 a 60–75**. Test: FALLÓ 1 de 8 antes, OK 8 de 8 después; probado antes en PGlite con 6 defectos a propósito (los detectó todos). Verificado por MCP, con los textos comparados por md5.
+> - **Decisiones del autor (17.1):** Floración sube; **el K no se cambia** (los 135 ppm de CDFA son K intercambiable de laboratorio, no comparable con el sensor). Queda escrita, sin cambiar, la tensión de Cosecha: prioriza calidad sobre rendimiento.
+> - **Sensibilidad (17.5,** `SQL/sesion25_17.5_sensibilidad.sql`, solo lectura): grilla sintética declarada, un umbral por vez. Comprobada contra el código real del Motor: 312 de 313 casos iguales, el otro difiere en un punto.
+> - **Correcciones de fuentes:** "Wang et al. (2019)" es **Liu et al. (2019)**; "e-GRO E809" es **Raudales (2023)**; Univ. of Minnesota y la "maduración desde el día 40" de Quinet no se pudieron verificar y salen. Ver 17.3.
+> - **Sin datos de prueba nuevos:** el test no deja filas.
+> - **Lo que sigue:** los arreglos del backlog que elija el autor → el informe (con el párrafo de 17.2 + 17.3 y la limitación de 17.6) → el servidor. Pendientes chicos sin tocar: el riego 33 en `pendiente`, la causa del fallo del 3.6 del 19/11, borrar el WF6 viejo, el "6 lugares" del issue #26.
+>
 > [!IMPORTANT]
 > **Sesión 24 (18 y 19/11): análisis de rutina de la foto (16.43 ✅), con el WF4 reconvertido.** Detalle en el changelog **v77** y en **16.43**.
 >
@@ -840,6 +850,7 @@ Una fila por versión, **de la más reciente a la más antigua**. Cada entrada d
 
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| v78 | 24/11 | **Sesión 25: Fase 17 corta (issue #18).** **(1) Revisado antes de proponer:** `parametro_etapa` lo leen `vista_conocimiento_experto` (WF1) y `vista_estado_cultivo` (WF4, WF6), las dos con columnas explícitas; ningún workflow la escribe. Regla real de WF1: humedad < mínimo → sequía (y riego); > máximo → exceso (solo avisa); pH fuera de rango → estrés químico; N, P y K fuera de ideal × (1 ∓ 0,30) → estrés químico; temperatura y conductividad no deciden. **(2) Fuentes verificadas** (ver 17.3): cuatro correcciones de cita y una fuente nueva (el Ky de FAO). **(3) Decisiones del autor (17.1):** Floración sube a 60–75; el K no se cambia. **(4) Base** (`SQL/sesion25_fase17_umbrales.sql`): `fuente` y `criterio` (NOT NULL, CHECK sin texto vacío), 5 comentarios de unidad, Floración 60–75. Test 8 casos: FALLÓ 1 de 8 antes, OK 8 de 8 después; en PGlite detectó 6 defectos a propósito y las dos guardas cortaron sin cambiar nada. Verificado por MCP (textos comparados por md5). **(5) Sensibilidad** (`SQL/sesion25_17.5_sensibilidad.sql`, solo lectura; resultados en 17.5): comprobada contra el código del Motor sacado de `WF1.json`, 312 de 313 casos iguales. **(6) Abierto, del autor:** la tensión de Cosecha (calidad contra rendimiento), escrita en su `criterio`. **No cierra** 16.65 (la ventana de WF3), aunque 17.5 muestra que el atraso de etapa que más pesa es Fructificación → Cosecha. **Límites:** OAT no ve interacciones (la alerta es un OR de todo); la grilla es uniforme y no representa un cultivo; los valores absolutos siguen sin calibrar con el instrumento real. |
 | v77 | 18/11 → 19/11 | **Sesión 24: análisis de rutina de la foto (16.43 ✅), con WF4 reconvertido.** **(1) Decisión del autor:** reconvertir WF4 en vez de crear un WF9 (el agente lo había propuesto sin mirar WF4; quedó como regla: revisar lo que existe antes de proponer algo nuevo). **(2) Base** (`SQL/sesion24_16.43_fotos_para_analizar.sql`): `vista_fotos_para_analizar` = las filas de `vista_estado_cultivo` cuya última foto está en Storage, tiene entre 10 min y 48 h, nadie la analizó (ninguna fila de `seguimiento_fenologico` con esa foto) y el cultivo no está en pausa; `seguimiento_fenologico.origen` (`alerta`, `consulta`, `proactivo`; null en las filas viejas). Solo `service_role`. Test: FALLÓ 0 de 16 antes, OK 16 de 16 después; en PGlite detectó 14 defectos a propósito. **(3) WF2** (12 nodos): `origen` decide el título de los sensores del prompt ("VALORES CRÍTICOS DETECTADOS" solo en alertas), la tarea (la de rutina busca malezas, plagas, hongos y deficiencias, "no inventes problemas"), si avisa (`Avisar?`: la de rutina solo con severidad media o más, o plagas o malezas) y si la falla va a Telegram (`Avisar el fallo?`: la de rutina no). El formato pide `malezas_detectadas`. `Diagnostico Fallido` sin el `==` ni el doble punto. Probado fuera de n8n (104 casos; una alerta sin detecciones sale igual que antes). **(4) WF6:** `Elegir cultivo` manda `origen: 'consulta'`. **(5) WF4** (7 nodos, mismo id): cada 6 h `Fotos para analizar` → `Descargar foto` → `Foto a base64` → `Armar pedido` → `Foto lista?` → `Pedir análisis` (WF2, `n8n interno`). Probado fuera de n8n (14 casos; encontró la hora en formato de 12 h). **(6) En vivo:** dos `/diagnostico` → `consulta`; un tercero a los 4 min → rechazo de los 10 minutos; lectura sana con foto (lectura 39) → sin Telegram ni WF2; la vista la mostró recién a los 10 min; WF4 a mano → `proactivo`, severidad baja, sin Telegram; WF4 otra vez → corta sin filas. **(7) Gemini:** en la corrida del 19/11 contestó el respaldo. En los `/diagnostico` del 18/11 Gemini no devolvió `malezas_detectadas`; con el prompt de rutina, sí. **(8) Cierra por reemplazo** 16.30, 16.45, 16.49, 16.57, 16.58, 16.59 y 16.60. **No cierra** 16.65 (la ventana de etapa de WF3) ni B.17 (tendencia). **Límites:** el aviso con detecciones solo está probado fuera de n8n; con varios cultivos, WF4 pide todos a la vez (cupo de Flash: 5 por minuto); un análisis de rutina hace esperar 10 minutos a un `/diagnostico`. |
 | v76 | 16/11 | **Sesión 23: WF6 completo (`/diagnostico`), WF2 avisa cuando no hay diagnóstico, y Gemini 3.6.** **(1) `/diagnostico`:** 7 nodos nuevos en WF6 (20 en total, 13.13.3). Probado en vivo: la foto se mandó a WF2 y llegó el diagnóstico. **Encontrado al probar:** el límite de 10 minutos no ve un pedido mientras WF2 trabaja (hasta 90 s), y un segundo `/diagnostico` gastaba otro pedido. Se agregó un freno de 3 minutos en la memoria del workflow, probado en vivo. **(2) WF2:** cuando no hay diagnóstico, `Explicar fallo` y `Avisar fallo` mandan el motivo por Telegram antes del corte (10 nodos). Probado con nombres de modelo falsos (corrida 1624). **(3) Gemini:** el 16/11 el principal `gemini-3.8-flash` falló en las 4 corridas de WF2 (3 por `503` "high demand", 1 sin respuesta en 60 s), y en una falló también el respaldo. Agustín cambió el principal a **`gemini-3.6-flash`** en WF2 y WF3; primera corrida (1644): contestó el principal en 24 s. Según AI Studio, cupo gratis: Flash 5 por minuto y 20 por día; Flash Lite 15 y 500; los Pro, 0. No se usa `-latest`: apunta al modelo más nuevo, que es el más saturado. **(4) Pendiente:** el rechazo de los 10 minutos en vivo, el menú de comandos (opcional) y ver si el 3.6 se mantiene. Un detalle viejo: el mensaje de `Diagnostico Fallido` empieza con `==` y se ve "= Gemini no devolvió…". |
 | v75 | 16/11 | **Sesión 23: WF6, primera parte construida y probada en vivo (13.13.7, pasos 3 y 4).** **(1) Qué hay:** `WORKFLOWS/WF6.json`, 13 nodos: `/estado`, `/pausar`, `/reanudar`, `/ayuda`, texto no entendido y mensaje tarde. `/diagnostico` contesta que todavía no está listo. Cambios contra el diseño: un IF (`Es pausa?`) en vez del `Switch`, y los textos se arman en `Elegir cultivo` (13.13.3). **(2) Probado:** los nodos de código fuera de n8n (66 casos; uno encontró el "4/11" de `es-AR`), y en vivo cada comando contra la base. La pausa frena a WF1: dos sequías en pausa se guardaron sin aviso ni riego, y la misma sequía después de `/reanudar` avisó y regó (riego 33). Un `/estado` mandado con n8n apagado se contestó como tarde. **(3) Encontrado:** pegar el JSON en el lienzo no trae la configuración del workflow; al apagar n8n queda una corrida *crashed* que no hace daño; una corrida exitosa no guardada queda `running` con `deletedAt` en la base de n8n (13.13.3). "Riego automático: disponible" no dice si el freno está puesto (13.13.5). **(4) Datos de prueba:** arranque 29, lecturas 35 a 38, riego 33, orden 41. **(5) Pendiente:** cambiar la `X-Device-Key` de la placa de demo, que se compartió fuera de n8n. |
@@ -4915,7 +4926,7 @@ Si `Resolver Cultivo` (WF1) no encuentra ningún cultivo activo para la MAC reci
 - Agregación cuando hay varias métricas desviadas a la vez: **manda el peor caso** (si una sola métrica es "seria", el estado general es "seria"), criterio estándar en sistemas de alerta/monitoreo.
 
 **Fundamento (para defensa de tesis):**
-1. *Escalabilidad a nuevos cultivos sin tocar código:* toda la fórmula lee de `parametro_etapa`, que ya es una tabla parametrizada por especie y etapa (fuente FAO). Agregar una especie nueva es solo insertar filas — el Code node no cambia.
+1. *Escalabilidad a nuevos cultivos sin tocar código:* toda la fórmula lee de `parametro_etapa`, que ya es una tabla parametrizada por especie y etapa (~~fuente FAO~~ — *corregido el 24/11: los valores no salen de FAO; la procedencia de cada fila está en `parametro_etapa.fuente`, ver 17.4*). Agregar una especie nueva es solo insertar filas — el Code node no cambia.
 2. *Normalización por ancho de rango:* evita que el mismo error absoluto (ej. 0.2 de pH) se juzgue distinto según qué tan angosto sea el rango ideal de cada cultivo/etapa, sin necesidad de recalibrar umbrales a mano al sumar especies.
 3. *Fail-safe:* desacopla la alerta de la disponibilidad/éxito de la API de Gemini. El bug de 16.3/16.4 mostró el riesgo concreto de lo contrario: cualquier falla de Gemini caía en un fallback que decía `estado_optimo: true` — el peor comportamiento posible para un sistema de alerta (silencia problemas reales ante una falla técnica ajena al cultivo).
 4. *Reproducibilidad y testeable sin costo de API:* la fórmula se puede testear con datos sintéticos (casos límite, nulls) sin llamar a Gemini, y el mismo input siempre da el mismo resultado — clave para poder explicar y defender el comportamiento del sistema.
@@ -6382,6 +6393,15 @@ La idea central de toda la fase: **no buscar una cita que contenga el número, s
 
 ### 17.1 — Estado verificado de la base de conocimiento
 
+> [!IMPORTANT]
+> **Decisiones del 24/11/2026 (sesión 25), con fuentes verificadas.** Aplicadas en `SQL/sesion25_fase17_umbrales.sql` y verificadas por MCP.
+>
+> - **Floración sube de 50–65 a 60–75.** Lo que el 23/09 se leyó como "correcto" no se sostiene: el factor de respuesta del rendimiento al agua (Ky) del tomate es máximo en floración (1,1 contra 0,4 en vegetativo; FAO X5647E, Anexo II, tabla 12, que toma el Estudio FAO Riego y Drenaje 33), y en Liu et al. (2019) la humedad baja en floración y cuaje redujo el rendimiento. Se transfiere la dirección, no el valor. Desde ahora Vegetativo, Floración y Fructificación tienen el mismo rango de humedad.
+> - **El K no se cambia.** Los 135 ppm de CDFA son K intercambiable (extracción con acetato de amonio), un umbral de suelo para tomate de industria: no se comparan con la lectura del sensor (17.2). La forma de la curva sí tiene fuente: el K:N sube con la floración y el fruto (Raudales 2023) y el K no tiene que sobrar en maduración (Liu et al. 2019). El valor absoluto necesita calibrarse con el instrumento real, y eso queda fuera de alcance (17.6).
+> - **Abierto, decisión del autor:** Cosecha (45–60) prioriza la calidad sobre el rendimiento. UC IPM corta el riego antes de cosechar para subir los sólidos solubles; en Liu et al. (2019), más agua en maduración dio más rendimiento. Queda escrito en el `criterio` de la fila, sin cambiar el valor.
+>
+> En la tabla de abajo, **Floración ya está en 60–75**. La observación 1 se resolvió al revés de lo que dice la nota del 23/09.
+
 > [!NOTE]
 > **Actualizado el 23/09/2026.** El hueco que esta sección describía quedó cerrado para el tomate: se cargó Fructificación y los umbrales de Cosecha (ver **B.1** y **16.41**). El estado vigente es:
 >
@@ -6393,7 +6413,7 @@ La idea central de toda la fase: **no buscar una cita que contenga el número, s
 >   1      Germinación      10    80–95     6.0–7.0    10   10   10   1.00
 >   2      Plántula         15    70–85     6.0–6.5    20   15   15   0.75
 >   3      Vegetativo       40    60–75     6.0–6.8    50   30   30   0.60
->   4      Floración        20    50–65     6.2–6.8    30   50   60   2.00
+>   4      Floración        20    60–75     6.2–6.8    30   50   60   2.00   ← humedad 50–65 hasta el 24/11
 >   5      Fructificación   40    60–75     6.0–6.8    25   40   60   2.40   ← nueva
 >   6      Cosecha          30    45–60     6.0–6.8    20   30   45   2.25   ← se llenó
 >
@@ -6441,6 +6461,8 @@ Hoy `ideal_n` no dice qué mide. Antes de discutir si vale 40 u 80 hay que fijar
 
 Con eso declarado, las referencias externas dejan de tener que justificar el **valor absoluto** —que depende del instrumento— y pasan a justificar la **forma de la curva**, que es lo que efectivamente sostienen. Es barato y va primero: `COMMENT ON COLUMN` en las tres columnas más un párrafo en el marco teórico.
 
+> **✅ Aplicado el 24/11/2026 (sesión 25).** Comentarios en `ideal_n/p/k` ("en mg/kg tal como lo reporta el sensor", no un análisis de laboratorio, con la tolerancia de ±30 % de WF1 dicha como "sin fuente") y también en `humedad_min/max` ("en % tal como la reporta el sensor", no % de capacidad de campo, y qué decide cada uno). El pH no lleva comentario: su unidad no se presta a confusión. **Falta el párrafo del marco teórico** (va al informe).
+
 ### 17.3 — Paso 2: justificar la forma de la curva con las fuentes
 
 Esto sí está publicado y es citable:
@@ -6463,14 +6485,25 @@ Redacción para la tesis: *"umbral operativo de decisión, derivado de la curva 
 > | Afirmación | Fuente |
 > |---|---|
 > | El tomate tolera perder hasta el **40 % del agua disponible** antes de entrar en estrés (fracción de agotamiento p = 0,40) | FAO 56, Cuadro 22 |
-> | En **desarrollo del fruto y maduración** lo óptimo es 80–90 % de capacidad de campo, y **60–70 % ya produce estrés** en esas etapas | Wang et al. (2019), PLOS ONE 14(3): e0213643 |
-> | **El exceso de K en maduración perjudica** el rendimiento — el K no sube indefinidamente | Wang et al. (2019) |
-> | La fluctuación de humedad **durante el llenado del fruto** causa podredumbre apical; lo que importa es la constancia, no el promedio | Univ. of Minnesota Extension |
+> | En **desarrollo del fruto y maduración** lo óptimo es 80–90 % de capacidad de campo, y **60–70 % ya produce estrés** en esas etapas | ~~Wang et al.~~ **Liu et al.** (2019), PLOS ONE 14(3): e0213643 — *corregido el 24/11, ver abajo* |
+> | **El exceso de K en maduración perjudica** el rendimiento — el K no sube indefinidamente | ~~Wang et al.~~ **Liu et al.** (2019) |
+> | ~~La fluctuación de humedad **durante el llenado del fruto** causa podredumbre apical; lo que importa es la constancia, no el promedio~~ | ~~Univ. of Minnesota Extension~~ — *no verificable (24/11), no citar* |
 > | Cerca de cosecha se aplica **déficit a propósito** —corte de riego 3 a 4 semanas antes— para subir sólidos solubles con pérdida mínima de rendimiento | UC IPM, *Irrigation of Processing Tomatoes* |
-> | La relación **K:N** es el determinante principal de la calidad del fruto y sube por etapa: 1:1 antes de la primera flor, 1,4:1 del primer al cuarto racimo, **1,7:1 del cuarto en adelante** | e-GRO Alert E809 |
+> | La relación **K:N** es el determinante principal de la calidad del fruto y sube por etapa: 1:1 antes de la primera flor, 1,4:1 del primer al cuarto racimo, **1,7:1 del cuarto en adelante** | ~~e-GRO Alert E809~~ **Raudales (2023)**, e-GRO Edible Alert 8(9) — *sin suelo; ver abajo* |
 > | En maduración el **N se requiere en cantidad reducida**, solo para sostener el llenado | Yara |
 > | En tomate **cherry** sin suelo, el K₂O es el factor de mayor efecto sobre rendimiento **y** sobre sólidos solubles, con interacción P × K significativa | *Technology in Horticulture* (2026) |
-> | El desarrollo del fruto tiene tres fases: división celular hasta ~10 días post-antesis, **expansión celular del día 10 al 40** —que termina en verde maduro—, y maduración desde el día 40 | Quinet et al. (2019), *Front. Plant Sci.* 10:1554 |
+> | El desarrollo del fruto tiene tres fases: división celular hasta ~10 días post-antesis, **expansión celular del día 10 al 40** —que termina en verde maduro—~~, y maduración desde el día 40~~ | Quinet et al. (2019), *Front. Plant Sci.* 10:1554 — *lo tachado no se encontró (24/11)* |
+>
+> **Corrección del 24/11/2026 (sesión 25), al verificar cada fuente contra el original:**
+>
+> - **Liu, Hu, Feng, Wang y Yang (2019)**, "Tomato yield and water use efficiency change with various soil moisture and potassium levels during different growth stages", PLOS ONE 14(3): e0213643. Wang es el cuarto autor. Ensayo en macetas, humedad en % de capacidad de campo. Lo que dice, por etapa: en vegetativo, 60–70 % alcanza; en floración y cuaje, la humedad baja **redujo** el rendimiento; en desarrollo y maduración del fruto, el agua suficiente lo favorece; y pide evitar el exceso de K en maduración. La fila de arriba con "80–90 % óptimo" no se confirmó con ese número: citar la dirección, no el rango. `SQL/sesion13_fructificacion_y_cosecha.sql` conserva la cita vieja, como registro.
+> - **Raudales, R. E. (2023)**, e-GRO Edible Alert 8(9). Es para **cultivo sin suelo**. Además del K:N, dice que el K frena el crecimiento vegetativo y lleva los azúcares al fruto.
+> - **CDFA, Processing Tomatoes:** los 135 ppm son K intercambiable para tomate de industria (acetato de amonio). "Menos del 30 % del N antes del cuaje" es absorción **acumulada**, no la dosis de una etapa.
+> - **Yara:** pico de N justo antes de la floración; la mayor parte del P **temprano**, "para asegurar buen crecimiento de raíces y la floración"; K con la mayor demanda en el engorde del fruto; N reducido para sostener el llenado.
+> - **UC IPM:** cortar el riego 3 a 4 semanas antes de cosechar (UC ANR 3470, tomate para industria); "el tomate crece mejor con pH de 6,0 a 7,5".
+> - **Fuente nueva:** FAO X5647E, Anexo II, tabla 12 (toma el Estudio FAO Riego y Drenaje 33): Ky del tomate 0,4 en vegetativo, **1,1 en floración**, 0,8 en formación del fruto, 0,4 en maduración. Es lo que sostiene la suba de Floración.
+> - **Sin fuente, dicho así en la base:** los valores de Germinación, Plántula y Vegetativo son de la carga inicial del proyecto. La tolerancia de ±30 % de N, P y K está en el código y no tiene fuente: es una heurística operativa.
+> - **No citar:** la página del tomate de FAO (da 404) y Univ. of Minnesota (no se pudo leer).
 >
 > **Criterios visuales de etapa (01/10/2026, v54).** La columna `etapas_especie.criterio_visual` se redactó sobre los **estadios principales de la escala BBCH** para solanáceas: Feller, C. et al. (1995), *Phänologische Entwicklungsstadien von Gemüsepflanzen: II. Fruchtgemüse und Hülsenfrüchte*, Nachrichtenbl. Deut. Pflanzenschutzd. 47; y Meier, U. (ed.) (2001), *Growth stages of mono- and dicotyledonous plants. BBCH Monograph*, 2.ª ed. **Verificar las referencias exactas antes de citarlas en la tesis.** Igual que con los umbrales, lo transferido es la secuencia y el signo visible de cada estadio, no un número.
 >
@@ -6487,6 +6520,8 @@ alter table parametro_etapa
 ```
 
 No es higiene académica solamente. En un producto que emite recomendaciones agronómicas, **poder responder "por qué este umbral" es una funcionalidad**, no un adorno: es lo que separa una recomendación de una orden. Y encaja con el principio de que **la definición vive en el productor** — hoy el criterio de derivación vive en la cabeza de quien cargó la fila, que es el peor lugar posible.
+
+> **✅ Aplicado el 24/11/2026 (sesión 25)** (`SQL/sesion25_fase17_umbrales.sql`). Las dos columnas son **NOT NULL** y tienen un CHECK que rechaza el texto vacío: una etapa nueva no entra sin decir de dónde salen sus números, aunque sea "sin fuente registrada". Las 6 filas del tomate están cargadas. Germinación, Plántula y Vegetativo dicen que sus valores son de la carga inicial, sin fuente; la fuente solo sostiene el pH y la forma de la curva. Las vistas que leen los workflows no cambiaron: listan sus columnas una por una, así que `fuente` y `criterio` no llegan a WF1, WF4 ni WF6. Mostrarlas (por ejemplo en `/estado`) queda como idea, sin hacer.
 
 ### 17.5 — Paso 4: análisis de sensibilidad (con la corrección de método)
 
@@ -6515,6 +6550,31 @@ group by u order by u;
 
 Es, además, material directo de marco teórico: **análisis de sensibilidad de un sistema de inferencia basado en reglas frente a la incertidumbre de sus parámetros.**
 
+#### 17.5.1 — Resultado (24/11/2026, sesión 25)
+
+**Script:** `SQL/sesion25_17.5_sensibilidad.sql`, solo lectura, 3 consultas. **Grilla declarada:** uniforme sobre el rango físico que acepta `Validar Contrato` (humedad 0–100, paso 0,1; pH 0–14, paso 0,01; N, P y K 0–2000, paso 0,1). **Método:** un umbral por vez (OAT), ±5, ±10 y ±20 %; las otras mediciones quedan en el centro de su rango. Se reporta el tramo donde la decisión cambia, en unidades y en % del rango aceptado de la etapa. El % de la grilla depende de la grilla elegida (para N, P y K, 0–2000 lo hace chico), así que la comparación se hace sobre el % del rango.
+
+**Por qué OAT alcanza acá:** el riego depende de un solo umbral de la tabla (`humedad_min`), y cada medición se juzga contra sus propios umbrales. Lo que OAT no ve es la combinación: la alerta es un OR de todas las mediciones. Una grilla factorial (3⁹ combinaciones) no agregaba nada a lo que se quería medir. Referencias de método: Saltelli et al. (2008), *Global Sensitivity Analysis. The Primer*, Wiley; Morris (1991), *Technometrics* 33(2):161–174; DeJonge et al. (2012), *Ecological Modelling* 231:113–125 (sensibilidad en un modelo de riego).
+
+**Comprobación:** se sacó el código del nodo `Motor de Inferencia` de `WORKFLOWS/WF1.json` y se corrió punto por punto sobre la misma grilla, con la decisión de riego armada como en `Dispara WF5` (con bomba, sin freno, sin pausa). 312 de 313 casos dan igual. El otro difiere en un punto: en JS `45 × 1,4 = 62,99999999999999`, así que con tolerancia 0,40 el Motor marcaría un K de 63 en Cosecha como alto. La base dio el mismo resultado que la copia local (huellas md5 iguales).
+
+**Lo que mostró:**
+
+| Qué se mueve | ±5 % | ±10 % | ±20 % | Lectura |
+|---|---|---|---|---|
+| `humedad_min` (riego), etapas con mínimo 60 | 3 puntos = 20 % del rango | 40 % | 80 % | El rango es de 15 puntos en todas las etapas. En Cosecha (mínimo 45) es 15 / 30 / 60 %; en Germinación (80), 27 / 53 / 107 % |
+| `ph_min` y `ph_max` | 0,3 a 0,35 unidades = 30 a 66 % del rango | 60 a 130 % | más del 100 % | **El umbral más sensible.** Los rangos de pH miden 0,5 a 1,0 unidades; en varias etapas, con ±10 % un extremo ya pasa al otro |
+| `ideal_n/p/k` | 16,7 % del rango | 33,3 % | 66,7 % | **Igual en todas las etapas y nutrientes**, porque el rango es proporcional al ideal |
+| Tolerancia de N, P y K: 0,20 o 0,40 en vez de 0,30 | — | 33,3 % del rango | — | Igual en todos los casos, por la misma razón |
+
+**Etapa equivocada** (la planta ya pasó a la etapa siguiente y la tabla sigue aplicando la anterior):
+
+- **Vegetativo → Floración → Fructificación: la humedad no cambia nada.** Las tres tienen 60–75 desde esta sesión. Con Floración en 50–65, cada una de esas dos transiciones cambiaba la decisión de regar en 10 puntos de humedad.
+- **Fructificación → Cosecha es el atraso que más pesa en el riego:** con la tabla de Fructificación, el sistema riega con humedad de 45 a 60, que Cosecha acepta (15 puntos; 30 si se cuenta también el exceso, el 200 % del rango de Cosecha). Es justo la transición que 16.65 deja más tiempo sin mirar.
+- **N, P y K cambian mucho entre etapas vecinas** (del 67 % al 222 % del rango), salvo el K entre Floración y Fructificación (igual). Solo generan avisos, no acciones.
+
+**Para la tesis:** la decisión de riego se mueve en proporción directa al error del umbral (un 5 % de error en `humedad_min` cambia un quinto del rango aceptado). El pH es donde un error chico pesa más, y conviene decirlo junto con la limitación del sensor (17.6). **Límites:** OAT no mide combinaciones; la grilla uniforme no representa un cultivo real; los resultados hablan de la regla, no de la agronomía.
+
 ### 17.6 — Paso 5: declarar la limitación del instrumento
 
 **A verificar antes de afirmar nada:** la trazabilidad metrológica de la lectura NPK de un sensor 7-en-1 de bajo costo. Se buscó y **no se encontró** una validación independiente concluyente. **No afirmar que el sensor es exacto ni que no lo es sin esa lectura.**
@@ -6526,7 +6586,7 @@ Conviene además cruzarlo con lo que 16.37 dejó establecido: **la base de conoc
 ### 17.7 — Bibliografía incorporada al Anexo II (punto VIII)
 
 1. **Allen, Pereira, Raes y Smith (2006)** — *Evapotranspiración del cultivo*, Estudio FAO Riego y Drenaje 56. ISBN 92-5-304219-2. → riego, Kc del tomate (Cuadro 12). https://www.fao.org/3/x0490s/x0490s.pdf
-2. **CDFA (2015)** — *Guía para la fertilización del tomate*, FREP. → **umbrales de suelo en ppm/mg-kg** y absorción por etapa. Es la única fuente encontrada en las unidades del sistema. https://apps1.cdfa.ca.gov/FertilizerResearch/docs/Tomate_Esp.html
+2. **CDFA (2015)** — *Guía para la fertilización del tomate*, FREP. → **umbrales de suelo en ppm/mg-kg** y absorción por etapa. ~~Es la única fuente encontrada en las unidades del sistema.~~ *Corregido el 24/11: mismo nombre de unidad, otra magnitud (análisis de laboratorio, no lectura del sensor; ver 17.2).* https://apps1.cdfa.ca.gov/FertilizerResearch/docs/Tomate_Esp.html
 3. **FAO (2013)** — *El cultivo de tomate con BPA en la agricultura urbana y periurbana*. ISBN 978-92-5-307780-9. https://www.fao.org/4/i3359s/i3359s.pdf
 4. **FAO e IFA (2002)** — *Los fertilizantes y su uso*, 4.ª ed. ISBN 92-5-304414-4. https://openknowledge.fao.org/handle/20.500.14283/x4781s
 5. **Salvatierra Bellido, Viqueira Pina y Real Moreno (2016)** — *Guía de planificación del fertirriego en tomate para industria*, IFAPA.
@@ -6534,14 +6594,26 @@ Conviene además cruzarlo con lo que 16.37 dejó establecido: **la base de conoc
 
 **Fuera del Anexo, para consulta:** INIA Uruguay, *Fichas de cultivo de especies aromáticas* (albahaca) — https://ainfo.inia.uy/digital/bitstream/item/8778/1/Fpta-11-p.205-225.pdf
 
+**Verificadas el 24/11/2026 (sesión 25), para el informe.** Autores, título y número comprobados en Crossref o en el original.
+
+- Liu, J., Hu, T., Feng, P., Wang, L. y Yang, S. (2019). Tomato yield and water use efficiency change with various soil moisture and potassium levels during different growth stages. *PLOS ONE* 14(3): e0213643. doi:10.1371/journal.pone.0213643
+- FAO, documento X5647E, Anexo II, tabla 12 (Ky por etapa, tomado del Estudio FAO Riego y Drenaje 33). Completar el título del documento antes de citarlo.
+- Raudales, R. E. (2023). *e-GRO Edible Alert* 8(9) (relación K:N del tomate sin suelo).
+- UC IPM, *Irrigation of Processing Tomatoes* (UC ANR 3470) y *Tomato: Selecting the Field*.
+- Yara, *Tomato Nutritional Summary* y *Role of Nutrients by Tomato Growth Stage*.
+- Li et al. (2026). *Technology in Horticulture* 6: e015.
+- Método: Saltelli, A., Ratto, M., Andres, T., Campolongo, F., Cariboni, J., Gatelli, D., Saisana, M. y Tarantola, S. (2008). *Global Sensitivity Analysis. The Primer*. Wiley. ISBN 978-0-470-05997-5 (en línea desde dic. 2007). Sin páginas ni cita textual verificadas: citarlo por la idea, no entre comillas.
+- Método: Morris, M. D. (1991). Factorial Sampling Plans for Preliminary Computational Experiments. *Technometrics* 33(2): 161–174. doi:10.1080/00401706.1991.10484804
+- Método: DeJonge, K. C., Ascough II, J. C., Ahmadi, M., Andales, A. A. y Arabi, M. (2012). Global sensitivity and uncertainty analysis of a dynamic agroecosystem model under different irrigation treatments. *Ecological Modelling* 231: 113–125. doi:10.1016/j.ecolmodel.2012.01.024 (solo los datos de la publicación; el texto no se leyó).
+
 ### 17.8 — Checklist Fase 17
 
-- [ ] Declarar la unidad de `ideal_n/p/k` con `COMMENT ON COLUMN` (17.2) — 🟠 barato
-- [ ] Escribir el párrafo de marco teórico sobre derivación de umbrales (17.2 + 17.3)
-- [ ] Columnas `fuente` / `criterio` en `parametro_etapa` (17.4) — 🟡
-- [ ] Análisis de sensibilidad sobre grilla sintética declarada (17.5) — 🟡 alto valor para la tesis
-- [ ] Revisar el **K** (10–60 contra 135 ppm de CDFA) y la humedad de **Floración** (17.1) — 🟡
-- [ ] Leer sobre validación de sensores NPK de bajo costo y escribir la limitación (17.6) — 🟢
+- [x] Declarar la unidad de `ideal_n/p/k` con `COMMENT ON COLUMN` (17.2) — ✅ 24/11, también en la humedad
+- [ ] Escribir el párrafo de marco teórico sobre derivación de umbrales (17.2 + 17.3) — va al informe
+- [x] Columnas `fuente` / `criterio` en `parametro_etapa` (17.4) — ✅ 24/11, NOT NULL
+- [x] Análisis de sensibilidad sobre grilla sintética declarada (17.5) — ✅ 24/11, resultado en 17.5.1
+- [x] Revisar el **K** (10–60 contra 135 ppm de CDFA) y la humedad de **Floración** (17.1) — ✅ 24/11: Floración sube, el K queda
+- [ ] Leer sobre validación de sensores NPK de bajo costo y escribir la limitación (17.6) — va al informe
 
 ## Fase 18 · Contrato de telemetría en vigencia
 
@@ -6714,7 +6786,7 @@ Van en orden de `B.1` a `B.12`, y se leen **antes** de reportar algo como hallaz
 > - Fructificación (nueva, `orden` 5, 35 días): humedad 60-75 · pH 6.0-6.8 · N 40 · P 40 · K 80
 > - Cosecha (`ee_id` 8, pasa a `orden` 6): humedad 45-60 · pH 6.0-6.8 · N 20 · P 25 · K 50
 >
-> Ver además el punto 9 de Fase 17: el K de toda la tabla puede estar corto respecto de la referencia de CDFA.
+> Ver además el punto 9 de Fase 17: el K de toda la tabla puede estar corto respecto de la referencia de CDFA. *(Decidido el 24/11: el K queda; no se compara con CDFA. Ver 17.1.)*
 
 1. Agregar `Fructificación` como fila nueva en `tipo_etapa` (catálogo global).
 2. Agregar fila en `etapas_especie` para Tomate Cherry entre Floración (orden 4) y Cosecha, reordenando `orden` (Cosecha pasa a orden 6).

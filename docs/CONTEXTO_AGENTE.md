@@ -1,10 +1,20 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, el 16/11 con WF6 completo, y el 19/11 con la sesión 24 (16.43, WF4 reconvertido): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v77**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, el 16/11 con WF6 completo, el 19/11 con la sesión 24 (16.43, WF4 reconvertido) y el 24/11 con la sesión 25 (Fase 17 corta): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v78**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
 > **Este archivo es una foto, y envejece.** Fue escrito después de una ronda de cuatro revisiones externas que corrieron en paralelo leyendo la versión anterior. Tres de ellas numeraron hallazgos nuevos usando el "último número" que este archivo declaraba, y chocaron entre sí. La lección quedó registrada como regla, abajo: **no asignes números de hallazgo.**
+
+---
+
+## ▶ Sesión 25 (24/11): Fase 17 corta, umbrales con unidad, fuente y sensibilidad (plan v78)
+
+- **Base** (`SQL/sesion25_fase17_umbrales.sql`, OK 8 de 8): `parametro_etapa.fuente` y `criterio`, **NOT NULL y sin texto vacío** (una etapa nueva no entra sin decir de dónde salen sus números); comentarios de unidad en `humedad_min/max` e `ideal_n/p/k` ("tal como lo reporta el sensor", no laboratorio ni capacidad de campo); **Floración 60–75** (era 50–65). Las vistas de los workflows no traen las columnas nuevas.
+- **Decisiones de Agustín:** Floración sube (Ky de FAO máximo en floración; Liu et al. 2019). **El K no se cambia:** los 135 ppm de CDFA son K intercambiable de laboratorio, no comparables. Abierto, suyo: Cosecha 45–60 prioriza calidad sobre rendimiento (escrito en su `criterio`).
+- **Citas corregidas:** "Wang et al. (2019)" es **Liu et al. (2019)**; "e-GRO E809" es **Raudales (2023)**, sin suelo. No citar Univ. of Minnesota, la página del tomate de FAO ni la "maduración desde el día 40" de Quinet. Germinación, Plántula y Vegetativo **no tienen fuente** para sus valores, y la base lo dice.
+- **Sensibilidad** (`SQL/sesion25_17.5_sensibilidad.sql`, solo lectura; resultado en el plan, 17.5.1): grilla sintética declarada, un umbral por vez. Comprobada contra el código real del Motor: 312 de 313 casos iguales. El pH es el umbral más sensible; N, P y K reaccionan igual en todas las etapas; el atraso de etapa que más pesa en el riego es Fructificación → Cosecha.
+- **Sigue:** arreglos del backlog que elija Agustín → informe (párrafo de 17.2 + 17.3, limitación de 17.6) → servidor. Pendientes chicos sin tocar: riego 33, fallo del 3.6 del 19/11, WF6 viejo, issue #26.
 
 ---
 
@@ -431,7 +441,7 @@ Cada 30 s → Pedir mensajes → Hay mensajes? → Confirmar lectura → Normali
 
 **La Albahaca (especie 4) se dio de baja el 01/10, por decisión de alcance:** el modelo supone un **ciclo lineal** (etapas en orden hasta una cosecha final) y la albahaca es de cosecha continua. El tomate cherry también se aparta un poco (crecimiento indeterminado: flores y frutos conviven), y los criterios visuales lo contemplan.
 
-**Cargar una especie nueva** = por cada etapa: orden y duración (`etapas_especie`), umbrales (`parametro_etapa`) y `criterio_visual`. Un buen criterio se ve en una foto, describe la **entrada** a la etapa y dice qué puede coexistir. Se redactaron sobre los estadios BBCH. Agregar una especie es cargar conocimiento, no tocar n8n.
+**Cargar una especie nueva** = por cada etapa: orden y duración (`etapas_especie`), umbrales (`parametro_etapa`, con `fuente` y `criterio` obligatorios desde el 24/11) y `criterio_visual`. Un buen criterio se ve en una foto, describe la **entrada** a la etapa y dice qué puede coexistir. Se redactaron sobre los estadios BBCH. Agregar una especie es cargar conocimiento, no tocar n8n.
 
 ---
 
@@ -529,13 +539,13 @@ Consultado contra Supabase, no asumido.
 | 1 | Germinación | 10 | 80–95 | 6.0–7.0 | 10 | 10 | 10 | 1.00 |
 | 2 | Plántula | 15 | 70–85 | 6.0–6.5 | 20 | 15 | 15 | 0.75 |
 | 3 | Vegetativo | 40 | 60–75 | 6.0–6.8 | 50 | 30 | 30 | 0.60 |
-| 4 | Floración | 20 | 50–65 | 6.2–6.8 | 30 | 50 | 60 | 2.00 |
+| 4 | Floración | 20 | **60–75** (desde el 24/11) | 6.2–6.8 | 30 | 50 | 60 | 2.00 |
 | 5 | **Fructificación** | 40 | 60–75 | 6.0–6.8 | 25 | 40 | 60 | 2.40 |
 | 6 | Cosecha | 30 | 45–60 | 6.0–6.8 | 20 | 30 | 45 | 2.25 |
 
 Criterio visual por etapa (resumido): Germinación = emergencia · Plántula = cotiledones abiertos · Vegetativo = ≥4 hojas verdaderas, sin botones · Floración = racimos con flores amarillas, sin frutos · **Fructificación = frutos cuajados verdes (puede haber flores)** · **Cosecha = frutos con cambio de color**. El texto exacto está en la base.
 
-> **Las columnas de `parametro_etapa` NO tienen unidad declarada.** La literatura publica % de capacidad de campo o ppm en solución; esta escala no es ninguna de las dos. Los valores nuevos se derivaron de fuentes citadas transfiriendo **dirección y magnitud relativa**, nunca el número. Si vas a discutir un umbral, discutí la forma de la curva, no el valor absoluto. Ver Fase 17 del plan.
+> **Desde el 24/11 la unidad está declarada** (`COMMENT ON COLUMN`: la lectura del sensor, tal como la reporta) y cada fila dice su `fuente` y su `criterio`. La literatura publica % de capacidad de campo o ppm en solución; esta escala no es ninguna de las dos. Los valores nuevos se derivaron de fuentes citadas transfiriendo **dirección y magnitud relativa**, nunca el número. Si vas a discutir un umbral, discutí la forma de la curva, no el valor absoluto. Ver Fase 17 del plan.
 
 > **Trampa de esquema, para no perder tiempo:** `cultivo.etapa_actual_id` apunta a **`tipo_etapa.id`**, no a `etapas_especie.id`, pese al nombre. Para llegar a la duración hay que pasar por `etapas_especie` filtrando por `especie_id` **y** `etapa_id`. Y la FK en `parametro_etapa` se llama `etapa_especie_id`, en singular.
 
