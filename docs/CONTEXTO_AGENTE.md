@@ -14,7 +14,8 @@
 - **Decisiones de Agustín:** Floración sube (Ky de FAO máximo en floración; Liu et al. 2019). **El K no se cambia:** los 135 ppm de CDFA son K intercambiable de laboratorio, no comparables. Abierto, suyo: Cosecha 45–60 prioriza calidad sobre rendimiento (escrito en su `criterio`).
 - **Citas corregidas:** "Wang et al. (2019)" es **Liu et al. (2019)**; "e-GRO E809" es **Raudales (2023)**, sin suelo. No citar Univ. of Minnesota, la página del tomate de FAO ni la "maduración desde el día 40" de Quinet. Germinación, Plántula y Vegetativo **no tienen fuente** para sus valores, y la base lo dice.
 - **Sensibilidad** (`SQL/sesion25_17.5_sensibilidad.sql`, solo lectura; resultado en el plan, 17.5.1): grilla sintética declarada, un umbral por vez. Comprobada contra el código real del Motor: 312 de 313 casos iguales. El pH es el umbral más sensible; N, P y K reaccionan igual en todas las etapas; el atraso de etapa que más pesa en el riego es Fructificación → Cosecha.
-- **Sigue:** arreglos del backlog que elija Agustín → informe (párrafo de 17.2 + 17.3, limitación de 17.6) → servidor. Pendientes chicos sin tocar: riego 33, fallo del 3.6 del 19/11, WF6 viejo, issue #26.
+- **Pendientes chicos (25/11):** el **riego 33** no es una falla (prueba de `/pausar`; la orden 41 vence a los 10 min sin entregarse, pero queda en `pendiente`: caso de 16.44). El **3.6 del 19/11** dio `503` por alta demanda y contestó el respaldo. El **WF6 viejo** se borró de n8n (copia en `cdcd898`): en n8n queda solo `4IA10LufXMrjIk7x`. Falta corregir el "6 lugares" del issue #26 (son 4).
+- **Sigue:** arreglos del backlog que elija Agustín → informe (párrafo de 17.2 + 17.3, limitación de 17.6) → servidor.
 
 ---
 
@@ -25,7 +26,7 @@
 - **Base** (`SQL/sesion24_16.43_fotos_para_analizar.sql`, OK 16 de 16): la vista y `seguimiento_fenologico.origen` (`alerta`, `consulta`, `proactivo`; null en las viejas). **WF2** 12 nodos (`Avisar?`, `Avisar el fallo?`; prompt según el origen; `malezas_detectadas`; sin el `==`). **WF6** manda `origen: 'consulta'`.
 - **En vivo:** `/diagnostico` → `consulta`; rechazo de los 10 min visto; lectura 39 sana con foto → WF4 → `proactivo`, sin Telegram; segunda corrida sin filas. Esa vez contestó el **respaldo** de Gemini (el 3.6 falló; causa sin registrar).
 - **Datos de prueba nuevos (#28):** arranque 30, lectura 39 y su foto; diagnósticos del 18/11 (2) y 19/11 (1).
-- **Ojo:** en n8n hay un **WF6 viejo** apagado (`ktGlXmvgaM7KazJu`, "… viejo", 13 nodos). En esta sesión se editó y exportó por error en lugar del bueno (`4IA10LufXMrjIk7x`). Propuesto borrarlo (está en git). El riego 33 sigue en `pendiente` tras la lectura 39 (sin revisar).
+- **Ojo (resuelto el 25/11: borrado):** en n8n hay un **WF6 viejo** apagado (`ktGlXmvgaM7KazJu`, "… viejo", 13 nodos). En esta sesión se editó y exportó por error en lugar del bueno (`4IA10LufXMrjIk7x`). Propuesto borrarlo (está en git). El riego 33 sigue en `pendiente` tras la lectura 39 (sin revisar).
 - **Sigue:** Fase 17 corta → informe → servidor.
 
 ---
