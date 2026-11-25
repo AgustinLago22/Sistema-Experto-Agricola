@@ -297,7 +297,7 @@
     {
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.texto }}",
+        "text": "={{ $json.texto.replace(/[_*`\\[]/g, '\\\\$&') }}",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -741,7 +741,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "432ef0b2-6d1d-4341-911b-1de1f34e2af5",
+  "versionId": "a3c9a81a-5091-447e-b772-75bca6cc8da6",
   "meta": {
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"
   },
