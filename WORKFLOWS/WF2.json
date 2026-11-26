@@ -1,5 +1,5 @@
 {
-  "name": "WF 2 - Diagnostico IA Emergencia",
+  "name": "WF2 - Diagnostico IA Emergencia",
   "nodes": [
     {
       "parameters": {
@@ -27,7 +27,7 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "={{ $('Parsear Respuesta IA').item.json.origen === 'proactivo' ? '🔎 Revisión de rutina · ' + $json.diagnostico_ia.severidad : '🚨 ' + $json.diagnostico_ia.severidad }} — {{ $('Parsear Respuesta IA').item.json.planta }} ({{ $('Parsear Respuesta IA').item.json.etapa }}){{ (d => d.length ? '\\n🔍 Detectado: ' + d.join(', ') : '')([].concat($json.diagnostico_ia.plagas_detectadas || [], $json.diagnostico_ia.malezas_detectadas || []).map(String)) }}\n\n{{ $json.diagnostico_ia.explicacion_agricultor }}\n\n👉 Hacer ahora:\n{{ [].concat($json.diagnostico_ia.acciones_inmediatas || []).map(a => '• ' + a).join('\\n') }}\n\n🎯 Confianza {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%",
+        "text": "={{ $('Parsear Respuesta IA').item.json.origen === 'proactivo' ? '🔎 Revisión de rutina · ' : '🚨 ' }}{{ String($json.diagnostico_ia.severidad ?? '').replace(/[_*`\\[]/g, '\\\\$&') }} — {{ String($('Parsear Respuesta IA').item.json.planta ?? '').replace(/[_*`\\[]/g, '\\\\$&') }} ({{ String($('Parsear Respuesta IA').item.json.etapa ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}){{ (d => d.length ? '\\n🔍 Detectado: ' + d.join(', ') : '')([].concat($json.diagnostico_ia.plagas_detectadas || [], $json.diagnostico_ia.malezas_detectadas || []).map(String)).replace(/[_*`\\[]/g, '\\\\$&') }}\n\n{{ String($json.diagnostico_ia.explicacion_agricultor ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n\n👉 Hacer ahora:\n{{ [].concat($json.diagnostico_ia.acciones_inmediatas || []).map(a => '• ' + a).join('\\n').replace(/[_*`\\[]/g, '\\\\$&') }}\n\n🎯 Confianza {{ ($json.diagnostico_ia.confianza * 100).toFixed(0) }}%",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -254,7 +254,7 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "={{ $json.texto_fallo }}",
+        "text": "={{ String($json.texto_fallo ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -483,7 +483,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "66dac8d5-6bef-4423-8318-49d6ce092a9d",
+  "versionId": "078cf756-c166-4703-813e-696434469bd6",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

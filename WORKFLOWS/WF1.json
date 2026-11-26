@@ -1,5 +1,5 @@
 {
-  "name": "Orquestacion - Tesis",
+  "name": "WF1 - Orquestacion",
   "nodes": [
     {
       "parameters": {
@@ -140,7 +140,7 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "=🚨 ALERTA — SISTEMA EXPERTO AGRÍCOLA  🚨\n  📍 Cultivo: {{ $('Motor de Inferencia').item.json.planta }}\n  🌱 Etapa: {{ $('Motor de Inferencia').item.json.etapa }}\n  📡 Dispositivo: {{ $('Motor de Inferencia').item.json.mac_address }}\n  ━━━━━━━━━━━━━━━━━━━\n  📊 DIAGNÓSTICO: {{ $('Motor de Inferencia').item.json.estado }}\n  ━━━━━━━━━━━━━━━━━━━\n  🔬 Observaciones:\n  {{ $('Motor de Inferencia').item.json.observaciones.join('\\n  ') }}\n  📈 Valores Medidos:\n  💧 Humedad: {{ $('Motor de Inferencia').item.json.humedad == null ? 'sin dato' : $('Motor de Inferencia').item.json.humedad + '%' }}\n  ⚗️  pH: {{ $('Motor de Inferencia').item.json.ph == null ? 'sin dato' : (Number.isInteger($('Motor de Inferencia').item.json.ph) ? $('Motor de Inferencia').item.json.ph.toFixed(1) : $('Motor de Inferencia').item.json.ph) }}\n  🟢 N: {{ $('Motor de Inferencia').item.json.n == null ? 'sin dato' : $('Motor de Inferencia').item.json.n + ' mg/kg' }}\n  🔵 P: {{ $('Motor de Inferencia').item.json.p == null ? 'sin dato' : $('Motor de Inferencia').item.json.p + ' mg/kg' }}\n  🟡 K: {{ $('Motor de Inferencia').item.json.k == null ? 'sin dato' : $('Motor de Inferencia').item.json.k + ' mg/kg' }}\n  🕐 {{ DateTime.fromISO($('Motor de Inferencia').item.json.timestamp).setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy HH:mm') }} (hora de Argentina)",
+        "text": "=🚨 ALERTA — SISTEMA EXPERTO AGRÍCOLA  🚨\n  📍 Cultivo: {{ String($('Motor de Inferencia').item.json.planta ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n  🌱 Etapa: {{ String($('Motor de Inferencia').item.json.etapa ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n  📡 Dispositivo: {{ $('Motor de Inferencia').item.json.mac_address }}\n  ━━━━━━━━━━━━━━━━━━━\n  📊 DIAGNÓSTICO: {{ String($('Motor de Inferencia').item.json.estado ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n  ━━━━━━━━━━━━━━━━━━━\n  🔬 Observaciones:\n  {{ $('Motor de Inferencia').item.json.observaciones.join('\\n  ').replace(/[_*`\\[]/g, '\\\\$&') }}\n  📈 Valores Medidos:\n  💧 Humedad: {{ $('Motor de Inferencia').item.json.humedad == null ? 'sin dato' : $('Motor de Inferencia').item.json.humedad + '%' }}\n  ⚗️  pH: {{ $('Motor de Inferencia').item.json.ph == null ? 'sin dato' : (Number.isInteger($('Motor de Inferencia').item.json.ph) ? $('Motor de Inferencia').item.json.ph.toFixed(1) : $('Motor de Inferencia').item.json.ph) }}\n  🟢 N: {{ $('Motor de Inferencia').item.json.n == null ? 'sin dato' : $('Motor de Inferencia').item.json.n + ' mg/kg' }}\n  🔵 P: {{ $('Motor de Inferencia').item.json.p == null ? 'sin dato' : $('Motor de Inferencia').item.json.p + ' mg/kg' }}\n  🟡 K: {{ $('Motor de Inferencia').item.json.k == null ? 'sin dato' : $('Motor de Inferencia').item.json.k + ' mg/kg' }}\n  🕐 {{ DateTime.fromISO($('Motor de Inferencia').item.json.timestamp).setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy HH:mm') }} (hora de Argentina)",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -825,7 +825,7 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "=⚠️ FOTO NO GUARDADA — SISTEMA EXPERTO AGRÍCOLA\n  📍 Cultivo: {{ $('Motor de Inferencia').item.json.planta }}\n  📡 Dispositivo: {{ $('Motor de Inferencia').item.json.mac_address }}\n  ━━━━━━━━━━━━━━━━━━━\n  La lectura {{ $('Resultado de la foto').item.json.lectura_id }} se guardó y se evaluó, pero la foto no se pudo subir a Storage.\n  El aviso y el riego siguen igual. La foto no queda en el historial y WF3 no la va a evaluar.\n  ❌ Error: {{ $('Resultado de la foto').item.json.foto_error }}\n  🕐 {{ DateTime.fromISO($('Motor de Inferencia').item.json.timestamp).setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy HH:mm') }} (hora de Argentina)",
+        "text": "=⚠️ FOTO NO GUARDADA — SISTEMA EXPERTO AGRÍCOLA\n  📍 Cultivo: {{ String($('Motor de Inferencia').item.json.planta ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n  📡 Dispositivo: {{ $('Motor de Inferencia').item.json.mac_address }}\n  ━━━━━━━━━━━━━━━━━━━\n  La lectura {{ $('Resultado de la foto').item.json.lectura_id }} se guardó y se evaluó, pero la foto no se pudo subir a Storage.\n  El aviso y el riego siguen igual. La foto no queda en el historial y WF3 no la va a evaluar.\n  ❌ Error: {{ String($('Resultado de la foto').item.json.foto_error ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n  🕐 {{ DateTime.fromISO($('Motor de Inferencia').item.json.timestamp).setZone('America/Argentina/Buenos_Aires').toFormat('dd/MM/yyyy HH:mm') }} (hora de Argentina)",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -1231,7 +1231,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "861b9002-bdd7-4c2f-ba4a-647505f3aa5a",
+  "versionId": "179bc2e7-ee27-41fc-8e65-7ec07234952c",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

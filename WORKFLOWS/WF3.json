@@ -353,7 +353,7 @@
     {
       "parameters": {
         "chatId": "5593622386",
-        "text": "=🌱 ACTUALIZACIÓN FENOLÓGICA\n\n📍 Cultivo: {{ $('Parsear y decidir').item.json.planta }}\n\n🔄 Cambio: {{ $('Parsear y decidir').item.json.etapa_actual }} → {{ $('Parsear y decidir').item.json.etapa_siguiente }}\n\n📝 Justificación:\n{{ $('Parsear y decidir').item.json.diagnostico_fenologico.justificacion }}\n\n🎯 Confianza: {{ ($('Parsear y decidir').item.json.diagnostico_fenologico.confianza * 100).toFixed(0) }}%\n✅ Etapa actualizada automáticamente en el sistema.",
+        "text": "=🌱 ACTUALIZACIÓN FENOLÓGICA\n\n📍 Cultivo: {{ String($('Parsear y decidir').item.json.planta ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n\n🔄 Cambio: {{ String($('Parsear y decidir').item.json.etapa_actual ?? '').replace(/[_*`\\[]/g, '\\\\$&') }} → {{ String($('Parsear y decidir').item.json.etapa_siguiente ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n\n📝 Justificación:\n{{ String($('Parsear y decidir').item.json.diagnostico_fenologico.justificacion ?? '').replace(/[_*`\\[]/g, '\\\\$&') }}\n\n🎯 Confianza: {{ ($('Parsear y decidir').item.json.diagnostico_fenologico.confianza * 100).toFixed(0) }}%\n✅ Etapa actualizada automáticamente en el sistema.",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -730,7 +730,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "11e03d76-d64b-4356-aaad-3ebca888d28e",
+  "versionId": "80aaaaea-de5a-447e-b674-de79e5ae7af7",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "04400341b4bd1a377fea3ead971f217b8d54b9f42ca605370c2d1cc266b31db4"

@@ -1,10 +1,21 @@
 # Sistema Experto Agrícola — Paquete de contexto para un agente
 
-> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, el 16/11 con WF6 completo, el 19/11 con la sesión 24 (16.43, WF4 reconvertido) y el 24/11 con la sesión 25 (Fase 17 corta): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v78**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
+> **Regenerado el 20/10/2026** (plan v62, cierre de la sesión 17). **Actualizado el 26/10 con las sesiones 18 y 19, el 29/10 con el cierre de la 20, el 03/11 con su commit y la sesión 21, el 10/11 con la sesión 22 (16.63, la entrega de órdenes), el 11/11 con la sesión 23 (16.33) el 12/11 con el backlog en GitHub y el diseño de WF6, el 16/11 con WF6 completo, el 19/11 con la sesión 24 (16.43, WF4 reconvertido) el 24/11 con la sesión 25 (Fase 17 corta) y el 26/11 con la sesión 26 (el Markdown de Telegram): ver los bloques ▶ de abajo, antes del §0.** El plan (`implementation_plan.md`, **v79**) ya las registra. Estado verificado contra Supabase y contra los JSON exportados, no contra lo que afirma la documentación.
 >
 > Este archivo existe para que un agente pueda trabajar **sin leer `docs/implementation_plan.md`**, que tiene ~6.600 líneas y ~740 KB. Acá está comprimido lo que hace falta para operar; el plan queda como referencia para profundizar en un punto concreto (mapa al final de este archivo).
 >
 > **Este archivo es una foto, y envejece.** Fue escrito después de una ronda de cuatro revisiones externas que corrieron en paralelo leyendo la versión anterior. Tres de ellas numeraron hallazgos nuevos usando el "último número" que este archivo declaraba, y chocaron entre sí. La lección quedó registrada como regla, abajo: **no asignes números de hallazgo.**
+
+---
+
+## ▶ Sesión 26 (26/11): el Markdown de Telegram, cerrado (plan v79)
+
+- **Los 5 nodos que faltaban** (WF1 `Alerta Telegram` y `Aviso Foto no Guardada`, WF2 `Telegram Diagnostico IA` y `Avisar fallo`, WF3 `Notificar Cambio de Etapa`) escapan cada parte variable de texto: `String(x ?? '').replace(/[_*`\[]/g, '\\$&')`. Lo fijo, los números y la MAC no cambian. **Regla para un nodo de Telegram nuevo:** todo texto que venga de la base, de Gemini o de un error se escapa así; si el texto entero lo arma un nodo de código sin formato propio, se escapa entero (como `Avisar fallo` y `Responder` de WF6).
+- **Probado:** fuera de n8n, 22 de 22 (texto limpio idéntico al de antes). En vivo, `Alerta Telegram` y `Telegram Diagnostico IA` (lecturas 40 y 41, arranque 31). Los otros 3, solo fuera de n8n. Exports de WF1, WF2 y WF3 comparados: cambia solo el campo Text de esos 5 nodos, igual a lo entregado.
+- **Nombres en n8n (Agustín, 26/11):** `Orquestacion - Tesis` → `WF1 - Orquestacion`; `WF 2 - Diagnostico IA Emergencia` → `WF2 - Diagnostico IA Emergencia`. Nada depende del nombre (se llaman por webhook).
+- **Corrección:** las observaciones del Motor no traen hoy esos caracteres; en la alerta el riesgo era la planta o la etapa.
+- **Datos de prueba nuevos (#28):** arranque 31, lecturas 40 y 41 y su foto, riego 34 y orden 42 (sin entregar; el riego queda `sin_control` a la hora), diagnóstico del 26/11. El 3.6 dio otro `503`; contestó el respaldo.
+- **▶ Sigue (orden elegido el 25/11):** #22 (16.15 + 16.31) → #27, el aviso del silencio (resto de 16.44) → 16.13 + 16.1. Después, el informe y el servidor (#21).
 
 ---
 
@@ -15,7 +26,7 @@
 - **Citas corregidas:** "Wang et al. (2019)" es **Liu et al. (2019)**; "e-GRO E809" es **Raudales (2023)**, sin suelo. No citar Univ. of Minnesota, la página del tomate de FAO ni la "maduración desde el día 40" de Quinet. Germinación, Plántula y Vegetativo **no tienen fuente** para sus valores, y la base lo dice.
 - **Sensibilidad** (`SQL/sesion25_17.5_sensibilidad.sql`, solo lectura; resultado en el plan, 17.5.1): grilla sintética declarada, un umbral por vez. Comprobada contra el código real del Motor: 312 de 313 casos iguales. El pH es el umbral más sensible; N, P y K reaccionan igual en todas las etapas; el atraso de etapa que más pesa en el riego es Fructificación → Cosecha.
 - **16.44, una parte (25/11):** `vista_ultimo_riego` devuelve **`sin_control`** cuando el riego sigue `pendiente` y pasó la hora del control. Se calcula al leer, no se guarda (sin reloj que corra cuando la placa calla). La tabla sigue diciendo `pendiente` (comentario en la columna). `/estado` dice "sin control (no llegó una lectura a tiempo)". El Motor decide igual. La orden no pasa a "vencida" (decisión de Agustín). Sigue abierto el aviso del silencio.
-- **Hallazgo nuevo, sin número (Telegram):** el nodo de Telegram de n8n **fuerza Markdown** si no se elige formato; un `_`, `*`, `` ` `` o `[` sin cerrar hace que Telegram rechace el mensaje entero. **WF6 resuelto:** `Responder` usa `` {{ $json.texto.replace(/[_*`\[]/g, '\\$&') }} ``, probado en vivo. **Faltan 5 nodos:** WF2 `Telegram Diagnostico IA` y `Avisar fallo`, WF3 `Notificar Cambio de Etapa`, WF1 `Aviso Foto no Guardada` y `Alerta Telegram`. Ahí hay que escapar cada parte variable, no el texto entero.
+- **Hallazgo nuevo, sin número (Telegram):** el nodo de Telegram de n8n **fuerza Markdown** si no se elige formato; un `_`, `*`, `` ` `` o `[` sin cerrar hace que Telegram rechace el mensaje entero. **WF6 resuelto:** `Responder` usa `` {{ $json.texto.replace(/[_*`\[]/g, '\\$&') }} ``, probado en vivo. Los otros 5 nodos se cerraron el 26/11 (sesión 26).
 - **▶ Próximo chat, en este orden (elegido por Agustín el 25/11):** (1) los 5 nodos de Telegram que faltan → (2) #22 (16.15 + 16.31) → (3) #27, el aviso del silencio (resto de 16.44) → (4) 16.13 + 16.1. Lo demás va al informe como límite declarado. Después: el informe (Anexo III: correcciones del 06/11 sin aplicar, desactualizado desde la sesión 22, portada, año 2027) y el servidor (#21).
 - **Pendientes chicos (25/11):** el **riego 33** no es una falla (prueba de `/pausar`; la orden 41 vence a los 10 min sin entregarse, pero queda en `pendiente`: caso de 16.44). El **3.6 del 19/11** dio `503` por alta demanda y contestó el respaldo. El **WF6 viejo** se borró de n8n (copia en `cdcd898`): en n8n queda solo `4IA10LufXMrjIk7x`. Falta corregir el "6 lugares" del issue #26 (son 4).
 - **Sigue:** arreglos del backlog que elija Agustín → informe (párrafo de 17.2 + 17.3, limitación de 17.6) → servidor.
@@ -253,7 +264,7 @@ ESP32 (o PowerShell)       Header Auth en los cuatro: X-Device-Key (credencial `
 
 ## 3 · Los 8 workflows
 
-### WF1 — `Orquestacion - Tesis` · 31 nodos · **activo**
+### WF1 — `WF1 - Orquestacion` (antes `Orquestacion - Tesis`) · 31 nodos · **activo**
 
 Webhook `/telemetria`, con *Respond: Using 'Respond to Webhook' Node*. Es el único que mueve datos en cada lectura.
 
